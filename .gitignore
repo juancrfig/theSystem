@@ -1,0 +1,12 @@
+# Personal, disposable local work. Each project may maintain its own .scratch/.
+**/.scratch/
+
+# Generated Hermes Agent links. Canonical skills live in agents/skills/.
+/.agents/
+
+# Local credentials and runtime output.
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc

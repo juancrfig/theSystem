@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")" || exit 1
+workspace="$PWD"
+until [[ -f "$workspace/agents/utils/scripts/preflight/common.sh" ]]; do
+    if [[ "$workspace" == / ]]; then
+        printf 'FAIL Cannot locate agents/utils/scripts/preflight/AGENTS.md.\n'
+        exit 1
+    fi
+    workspace="$(dirname -- "$workspace")"
+done
+source "$workspace/agents/utils/scripts/preflight/common.sh"
+
+# Adapt this source to the clone's authority, for example .fvmrc instead of toolchain.json.
+flutter_pin=$(json_pin tool/toolchain.json flutter) || flutter_pin=''
+flutter_version() {
+    timeout 20 flutter --version --machine 2>/dev/null |
+        python3 -c 'import json,sys; print(json.load(sys.stdin)["frameworkVersion"])'
+}
+export -f flutter_version
+check_exact Flutter "$flutter_pin" tool/toolchain.json bash -o pipefail -c flutter_version
+
+# Replace this failure with the clone's Dart/JDK/Android SDK, installed locked
+# dependencies, and required headless emulator/browser capability checks.
+fail 'Flutter template incomplete: add clone-specific readiness checks before accepting green.'
+finish_preflight
