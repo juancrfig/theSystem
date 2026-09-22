@@ -1,0 +1,10 @@
+# <Company> Workspace
+
+This tree holds one folder per <company> project. One project can have several repositories, which source code, build outputs, and dependencies
+are gitignored. 
+
+**Written for agents, not for humans**: Every file must produced abd maintaned strategically to be useful and easily nagivable by agents. 
+The user will use agents as their interface to the codebase in most cases. 
+Consequentlly, you must follow `agents/rules/global/communication-style.md`.
+
+**Preflight check**: 
