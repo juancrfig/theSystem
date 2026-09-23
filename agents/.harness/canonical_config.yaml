@@ -1,0 +1,144 @@
+# Model policy: concrete model selection is deployment-specific; this template
+# assigns intent only. Model-class nomenclature: flash = lowest practical
+# latency/cost for narrow, repeatable side tasks; balanced = medium-frontier
+# intelligence and speed for bounded judgment; frontier = highest-quality
+# reasoning where latency and cost are secondary. These labels are selection
+# intent, not Hermes provider values; provider: auto does not guarantee a class.
+# Curator routing must remain frontier-capable.
+
+database:
+  journal_mode: wal
+
+compression:
+  enabled: true
+  progress_notices: false
+  threshold: 0.5
+  threshold_tokens: 150000
+  target_ratio: 0.2
+  protect_last_n: 15
+  min_tail_user_messages: 5
+  max_attempts: 3
+  proactive_prune_tokens: 0
+  micro_compact: false
+  protect_first_n: 0
+  abort_on_summary_failure: true
+  idle_compact_after_seconds: 0
+
+tool_loop_guardrails:
+  warnings_enabled: true
+  hard_stop_enabled: true
+  warn_after:
+    exact_failure: 2
+    same_tool_failure: 3
+    idempotent_no_progress: 2
+  hard_stop_after:
+    exact_failure: 5
+    same_tool_failure: 8
+    idempotent_no_progress: 5
+  loop_caps:
+    max_subagents: 10
+
+display:
+  show_reasoning: false
+  interim_assistant_messages: false
+
+platform_toolsets:
+  cli:
+    - clarify
+    - todo
+    - delegation
+    - kanban
+    - memory
+    - session_search
+    - skills
+    - file
+    - cronjob
+    - terminal
+    - vision
+    - web
+
+approvals:
+  deny:
+    - "git push --force*"
+    - "git push -f*"
+    - "git push * --force*"
+    - "git push * -f*"
+    - "*curl*|*sh*"
+    - "*curl*|*bash*"
+    - "*wget*|*sh*"
+    - "*wget*|*bash*"
+    - "rm *~/.hermes*"
+    - "rm */.hermes*"
+    - "*[;&|] rm *~/.hermes*"
+    - "*[;&|] rm */.hermes*"
+    - "git push *--mirror*"
+    - "git push *--prune*"
+
+delegation:
+  # Target model class: flash. The provider/model pin is deferred until this
+  # template maps flash, balanced, and frontier to concrete model IDs.
+  # Until then, Hermes inherits the parent session's model.
+  max_iterations: 250
+
+security:
+  # The master retains terminal access; require Tirith's pre-execution scan to
+  # be available rather than silently allowing commands without that layer.
+  # This template assumes a Tirith-supported WSL/Linux/macOS environment.
+  tirith_enabled: true
+  tirith_fail_open: false
+
+kanban:
+  # Planning stays in the main-agent interview; do not auto-decompose rough
+  # Triage cards into worker tasks before the user approves the plan.
+  auto_decompose: false
+
+auxiliary:
+  # Assigned classes: review, curator, and background_review are frontier;
+  # goal_judge and mcp are balanced; monitor is flash.
+  # No triage_specifier or kanban_decomposer model is pinned: the master writes
+  # approved worker cards itself. Hermes has no per-slot disable switch; manual
+  # Specify/Decompose actions would still invoke their auxiliary model paths.
+  # Future preference for title_generation, vision, compression, approval,
+  # tts_audio_tags, skills_hub, and profile_describer: flash model.
+  # memory_query_rewrite and MoA slots (moa_reference, moa_aggregator) are
+  # deferred until their optional features are adopted. triage_specifier and
+  # kanban_decomposer remain unassigned because manual use is not planned.
+  # This is not configured yet; provider: auto still uses the main model.
+  skills_hub:
+    provider: auto
+    model: ""
+  profile_describer:
+    provider: auto
+    model: ""
+  compression:
+    provider: auto
+    model: ""
+  mcp:
+    provider: auto
+    model: ""
+
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  write_approval: true
+
+skills:
+  write_approval: true
+
+prompt_caching:
+  cache_ttl: "1h"
+
+telemetry:
+  shared_metrics:
+    enabled: false
+
+curator:
+  enabled: true
+  interval_hours: 168
+  min_idle_hours: 2
+  stale_after_days: 30
+  archive_after_days: 90
+  consolidate: true
+  prune_builtins: false
+
+timezone: America/Bogota
