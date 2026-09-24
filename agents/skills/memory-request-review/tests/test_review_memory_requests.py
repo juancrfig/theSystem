@@ -100,6 +100,34 @@ class MemoryRequestReviewTests(unittest.TestCase):
         changed = review.inventory_pending(self.home).requests[0]
         self.assertEqual(review.reusable_results(changed, catalog, "jev-1", cache), {})
 
+    def test_catalog_rejects_criteria_without_complete_semantics(self):
+        self.rule.write_text(
+            "<!-- MEMORY-REQUEST-REVIEW-CATALOG\n"
+            '{"catalog_version": 1, "criteria": [{"id": "bad", "version": 1, "question": "q"}]}\n'
+            "MEMORY-REQUEST-REVIEW-CATALOG -->\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(review.ReviewError):
+            review.load_catalog(self.rule)
+
+    def test_long_panel_uses_numbered_continuation_blocks_without_losing_payload(self):
+        content = "x" * 2000
+        self._pending("memory", "long", {"action": "add", "target": "memory", "content": content})
+        request = review.inventory_pending(self.home).requests[0]
+        panel = review.render_panel(request, review.Evaluation("SIN CRITERIOS", "", {}), 1, 1)
+        self.assertIn("BLOQUE 1/", panel)
+        self.assertIn(content[:76], panel)
+        self.assertIn(content[-76:], panel)
+
+    def test_reject_verifies_the_destination_was_not_applied(self):
+        self._pending("memory", "reject", {"action": "add", "target": "memory", "content": "do not save"})
+        request = review.inventory_pending(self.home).requests[0]
+        result = review.apply_native_decision(request, "reject", request.record_sha256)
+        self.assertTrue(result["success"])
+        self.assertTrue(result["pending_removed"])
+        self.assertTrue(result["destination_unchanged"])
+        self.assertFalse((self.home / "memories" / "MEMORY.md").exists())
+
     def test_apply_requires_matching_snapshot_and_uses_native_pending_flow(self):
         self._pending("memory", "one", {"action": "add", "target": "memory", "content": "native approved"})
         request = review.inventory_pending(self.home).requests[0]
