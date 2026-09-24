@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Configure this checkout as a Hermes workspace without replacing credentials.
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
+canonical_config="$repo_root/agents/.harness/canonical_config.yaml"
+project_skills_link="$repo_root/.agents/skills"
+default_hermes_home="$HOME/.hermes"
+
+require_file() {
+  if [[ ! -f "$1" ]]; then
+    printf 'Missing required file: %s\n' "$1" >&2
+    exit 1
+  fi
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    printf 'Required command is not available: %s\n' "$1" >&2
+    exit 1
+  fi
+}
+
+set_config() {
+  HERMES_HOME="$default_hermes_home" hermes config set --force "$1" "$2" >/dev/null
+}
+
+canonical_entries() {
+  python3 - "$canonical_config" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+import yaml
+
+source = Path(sys.argv[1])
+document = yaml.safe_load(source.read_text())
+if not isinstance(document, dict):
+    raise SystemExit(f"{source} must contain a YAML mapping")
+
+def emit(value, path=()):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if not isinstance(key, str) or not key:
+                raise SystemExit(f"Invalid configuration key below {'.'.join(path) or '<root>'}")
+            emit(child, (*path, key))
+        return
+    if not path:
+        raise SystemExit("The canonical configuration cannot be a scalar")
+    print(f"{'.'.join(path)}\t{json.dumps(value, separators=(',', ':'))}")
+
+emit(document)
+PY
+}
+
+require_file "$canonical_config"
+require_file "$repo_root/.githooks/pre-commit"
+require_command hermes
+require_command python3
+
+# Keep the hook setup versioned with the checkout rather than in the README.
+git -C "$repo_root" config core.hooksPath .githooks
+
+# Reconcile the default profile from the declaration instead of repeating its
+# settings here. New canonical keys are applied automatically on the next run;
+# credentials and unrelated device settings remain untouched.
+canonical_setting_count=0
+while IFS=$'\t' read -r key value; do
+  set_config "$key" "$value"
+  ((canonical_setting_count += 1))
+done < <(canonical_entries)
+if (( canonical_setting_count == 0 )); then
+  printf 'Canonical configuration contains no settings: %s\n' "$canonical_config" >&2
+  exit 1
+fi
+
+# Also expose the skills through Hermes's project-local convention. This gives
+# them project precedence when Hermes is started inside this checkout.
+mkdir -p "$(dirname "$project_skills_link")"
+if [[ -e "$project_skills_link" && ! -L "$project_skills_link" ]]; then
+  printf 'Refusing to replace non-symlink project skill directory: %s\n' "$project_skills_link" >&2
+  exit 1
+fi
+if [[ -L "$project_skills_link" ]]; then
+  existing_target=$(readlink "$project_skills_link")
+  if [[ "$existing_target" != '../agents/skills' ]]; then
+    printf 'Refusing to replace project skill link %s -> %s\n' "$project_skills_link" "$existing_target" >&2
+    exit 1
+  fi
+else
+  ln -s ../agents/skills "$project_skills_link"
+fi
+
+HERMES_HOME="$default_hermes_home" hermes skills trust "$repo_root" >/dev/null
+
+printf 'Bootstrap complete. The default Hermes profile, tracked git hooks, and project-local skills trust are configured.\n'
