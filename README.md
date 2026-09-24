@@ -4,7 +4,7 @@ A framework to reliably build high-quality software by leveraging AI agents.
 
 # Setup
 
-After cloning, run `bash agents/tools/bootstrap`. It enables the tracked git
+After cloning, run `./bootstrap`. It enables the tracked git
 hooks, reconciles the canonical Hermes policy into the default profile without
 replacing credentials, and configures project-local skill discovery by linking
 `.agents/skills` to `../agents/skills` and trusting this repository.
