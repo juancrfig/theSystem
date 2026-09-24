@@ -1,29 +1,30 @@
 # Overlays escape clipping ancestors
 
-Rule: A user-facing overlay that is meant to extend beyond its trigger — a
-dropdown, popover, calendar, tooltip, menu, drawer, or modal — must remain
-visible and usable outside its containing surface for its entire open lifetime.
-Its visibility must not depend on an ancestor with clipping overflow.
-`z-index` does not override overflow clipping.
+Rule: An overlay meant to extend beyond its trigger — dropdown, popover,
+calendar, tooltip, menu, drawer, or modal — must not be clipped by an ancestor.
+`z-index` does not override overflow clipping; render the overlay outside the
+clipping surface. An ancestor may clip its own scrolling or decorative content;
+that does not extend to an overlay that belongs outside it.
 
-An anchored overlay must remain associated with its current trigger position
-through scrolling, resizing, and layout changes, or close. It must close when
-its trigger is no longer visible or present; it must never remain stranded over
-unrelated content. Visible overlays must respect the available viewport and
-retain access to their controls. Placement and dismissal must preserve focus
-semantics and modal ownership, without undoing the user's scroll. Animation
-must not prolong an invalid placement or delay necessary dismissal.
+Once outside its container, an anchored overlay must follow its trigger through
+scrolling, resizing, and layout changes, or close. It closes when its trigger
+scrolls out of view or is removed. It stays within the viewport with its
+controls reachable. Positioning and dismissing it must preserve focus and the
+modal it belongs to, and must not undo the user's scroll. Animation must not
+delay a necessary close or keep an invalid position on screen.
 
-Equivalent anchored overlays within a surface or flow must share the defined
-opening direction and alignment. A different direction is allowed only when
-the available viewport or access to controls requires it; that exception must
-follow the same placement policy for all equivalent overlays.
+Equivalent overlays in one surface open in the same direction and alignment
+unless the viewport forces a flip, and the same flip policy applies to all.
 
-An ancestor may clip its own scrolling, animation, or decorative content. That
-is not permission to clip an interactive overlay that belongs outside it.
+Prevents: A dropdown inside a parent with clipping overflow opened upward and
+part of it was cut off behind the parent. Moving it out of the parent then
+exposed follow-on failures: it detached from its trigger on scroll, extended
+past the viewport, and opened in a different direction from equivalent
+dropdowns.
 
-Prevents: A clipped overlay may appear correctly layered until it extends
-beyond its container. Moving it outside that container can expose further
-failures when scrolling leaves it detached from its anchor or outside the
-viewport. Inconsistent placement between equivalent overlays makes the
-interface unpredictable.
+Enforce with: For each added or changed overlay, open it with its trigger near
+the edge of its scroll container and of the viewport; it must be fully visible
+and clickable. Scroll the container and resize the window; it must stay
+attached or close. Scroll the trigger out of view; it must close. Dismiss it;
+focus must return to the trigger, an enclosing modal must stay open, and the
+page must not scroll.
