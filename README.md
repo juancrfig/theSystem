@@ -9,6 +9,10 @@ hooks, reconciles the canonical Hermes policy into the default profile without
 replacing credentials, and configures project-local skill discovery by linking
 `.agents/skills` to `../agents/skills` and trusting this repository.
 
+In a terminal it shows a step checklist. When its output is not a terminal, or
+with `--plain`, it prints one `bootstrap step=<id> status=<state>` line per event
+instead, so agents can read progress without parsing the checklist.
+
 # Infrastructure
 
 - **[Hermes Harness](hermes-agent.nousresearch.com)**

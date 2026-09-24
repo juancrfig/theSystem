@@ -2,6 +2,24 @@
 # Configure this checkout as a Hermes workspace without replacing credentials.
 set -euo pipefail
 
+usage() {
+  cat <<'EOF_USAGE'
+Usage: ./bootstrap [--plain]
+
+Configures this checkout as a Hermes workspace.
+
+Output is an interactive checklist when stdout is a terminal. Otherwise, or
+with --plain (or BOOTSTRAP_OUTPUT=plain), each event is one stable line:
+
+  bootstrap step=<id> status=running
+  bootstrap step=<id> status=done [detail="..."]
+  bootstrap step=<id> status=failed
+  bootstrap status=ok|failed
+
+Exit status is 0 on success, 1 on failure, and 2 on invalid arguments.
+EOF_USAGE
+}
+
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 canonical_config="$repo_root/agents/.harness/canonical_config.yaml"
 project_skills_link="$repo_root/.agents/skills"
@@ -64,7 +82,7 @@ unavailable = expected - accepted
 if unavailable:
     print("Project skills unavailable after Hermes security filtering: " + ", ".join(sorted(unavailable)), file=sys.stderr)
     raise SystemExit(1)
-print(f"Project skill verification passed: {len(accepted)} accepted.")
+print(f"{len(accepted)} skills accepted")
 PY
 }
 
@@ -96,45 +114,189 @@ emit(document)
 PY
 }
 
-require_file "$canonical_config"
-require_file "$repo_root/.githooks/pre-commit"
-require_command hermes
-require_command python3
+check_prerequisites() {
+  require_file "$canonical_config"
+  require_file "$repo_root/.githooks/pre-commit"
+  require_command hermes
+  require_command python3
+}
 
 # Keep the hook setup versioned with the checkout rather than in the README.
-git -C "$repo_root" config core.hooksPath .githooks
+configure_git_hooks() {
+  git -C "$repo_root" config core.hooksPath .githooks
+}
 
 # Reconcile the default profile from the declaration instead of repeating its
 # settings here. New canonical keys are applied automatically on the next run;
 # credentials and unrelated device settings remain untouched.
-canonical_setting_count=0
-while IFS=$'\t' read -r key value; do
-  set_config "$key" "$value"
-  ((canonical_setting_count += 1))
-done < <(canonical_entries)
-if (( canonical_setting_count == 0 )); then
-  printf 'Canonical configuration contains no settings: %s\n' "$canonical_config" >&2
-  exit 1
-fi
+apply_canonical_config() {
+  local key value canonical_setting_count=0
+  while IFS=$'\t' read -r key value; do
+    set_config "$key" "$value"
+    ((canonical_setting_count += 1))
+  done < <(canonical_entries)
+  if (( canonical_setting_count == 0 )); then
+    printf 'Canonical configuration contains no settings: %s\n' "$canonical_config" >&2
+    exit 1
+  fi
+  step_detail="$canonical_setting_count settings"
+}
 
 # Also expose the skills through Hermes's project-local convention. This gives
 # them project precedence when Hermes is started inside this checkout.
-mkdir -p "$(dirname "$project_skills_link")"
-if [[ -e "$project_skills_link" && ! -L "$project_skills_link" ]]; then
-  printf 'Refusing to replace non-symlink project skill directory: %s\n' "$project_skills_link" >&2
-  exit 1
-fi
-if [[ -L "$project_skills_link" ]]; then
-  existing_target=$(readlink "$project_skills_link")
-  if [[ "$existing_target" != '../agents/skills' ]]; then
-    printf 'Refusing to replace project skill link %s -> %s\n' "$project_skills_link" "$existing_target" >&2
+link_project_skills() {
+  mkdir -p "$(dirname "$project_skills_link")"
+  if [[ -e "$project_skills_link" && ! -L "$project_skills_link" ]]; then
+    printf 'Refusing to replace non-symlink project skill directory: %s\n' "$project_skills_link" >&2
     exit 1
   fi
-else
-  ln -s ../agents/skills "$project_skills_link"
+  if [[ -L "$project_skills_link" ]]; then
+    local existing_target
+    existing_target=$(readlink "$project_skills_link")
+    if [[ "$existing_target" != '../agents/skills' ]]; then
+      printf 'Refusing to replace project skill link %s -> %s\n' "$project_skills_link" "$existing_target" >&2
+      exit 1
+    fi
+  else
+    ln -s ../agents/skills "$project_skills_link"
+  fi
+}
+
+trust_repository() {
+  HERMES_HOME="$default_hermes_home" hermes skills trust "$repo_root" >/dev/null
+}
+
+verify_skills() {
+  step_detail=$(verify_project_skills)
+}
+
+steps=(
+  "prerequisites|Check prerequisites|check_prerequisites"
+  "git-hooks|Configure git hooks|configure_git_hooks"
+  "hermes-config|Apply canonical Hermes config|apply_canonical_config"
+  "skills-link|Link project-local skills|link_project_skills"
+  "skills-trust|Trust this repository|trust_repository"
+  "skills-verify|Verify project skills|verify_skills"
+)
+
+output_mode=fancy
+for argument in "$@"; do
+  case "$argument" in
+    --plain) output_mode=plain ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+if [[ "${BOOTSTRAP_OUTPUT:-}" == plain || ! -t 1 || "${TERM:-dumb}" == dumb ]]; then
+  output_mode=plain
 fi
 
-HERMES_HOME="$default_hermes_home" hermes skills trust "$repo_root" >/dev/null
-verify_project_skills
+if [[ -z "${NO_COLOR:-}" && "$output_mode" == fancy ]]; then
+  green=$'\e[32m' red=$'\e[31m' dim=$'\e[2m' bold=$'\e[1m' reset=$'\e[0m'
+else
+  green='' red='' dim='' bold='' reset=''
+fi
 
-printf 'Bootstrap complete. The default Hermes profile, tracked git hooks, and project-local skills trust are configured.\n'
+step_log=$(mktemp)
+current_step=''
+spinner_pid=''
+step_detail=''
+
+# Each checklist row sits a fixed distance above the cursor, which rests below
+# the list, so rows can be redrawn in place without a full-screen redraw.
+draw_row() {
+  local index=$1 box=$2 label=$3 suffix=${4:-}
+  local rows_up=$(( ${#steps[@]} - index + 1 ))
+  printf '\e[%dA\r\e[K  %s %s%s\e[%dB\r' "$rows_up" "$box" "$label" "$suffix" "$rows_up"
+}
+
+start_spinner() {
+  local index=$1 label=$2
+  (
+    local dots=('.  ' '.. ' '...')
+    local frame=0
+    while true; do
+      draw_row "$index" '[ ]' "$label" " ${dim}${dots[frame]}${reset}"
+      frame=$(( (frame + 1) % 3 ))
+      sleep 0.3
+    done
+  ) &
+  spinner_pid=$!
+}
+
+stop_spinner() {
+  if [[ -n "$spinner_pid" ]]; then
+    kill "$spinner_pid" 2>/dev/null || true
+    wait "$spinner_pid" 2>/dev/null || true
+    spinner_pid=''
+  fi
+}
+
+draw_menu() {
+  printf '\n  %s+-------------------------------+%s\n' "$dim" "$reset"
+  printf '  %s|%s   %stheSystem%s  %s::%s  bootstrap    %s|%s\n' "$dim" "$reset" "$bold" "$reset" "$dim" "$reset" "$dim" "$reset"
+  printf '  %s+-------------------------------+%s\n\n' "$dim" "$reset"
+  local step
+  for step in "${steps[@]}"; do
+    IFS='|' read -r _ label _ <<<"$step"
+    printf '  [ ] %s\n' "$label"
+  done
+  printf '\n'
+  printf '\e[?25l'
+}
+
+run_step() {
+  local index=$1 id label action
+  IFS='|' read -r id label action <<<"${steps[index - 1]}"
+  current_step=$index
+  step_detail=''
+  if [[ "$output_mode" == fancy ]]; then
+    start_spinner "$index" "$label"
+    "$action" >"$step_log" 2>&1
+    stop_spinner
+    draw_row "$index" "[${green}x${reset}]" "$label" "${step_detail:+  ${dim}${step_detail}${reset}}"
+  else
+    printf 'bootstrap step=%s status=running\n' "$id"
+    "$action"
+    printf 'bootstrap step=%s status=done%s\n' "$id" "${step_detail:+ detail=\"$step_detail\"}"
+  fi
+  current_step=''
+}
+
+finish() {
+  local status=$?
+  exec 1>&3 2>&4
+  stop_spinner
+  if [[ "$output_mode" == fancy ]]; then
+    if [[ -n "$current_step" ]]; then
+      local label
+      IFS='|' read -r _ label _ <<<"${steps[current_step - 1]}"
+      draw_row "$current_step" "[${red}!${reset}]" "$label"
+      sed 's/^/  /' "$step_log" >&2
+    fi
+    printf '\e[?25h'
+    if (( status == 0 )); then
+      printf '  %sReady.%s Hermes profile, git hooks, and project skills are configured.\n\n' "$green" "$reset"
+    else
+      printf '\n  %sBootstrap failed.%s\n\n' "$red" "$reset" >&2
+    fi
+  else
+    if [[ -n "$current_step" ]]; then
+      local id
+      IFS='|' read -r id _ <<<"${steps[current_step - 1]}"
+      printf 'bootstrap step=%s status=failed\n' "$id"
+    fi
+    printf 'bootstrap status=%s\n' "$( (( status == 0 )) && echo ok || echo failed)"
+  fi
+  rm -f "$step_log"
+}
+exec 3>&1 4>&2
+trap finish EXIT
+trap 'exit 130' INT TERM
+
+if [[ "$output_mode" == fancy ]]; then
+  draw_menu
+fi
+for (( step_index = 1; step_index <= ${#steps[@]}; step_index++ )); do
+  run_step "$step_index"
+done
