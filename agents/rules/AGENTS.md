@@ -1,4 +1,5 @@
-Rules the workspace enforces at review time. Each rule is one file with three fields:
+Rules the implementer follows while writing a change and the reviewer checks it
+against. Each rule is one file with three fields:
 
 - `Rule:` the requirement.
 - `Prevents:` the real incident it guards against. No incident, no rule.

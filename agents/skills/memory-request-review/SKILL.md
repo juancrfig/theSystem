@@ -88,13 +88,20 @@ variante; vuelve a inventariar y solicita nueva revisión.
 
 ## Aprendizaje de criterios
 
-Después de un rechazo, pregunta si el caso justifica una condición general. No
-la agregues por inferencia. Si la persona acepta explícitamente, edita solo el
-catálogo JSON delimitado en:
+Las preguntas que se envían a Jev viven solo en:
 
 ```text
-agents/rules/memory-request-review-catalog.md
+agents/skills/memory-request-review/criteria.json
 ```
+
+Toda edición de `criteria.json` (agregar, reformular, versionar o eliminar un
+criterio, o cambiar `catalog_version`) requiere la aprobación explícita de una
+persona sobre el texto exacto del cambio antes de escribirlo. Muestra el diff
+propuesto y espera un `sí` explícito; una propuesta tuya, una puntuación de Jev
+o una aprobación previa de otro cambio no cuentan como aprobación.
+
+Después de un rechazo, pregunta si el caso justifica una condición general. No
+la agregues por inferencia.
 
 Cada criterio aprobado requiere `id`, `version`, `question`, `context`,
 `definition.yes`, `definition.no`, y, si aportan claridad, `exclusions` y

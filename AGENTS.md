@@ -6,7 +6,7 @@ Each project can contain several **source clones**
 - wiki/index.md — cross-project knowledge
 - wiki/practices/knowledge-system.md - the roles of rules, skills, and the wiki 
 - <project>/CONTEXT.md - the project's domain glossary; use its terms in code, tests, docs, and conversations with the user about that project
-- agents/rules/ - shared rules
+- agents/rules/ - shared rules for the implementer and the reviewer: constraints the implementer follows while writing a change and the reviewer checks it against. How to run a workflow belongs in a skill, not a rule
 - agents/skills/ - same skills
 - agents/utils/ - shared util scripts and templates
 

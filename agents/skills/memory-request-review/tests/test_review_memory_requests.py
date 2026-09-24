@@ -20,14 +20,8 @@ class MemoryRequestReviewTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name) / ".hermes"
         self.home.mkdir()
-        self.rule = Path(self.tmp.name) / "memory-request-review.md"
-        self.rule.write_text(
-            "# Rule\n\nRule: test.\n\nPrevents: test.\n\nEnforce with: test.\n\n"
-            "<!-- MEMORY-REQUEST-REVIEW-CATALOG\n"
-            '{"catalog_version": 1, "criteria": []}\n'
-            "MEMORY-REQUEST-REVIEW-CATALOG -->\n",
-            encoding="utf-8",
-        )
+        self.catalog = Path(self.tmp.name) / "criteria.json"
+        self.catalog.write_text('{"catalog_version": 1, "criteria": []}\n', encoding="utf-8")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -69,7 +63,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
         request = review.inventory_pending(self.home).requests[0]
         calls = []
 
-        result = review.evaluate_request(request, review.load_catalog(self.rule), lambda *_: calls.append(True))
+        result = review.evaluate_request(request, review.load_catalog(self.catalog), lambda *_: calls.append(True))
         panel = review.render_panel(request, result, 1, 1)
 
         self.assertEqual(calls, [])
@@ -106,15 +100,17 @@ class MemoryRequestReviewTests(unittest.TestCase):
         changed = review.inventory_pending(self.home).requests[0]
         self.assertEqual(review.reusable_results(changed, catalog, "jev-1", cache), {})
 
+    def test_shipped_criteria_catalog_is_valid(self):
+        self.assertEqual(review._default_catalog_path().name, "criteria.json")
+        review.load_catalog(review._default_catalog_path())
+
     def test_catalog_rejects_criteria_without_complete_semantics(self):
-        self.rule.write_text(
-            "<!-- MEMORY-REQUEST-REVIEW-CATALOG\n"
-            '{"catalog_version": 1, "criteria": [{"id": "bad", "version": 1, "question": "q"}]}\n'
-            "MEMORY-REQUEST-REVIEW-CATALOG -->\n",
+        self.catalog.write_text(
+            '{"catalog_version": 1, "criteria": [{"id": "bad", "version": 1, "question": "q"}]}\n',
             encoding="utf-8",
         )
         with self.assertRaises(review.ReviewError):
-            review.load_catalog(self.rule)
+            review.load_catalog(self.catalog)
 
     def test_card_shows_target_questions_scores_and_full_literal_text(self):
         content = " ".join(f"word{index}" for index in range(400))
@@ -172,11 +168,9 @@ class MemoryRequestReviewTests(unittest.TestCase):
                          .split("REPLACE")[0])
 
     def test_show_evaluates_only_the_displayed_request(self):
-        self.rule.write_text(
-            "<!-- MEMORY-REQUEST-REVIEW-CATALOG\n"
+        self.catalog.write_text(
             '{"catalog_version": 1, "criteria": [{"id": "q", "version": 1, "question": "Q?", '
-            '"context": {}, "definition": {"yes": "y", "no": "n"}}]}\n'
-            "MEMORY-REQUEST-REVIEW-CATALOG -->\n",
+            '"context": {}, "definition": {"yes": "y", "no": "n"}}]}\n',
             encoding="utf-8",
         )
         self._pending("memory", "first", {"action": "add", "target": "memory", "content": "a"})
@@ -188,7 +182,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
         try:
             output = io.StringIO()
             with redirect_stdout(output):
-                review.main(["show", "--home-root", str(self.home), "--rule", str(self.rule), "--position", "2"])
+                review.main(["show", "--home-root", str(self.home), "--catalog", str(self.catalog), "--position", "2"])
         finally:
             review.evaluate_with_jev = original
         self.assertEqual(seen, ["second"])

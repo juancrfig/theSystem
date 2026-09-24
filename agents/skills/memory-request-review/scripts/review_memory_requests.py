@@ -23,8 +23,6 @@ from typing import Any, Callable, Iterable
 
 PROFILES = ("default", "implementer", "reviewer")
 SUBSYSTEMS = ("memory", "skills")
-CATALOG_OPEN = "<!-- MEMORY-REQUEST-REVIEW-CATALOG"
-CATALOG_CLOSE = "MEMORY-REQUEST-REVIEW-CATALOG -->"
 
 
 class ReviewError(RuntimeError):
@@ -142,13 +140,11 @@ def inventory_pending(root: Path) -> Inventory:
     return Inventory(tuple(requests), counts, tuple(unreadable))
 
 
-def load_catalog(rule_path: Path) -> Catalog:
-    text = rule_path.read_text(encoding="utf-8")
-    start, end = text.find(CATALOG_OPEN), text.find(CATALOG_CLOSE)
-    if start < 0 or end < 0 or end <= start:
-        raise ReviewError(f"Catalog markers are missing in {rule_path}.")
-    raw = text[start + len(CATALOG_OPEN):end].strip()
-    document = json.loads(raw)
+def load_catalog(catalog_path: Path) -> Catalog:
+    try:
+        document = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ReviewError(f"Cannot read criteria catalog {catalog_path}: {error}") from error
     if not isinstance(document, dict) or not isinstance(document.get("criteria", []), list):
         raise ReviewError("Catalog must be a JSON object with a criteria list.")
     criteria: list[Criterion] = []
@@ -625,15 +621,15 @@ def ensure_review_runtime() -> None:
         os.execv(interpreter, [interpreter, str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
-def _default_rule_path() -> Path:
-    return Path(__file__).resolve().parents[3] / "rules" / "memory-request-review-catalog.md"
+def _default_catalog_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "criteria.json"
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("inventory", "show", "decide", "native-apply"))
     parser.add_argument("--home-root", type=Path, default=Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")))
-    parser.add_argument("--rule", type=Path, default=_default_rule_path())
+    parser.add_argument("--catalog", type=Path, default=_default_catalog_path())
     parser.add_argument("--position", type=int, default=1)
     parser.add_argument("--profile", choices=PROFILES)
     parser.add_argument("--subsystem", choices=SUBSYSTEMS)
@@ -676,7 +672,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.position < 1 or args.position > len(inventory.requests):
             raise ReviewError(f"position must be 1..{len(inventory.requests)}")
         request = inventory.requests[args.position - 1]
-        catalog = load_catalog(args.rule)
+        catalog = load_catalog(args.catalog)
         state = load_review_state(args.home_root)
         evaluation = evaluate_one(request, catalog, args.model, state)
         save_review_state(args.home_root, state)

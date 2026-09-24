@@ -1,0 +1,18 @@
+{
+  "catalog_version": 1,
+  "criteria": [
+    {
+      "id": "unclear-proposal",
+      "version": 1,
+      "question": "Is this proposed change unclear or hard to understand for a reader without extra context?",
+      "context": {
+        "subject": "A pending Hermes memory or skill write, given as its literal payload.",
+        "purpose": "Generic placeholder criterion used to exercise the review dashboard."
+      },
+      "definition": {
+        "yes": "A reader cannot tell what the change stores or modifies, or why, from the payload alone.",
+        "no": "A reader can tell what the change stores or modifies from the payload alone."
+      }
+    }
+  ]
+}
