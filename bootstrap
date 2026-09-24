@@ -192,9 +192,9 @@ if [[ "${BOOTSTRAP_OUTPUT:-}" == plain || ! -t 1 || "${TERM:-dumb}" == dumb ]]; 
 fi
 
 if [[ -z "${NO_COLOR:-}" && "$output_mode" == fancy ]]; then
-  green=$'\e[32m' red=$'\e[31m' dim=$'\e[2m' bold=$'\e[1m' reset=$'\e[0m'
+  green=$'\e[32m' red=$'\e[31m' dim=$'\e[2m' reset=$'\e[0m'
 else
-  green='' red='' dim='' bold='' reset=''
+  green='' red='' dim='' reset=''
 fi
 
 step_log=$(mktemp)
@@ -233,15 +233,12 @@ stop_spinner() {
 }
 
 draw_menu() {
-  printf '\n  %s+-------------------------------+%s\n' "$dim" "$reset"
-  printf '  %s|%s   %stheSystem%s  %s::%s  bootstrap    %s|%s\n' "$dim" "$reset" "$bold" "$reset" "$dim" "$reset" "$dim" "$reset"
-  printf '  %s+-------------------------------+%s\n\n' "$dim" "$reset"
   local step
+  printf '\n'
   for step in "${steps[@]}"; do
     IFS='|' read -r _ label _ <<<"$step"
     printf '  [ ] %s\n' "$label"
   done
-  printf '\n'
   printf '\e[?25l'
 }
 
@@ -276,7 +273,7 @@ finish() {
     fi
     printf '\e[?25h'
     if (( status == 0 )); then
-      printf '  %sReady.%s Hermes profile, git hooks, and project skills are configured.\n\n' "$green" "$reset"
+      printf '\n  %sReady.%s Hermes profile, git hooks, and project skills are configured.\n\n' "$green" "$reset"
     else
       printf '\n  %sBootstrap failed.%s\n\n' "$red" "$reset" >&2
     fi
