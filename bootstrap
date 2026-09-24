@@ -25,6 +25,49 @@ set_config() {
   HERMES_HOME="$default_hermes_home" hermes config set --force "$1" "$2" >/dev/null
 }
 
+verify_project_skills() {
+  local hermes_launcher hermes_shebang hermes_python
+  hermes_launcher=$(command -v hermes)
+  IFS= read -r hermes_shebang < "$hermes_launcher"
+  if [[ "$hermes_shebang" == '#!'/* && "$hermes_shebang" != '#!/usr/bin/env '* ]]; then
+    hermes_python=${hermes_shebang#\#!}
+  else
+    while IFS= read -r line; do
+      case "$line" in
+        'exec "'*)
+          hermes_python=${line#exec \"}
+          hermes_python=${hermes_python%%\"*}
+          break
+          ;;
+      esac
+    done < "$hermes_launcher"
+  fi
+  if [[ -z "${hermes_python:-}" || ! -x "$hermes_python" ]]; then
+    printf 'Unable to resolve Hermes Python runtime from: %s\n' "$hermes_launcher" >&2
+    exit 1
+  fi
+  HERMES_HOME="$default_hermes_home" TERMINAL_CWD="$repo_root" "$hermes_python" - "$repo_root" <<'PY'
+from pathlib import Path
+import sys
+
+from agent.skill_utils import get_project_skills_dirs, iter_project_skill_files, iter_skill_index_files
+
+root = Path(sys.argv[1])
+skill_root = root / ".agents" / "skills"
+expected = {str(path.parent.relative_to(skill_root)) for path in iter_skill_index_files(skill_root, "SKILL.md")}
+accepted = {
+    str(path.parent.relative_to(directory))
+    for directory in get_project_skills_dirs()
+    for path in iter_project_skill_files(directory)
+}
+unavailable = expected - accepted
+if unavailable:
+    print("Project skills unavailable after Hermes security filtering: " + ", ".join(sorted(unavailable)), file=sys.stderr)
+    raise SystemExit(1)
+print(f"Project skill verification passed: {len(accepted)} accepted.")
+PY
+}
+
 canonical_entries() {
   python3 - "$canonical_config" <<'PY'
 import json
@@ -92,5 +135,6 @@ else
 fi
 
 HERMES_HOME="$default_hermes_home" hermes skills trust "$repo_root" >/dev/null
+verify_project_skills
 
 printf 'Bootstrap complete. The default Hermes profile, tracked git hooks, and project-local skills trust are configured.\n'

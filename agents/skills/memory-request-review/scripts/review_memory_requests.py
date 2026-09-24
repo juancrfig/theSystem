@@ -9,11 +9,11 @@ approve/reject decision back to Hermes's native applier.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -373,19 +373,6 @@ def render_panel(request: PendingRequest, evaluation: Evaluation, position: int,
     return "\n".join(lines)
 
 
-@contextlib.contextmanager
-def _native_home(home: Path):
-    old = os.environ.get("HERMES_HOME")
-    os.environ["HERMES_HOME"] = str(home)
-    try:
-        yield
-    finally:
-        if old is None:
-            os.environ.pop("HERMES_HOME", None)
-        else:
-            os.environ["HERMES_HOME"] = old
-
-
 def _destination_label(request: PendingRequest) -> str:
     payload = request.payload
     if request.subsystem == "memory":
@@ -414,9 +401,44 @@ def _destination_digest(request: PendingRequest) -> str:
     return _tree_digest(request.home / "skills")
 
 
-def apply_native_decision(request: PendingRequest, decision: str, expected_record_sha256: str) -> dict[str, Any]:
+def _apply_native_decision_at_home(
+    home: Path, subsystem: str, pending_id: str, decision: str, expected_record_sha256: str,
+) -> dict[str, Any]:
     if decision not in {"approve", "reject"}:
         raise ReviewError("Only approve or reject can invoke Hermes's native flow.")
+    path = home / "pending" / subsystem / f"{pending_id}.json"
+    try:
+        current_raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise StaleRequestError("The pending request was already resolved.") from exc
+    if sha256_text(current_raw) != expected_record_sha256:
+        raise StaleRequestError("The pending request changed after review; inspect it again before acting.")
+    request = _parse_pending_file(path, "native", subsystem, home)
+    destination_before = _destination_digest(request)
+    from tools import write_approval as wa
+    if decision == "reject":
+        removed = wa.discard_pending(request.subsystem, request.pending_id)
+        destination_unchanged = destination_before == _destination_digest(request)
+        return {"success": bool(removed and not path.exists() and destination_unchanged), "decision": decision,
+                "pending_removed": not path.exists(), "destination": _destination_label(request),
+                "destination_unchanged": destination_unchanged}
+    from hermes_cli.write_approval_commands import _apply_one
+    if request.subsystem == wa.MEMORY:
+        from tools.memory_tool import load_on_disk_store
+        store = load_on_disk_store()
+    else:
+        store = None
+    ok, error, result = _apply_one(request.subsystem, request.record, store)
+    if not ok:
+        return {"success": False, "decision": decision, "error": error, "native_result": result,
+                "pending_removed": False}
+    discarded = wa.discard_pending(request.subsystem, request.pending_id)
+    return {"success": bool(discarded and not path.exists()), "decision": decision, "native_result": result,
+            "destination": _destination_label(request), "destination_changed": destination_before != _destination_digest(request),
+            "pending_removed": not path.exists()}
+
+
+def apply_native_decision(request: PendingRequest, decision: str, expected_record_sha256: str) -> dict[str, Any]:
     path = request.home / "pending" / request.subsystem / f"{request.pending_id}.json"
     try:
         current_raw = path.read_text(encoding="utf-8")
@@ -424,29 +446,29 @@ def apply_native_decision(request: PendingRequest, decision: str, expected_recor
         raise StaleRequestError("The pending request was already resolved.") from exc
     if sha256_text(current_raw) != expected_record_sha256:
         raise StaleRequestError("The pending request changed after review; inspect it again before acting.")
-    destination_before = _destination_digest(request)
-    with _native_home(request.home):
-        from tools import write_approval as wa
-        if decision == "reject":
-            removed = wa.discard_pending(request.subsystem, request.pending_id)
-            destination_unchanged = destination_before == _destination_digest(request)
-            return {"success": bool(removed and not path.exists() and destination_unchanged), "decision": decision,
-                    "pending_removed": not path.exists(), "destination": _destination_label(request),
-                    "destination_unchanged": destination_unchanged}
-        from hermes_cli.write_approval_commands import _apply_one
-        if request.subsystem == wa.MEMORY:
-            from tools.memory_tool import load_on_disk_store
-            store = load_on_disk_store()
-        else:
-            store = None
-        ok, error, result = _apply_one(request.subsystem, request.record, store)
-        if not ok:
-            return {"success": False, "decision": decision, "error": error, "native_result": result,
-                    "pending_removed": False}
-        discarded = wa.discard_pending(request.subsystem, request.pending_id)
-        return {"success": bool(discarded and not path.exists()), "decision": decision, "native_result": result,
-                "destination": _destination_label(request), "destination_changed": destination_before != _destination_digest(request),
-                "pending_removed": not path.exists()}
+    command = [
+        sys.executable, str(Path(__file__).resolve()), "native-apply", "--subsystem", request.subsystem,
+        "--pending-id", request.pending_id, "--decision", decision,
+        "--expected-record-sha256", expected_record_sha256,
+    ]
+    runtime_path = os.pathsep.join(path for path in sys.path if path)
+    process = subprocess.run(
+        command,
+        env={"HERMES_HOME": str(request.home), "PYTHONPATH": runtime_path},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if process.returncode != 0:
+        detail = process.stderr.strip() or process.stdout.strip() or "native Hermes decision failed"
+        raise ReviewError(detail)
+    try:
+        result = json.loads(process.stdout)
+    except json.JSONDecodeError as exc:
+        raise ReviewError("Native Hermes decision returned invalid JSON.") from exc
+    if not isinstance(result, dict):
+        raise ReviewError("Native Hermes decision returned a non-object result.")
+    return result
 
 
 def _default_rule_path() -> Path:
@@ -455,10 +477,13 @@ def _default_rule_path() -> Path:
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("inventory", "show", "decide"))
+    parser.add_argument("command", choices=("inventory", "show", "decide", "native-apply"))
     parser.add_argument("--home-root", type=Path, default=Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")))
     parser.add_argument("--rule", type=Path, default=_default_rule_path())
     parser.add_argument("--position", type=int, default=1)
+    parser.add_argument("--profile", choices=PROFILES)
+    parser.add_argument("--subsystem", choices=SUBSYSTEMS)
+    parser.add_argument("--pending-id")
     parser.add_argument("--model", default=None)
     parser.add_argument("--decision", choices=("approve", "reject", "pending"))
     parser.add_argument("--expected-record-sha256")
@@ -469,6 +494,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv or sys.argv[1:])
+    if args.command == "native-apply":
+        if not args.subsystem or not args.pending_id or not args.expected_record_sha256 or args.decision not in {"approve", "reject"}:
+            raise ReviewError("Native Hermes decision requires subsystem, pending id, decision, and reviewed record hash.")
+        print(json.dumps(
+            _apply_native_decision_at_home(
+                args.home_root, args.subsystem, args.pending_id, args.decision, args.expected_record_sha256,
+            ),
+            ensure_ascii=False,
+        ))
+        return 0
     inventory = inventory_pending(args.home_root)
     if args.command == "inventory":
         output = {
@@ -483,10 +518,10 @@ def main(argv: list[str] | None = None) -> int:
     if not inventory.requests:
         print("No hay solicitudes pendientes en los perfiles autorizados.")
         return 0
-    if args.position < 1 or args.position > len(inventory.requests):
-        raise ReviewError(f"position must be 1..{len(inventory.requests)}")
-    request = inventory.requests[args.position - 1]
     if args.command == "show":
+        if args.position < 1 or args.position > len(inventory.requests):
+            raise ReviewError(f"position must be 1..{len(inventory.requests)}")
+        request = inventory.requests[args.position - 1]
         catalog = load_catalog(args.rule)
         state = load_review_state(args.home_root)
         evaluations = evaluate_inventory(inventory, catalog, args.model, state)
@@ -498,6 +533,17 @@ def main(argv: list[str] | None = None) -> int:
         raise ReviewError("A native decision requires --human-decision and --decision approve|reject.")
     if not args.expected_record_sha256:
         raise ReviewError("A native decision requires --expected-record-sha256 from the reviewed inventory.")
+    if not args.profile or not args.subsystem or not args.pending_id:
+        raise ReviewError("A native decision requires the reviewed profile, subsystem, and pending id.")
+    request = next(
+        (
+            item for item in inventory.requests
+            if (item.profile, item.subsystem, item.pending_id) == (args.profile, args.subsystem, args.pending_id)
+        ),
+        None,
+    )
+    if request is None:
+        raise StaleRequestError("The reviewed pending request is no longer available; inspect the inventory again.")
     result = apply_native_decision(request, args.decision, args.expected_record_sha256)
     state = load_review_state(args.home_root)
     state.setdefault("decisions", []).append({

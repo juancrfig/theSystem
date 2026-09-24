@@ -27,12 +27,13 @@ de pendientes y el único mecanismo que puede aplicar una decisión.
 
 ## Inicio de lote
 
-Desde este checkout, usa el intérprete aislado que incluye TypeSafe y el proyecto
-Hermes instalado localmente. Sustituye la ruta solo si Hermes está instalado en
-otro lugar:
+Antes de iniciar, aprovisiona fuera de esta skill un intérprete con una versión
+fijada de `typesafe-sdk` declarada en `requirements.txt` y expórtalo como
+`HERMES_MEMORY_REVIEW_PYTHON`. No instales dependencias al ejecutar una
+revisión.
 
 ```sh
-uv run --with typesafe-sdk --project "$HOME/.hermes/hermes-agent" python \
+"$HERMES_MEMORY_REVIEW_PYTHON" \
   agents/skills/memory-request-review/scripts/review_memory_requests.py inventory
 ```
 
@@ -45,7 +46,7 @@ solo la posición indicada. Conserva los paneles resultantes en la conversación
 no muestres más de una solicitud por turno.
 
 ```sh
-uv run --with typesafe-sdk --project "$HOME/.hermes/hermes-agent" python \
+"$HERMES_MEMORY_REVIEW_PYTHON" \
   agents/skills/memory-request-review/scripts/review_memory_requests.py show \
   --position 1
 ```
@@ -60,14 +61,16 @@ Tras enseñar exactamente un panel, ofrece: **aprobar**, **rechazar**, **dejar
 pendiente** o **discutir/proponer criterio**. Avanzar no es una decisión.
 
 Solo después de que la persona responda explícitamente `aprobar` o `rechazar`,
-obtén el `record_sha256` del inventario actual y aplica la acción a la misma
-posición. El hash evita actuar sobre un pendiente modificado o ya resuelto:
+usa la identidad y el `record_sha256` que se mostraron al revisar la solicitud:
+perfil, subsistema e ID nativo. No elijas de nuevo por posición. El hash evita
+actuar sobre un pendiente modificado, reemplazado o ya resuelto:
 
 ```sh
-uv run --with typesafe-sdk --project "$HOME/.hermes/hermes-agent" python \
+"$HERMES_MEMORY_REVIEW_PYTHON" \
   agents/skills/memory-request-review/scripts/review_memory_requests.py decide \
-  --position 1 --decision approve --human-decision \
-  --expected-record-sha256 '<hash-del-inventario-revisado>'
+  --profile default --subsystem memory --pending-id '<id-revisado>' \
+  --decision approve --human-decision \
+  --expected-record-sha256 '<hash-mostrado-al-revisar>'
 ```
 
 Usa `--decision reject` para rechazar. Verifica la respuesta: `success: true`,
@@ -101,7 +104,7 @@ cuando coincidan las cuatro dimensiones.
 Ejecuta las pruebas aisladas antes de declarar la entrega verificada:
 
 ```sh
-uv run --with typesafe-sdk --project "$HOME/.hermes/hermes-agent" python \
+"$HERMES_MEMORY_REVIEW_PYTHON" \
   agents/skills/memory-request-review/tests/test_review_memory_requests.py
 ```
 

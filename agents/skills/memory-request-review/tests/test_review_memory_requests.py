@@ -1,9 +1,11 @@
 import importlib.util
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "review_memory_requests.py"
@@ -76,12 +78,15 @@ class MemoryRequestReviewTests(unittest.TestCase):
         self.assertIn('"content": "keep this"', panel)
 
     def test_secret_like_payload_is_retained_without_exposing_value_or_calling_evaluator(self):
-        secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK"
+        secret = "sk-" + "a" * 24
         self._pending("memory", "secret", {"action": "add", "target": "memory", "content": f"key={secret}"})
         request = review.inventory_pending(self.home).requests[0]
         calls = []
+        catalog = review.Catalog(1, (
+            review.Criterion("retention", 1, "Is this unsafe?", {}, {"yes": "yes", "no": "no"}, [], []),
+        ))
 
-        result = review.evaluate_request(request, review.load_catalog(self.rule), lambda *_: calls.append(True))
+        result = review.evaluate_request(request, catalog, lambda *_: calls.append(True))
         panel = review.render_panel(request, result, 1, 1)
 
         self.assertEqual(calls, [])
@@ -126,6 +131,44 @@ class MemoryRequestReviewTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertTrue(result["pending_removed"])
         self.assertTrue(result["destination_unchanged"])
+        self.assertFalse((self.home / "memories" / "MEMORY.md").exists())
+
+    def test_decide_binds_the_native_action_to_the_reviewed_request_identity(self):
+        self._pending("memory", "reviewed", {"action": "add", "target": "memory", "content": "apply only this"})
+        self._pending("memory", "other", {"action": "add", "target": "memory", "content": "do not apply"})
+        reviewed = next(item for item in review.inventory_pending(self.home).requests if item.pending_id == "reviewed")
+
+        with redirect_stdout(io.StringIO()):
+            exit_code = review.main([
+                "decide", "--home-root", str(self.home), "--profile", "default", "--subsystem", "memory",
+                "--pending-id", "reviewed", "--decision", "approve", "--human-decision",
+                "--expected-record-sha256", reviewed.record_sha256,
+            ])
+
+        self.assertEqual(exit_code, 0)
+        self.assertFalse((self.home / "pending" / "memory" / "reviewed.json").exists())
+        self.assertTrue((self.home / "pending" / "memory" / "other.json").exists())
+        self.assertIn("apply only this", (self.home / "memories" / "MEMORY.md").read_text(encoding="utf-8"))
+        self.assertNotIn("do not apply", (self.home / "memories" / "MEMORY.md").read_text(encoding="utf-8"))
+
+    def test_native_decision_isolated_to_the_reviewed_named_profile(self):
+        implementer = self.home / "profiles" / "implementer"
+        implementer.mkdir(parents=True)
+        self._pending("memory", "same", {"action": "add", "target": "memory", "content": "default remains pending"})
+        self._pending(
+            "memory", "same", {"action": "add", "target": "memory", "content": "implementer only"}, home=implementer,
+        )
+        request = next(
+            item for item in review.inventory_pending(self.home).requests
+            if item.profile == "implementer" and item.pending_id == "same"
+        )
+
+        result = review.apply_native_decision(request, "approve", request.record_sha256)
+
+        self.assertTrue(result["success"])
+        self.assertTrue((self.home / "pending" / "memory" / "same.json").exists())
+        self.assertFalse((implementer / "pending" / "memory" / "same.json").exists())
+        self.assertIn("implementer only", (implementer / "memories" / "MEMORY.md").read_text(encoding="utf-8"))
         self.assertFalse((self.home / "memories" / "MEMORY.md").exists())
 
     def test_apply_requires_matching_snapshot_and_uses_native_pending_flow(self):
