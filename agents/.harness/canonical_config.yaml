@@ -1,10 +1,18 @@
-# Model policy: concrete model selection is deployment-specific; this template
-# assigns intent only. Model-class nomenclature: flash = lowest practical
-# latency/cost for narrow, repeatable side tasks; balanced = medium-frontier
-# intelligence and speed for bounded judgment; frontier = highest-quality
-# reasoning where latency and cost are secondary. These labels are selection
-# intent, not Hermes provider values; provider: auto does not guarantee a class.
-# Curator routing must remain frontier-capable.
+# Model policy: concrete providers, model IDs, and auxiliary-model routing are
+# managed by the user. This template records intended capability classes only:
+# flash = lowest practical latency/cost for narrow, repeatable side tasks;
+# balanced = medium-frontier intelligence and speed for bounded judgment;
+# frontier = highest-quality reasoning where latency and cost are secondary.
+# Assigned classes: review, curator, and background_review are frontier;
+# goal_judge and mcp are balanced; monitor is flash. Future preference for
+# title_generation, vision, compression, approval, tts_audio_tags, skills_hub,
+# and profile_describer is flash. memory_query_rewrite and MoA slots
+# (moa_reference, moa_aggregator) are deferred until their optional features
+# are adopted. triage_specifier and kanban_decomposer remain unassigned because
+# manual use is not planned; the master writes approved worker cards itself.
+# Hermes has no per-slot disable switch, so manual Specify/Decompose actions
+# may still use their auxiliary-model paths. Curator work is intended to remain
+# frontier-capable.
 
 database:
   journal_mode: wal
@@ -75,9 +83,7 @@ approvals:
     - "git push *--prune*"
 
 delegation:
-  # Target model class: flash. The provider/model pin is deferred until this
-  # template maps flash, balanced, and frontier to concrete model IDs.
-  # Until then, Hermes inherits the parent session's model.
+  # Intended capability class: flash. The user owns its provider/model routing.
   max_iterations: 250
 
 security:
@@ -91,31 +97,6 @@ kanban:
   # Planning stays in the main-agent interview; do not auto-decompose rough
   # Triage cards into worker tasks before the user approves the plan.
   auto_decompose: false
-
-auxiliary:
-  # Assigned classes: review, curator, and background_review are frontier;
-  # goal_judge and mcp are balanced; monitor is flash.
-  # No triage_specifier or kanban_decomposer model is pinned: the master writes
-  # approved worker cards itself. Hermes has no per-slot disable switch; manual
-  # Specify/Decompose actions would still invoke their auxiliary model paths.
-  # Future preference for title_generation, vision, compression, approval,
-  # tts_audio_tags, skills_hub, and profile_describer: flash model.
-  # memory_query_rewrite and MoA slots (moa_reference, moa_aggregator) are
-  # deferred until their optional features are adopted. triage_specifier and
-  # kanban_decomposer remain unassigned because manual use is not planned.
-  # This is not configured yet; provider: auto still uses the main model.
-  skills_hub:
-    provider: auto
-    model: ""
-  profile_describer:
-    provider: auto
-    model: ""
-  compression:
-    provider: auto
-    model: ""
-  mcp:
-    provider: auto
-    model: ""
 
 memory:
   memory_enabled: true
