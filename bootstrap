@@ -24,6 +24,8 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 canonical_config="$repo_root/agents/.harness/canonical_config.yaml"
 project_skills_link="$repo_root/.agents/skills"
 default_hermes_home="$HOME/.hermes"
+memory_review_requirements="$repo_root/agents/skills/memory-request-review/requirements.txt"
+memory_review_env="$repo_root/.agents/memory-review"
 
 require_file() {
   if [[ ! -f "$1" ]]; then
@@ -43,7 +45,7 @@ set_config() {
   HERMES_HOME="$default_hermes_home" hermes config set --force "$1" "$2" >/dev/null
 }
 
-verify_project_skills() {
+resolve_hermes_python() {
   local hermes_launcher hermes_shebang hermes_python
   hermes_launcher=$(command -v hermes)
   IFS= read -r hermes_shebang < "$hermes_launcher"
@@ -64,6 +66,12 @@ verify_project_skills() {
     printf 'Unable to resolve Hermes Python runtime from: %s\n' "$hermes_launcher" >&2
     exit 1
   fi
+  printf '%s\n' "$hermes_python"
+}
+
+verify_project_skills() {
+  local hermes_python
+  hermes_python=$(resolve_hermes_python)
   HERMES_HOME="$default_hermes_home" TERMINAL_CWD="$repo_root" "$hermes_python" - "$repo_root" <<'PY'
 from pathlib import Path
 import sys
@@ -117,8 +125,41 @@ PY
 check_prerequisites() {
   require_file "$canonical_config"
   require_file "$repo_root/.githooks/pre-commit"
+  require_file "$memory_review_requirements"
   require_command hermes
   require_command python3
+  require_command uv
+}
+
+provision_memory_review() {
+  local hermes_python
+  hermes_python=$(resolve_hermes_python)
+  if [[ ! -x "$memory_review_env/bin/python" ]]; then
+    uv venv --python "$hermes_python" "$memory_review_env"
+  fi
+  uv pip install --python "$memory_review_env/bin/python" --requirements "$memory_review_requirements"
+  # Native decisions need Hermes and its dependencies without installing the SDK
+  # into Hermes's own environment. Local review packages take precedence.
+  "$memory_review_env/bin/python" - "$hermes_python" <<'PY'
+import json
+from pathlib import Path
+import subprocess
+import sys
+import sysconfig
+
+runtime = subprocess.run(
+    [sys.argv[1], "-I", "-c", "import json, site, sys; print(json.dumps([list(sys.version_info[:2]), site.getsitepackages()]))"],
+    check=True, capture_output=True, text=True,
+)
+version, paths = json.loads(runtime.stdout)
+if version != list(sys.version_info[:2]):
+    raise SystemExit("Review environment Python differs from Hermes; recreate .agents/memory-review and rerun bootstrap.")
+target = Path(sysconfig.get_path("purelib")) / "hermes-runtime.pth"
+target.write_text("import site; " + "; ".join(f"site.addsitedir({path!r})" for path in paths) + "\n", encoding="utf-8")
+PY
+  uv pip check --python "$memory_review_env/bin/python"
+  "$memory_review_env/bin/python" -c 'from typesafe_sdk import Noul, TypeSafeClient; from tools import write_approval; from hermes_cli.write_approval_commands import _apply_one; from importlib.metadata import version; print("typesafe-sdk " + version("typesafe-sdk"))'
+  step_detail='isolated review environment ready'
 }
 
 # Keep the hook setup versioned with the checkout rather than in the README.
@@ -172,6 +213,7 @@ verify_skills() {
 
 steps=(
   "prerequisites|Check prerequisites|check_prerequisites"
+  "memory-review|Prepare memory review environment|provision_memory_review"
   "git-hooks|Configure git hooks|configure_git_hooks"
   "hermes-config|Apply canonical Hermes config|apply_canonical_config"
   "skills-link|Link project-local skills|link_project_skills"

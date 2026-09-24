@@ -2,17 +2,6 @@
 
 A framework to reliably build high-quality software by leveraging AI agents. 
 
-# Setup
-
-After cloning, run `./bootstrap`. It enables the tracked git
-hooks, reconciles the canonical Hermes policy into the default profile without
-replacing credentials, and configures project-local skill discovery by linking
-`.agents/skills` to `../agents/skills` and trusting this repository.
-
-In a terminal it shows a step checklist. When its output is not a terminal, or
-with `--plain`, it prints one `bootstrap step=<id> status=<state>` line per event
-instead, so agents can read progress without parsing the checklist.
-
 # Infrastructure
 
 - **[Hermes Harness](hermes-agent.nousresearch.com)**
@@ -34,3 +23,15 @@ their context files and tools. However, the protocol agents follow to do this mu
 charge of agents. I've noticed agents are not good (by default) when trying to generalize their 
 reflections from mistakes, effectivelly bloating their own memory with ticket-specific learnings. 
 Until a clear protocol is designed and battle-tested, the feedback loop must remain in charge of humans. 
+
+### Setup
+
+Run `./bootstrap`.
+
+Bootstrap requires `uv` and prepares an isolated memory-review Python environment
+at `.agents/memory-review`, using the skill's `requirements.txt` as the dependency
+source.
+
+In a terminal it shows a step checklist. When its output is not a terminal, or
+with `--plain`, it prints one `bootstrap step=<id> status=<state>` line per event
+instead, so agents can read progress without parsing the checklist.
