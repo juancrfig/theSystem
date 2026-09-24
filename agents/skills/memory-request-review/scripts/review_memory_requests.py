@@ -2,8 +2,8 @@
 """Review Hermes pending memory and skill writes without creating another queue.
 
 The script is deliberately an adapter around Hermes's native pending-write store.
-It inventories approved profiles, optionally asks TypeSafe Jev only about the
-literal staged payload, renders a single ASCII panel, and delegates a human
+It inventories approved profiles, asks TypeSafe Jev only about the literal
+staged payload of the one request being shown, renders a single ASCII panel, and delegates a human
 approve/reject decision back to Hermes's native applier.
 """
 from __future__ import annotations
@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -275,33 +276,26 @@ def _store_evaluation(state: dict[str, Any], request: PendingRequest, catalog: C
             results[cache_key(request, criterion, evaluation.model)] = {"probability": probability}
 
 
-def evaluate_inventory(
-    inventory: Inventory, catalog: Catalog, model: str | None = None, state: dict[str, Any] | None = None,
-) -> dict[tuple[str, str, str], Evaluation]:
-    """Evaluate every eligible request before any individual panel is rendered.
+def evaluate_one(
+    request: PendingRequest, catalog: Catalog, model: str | None = None, state: dict[str, Any] | None = None,
+) -> Evaluation:
+    """Evaluate only the request about to be shown; later pendings wait their turn.
 
     A result is reusable only when the caller supplies the same effective model
     identity and its payload/criterion-version cache key matches exactly.
     """
     state = state if state is not None else {"results": {}}
-    evaluations: dict[tuple[str, str, str], Evaluation] = {}
-    for request in inventory.requests:
-        retained = detect_possible_secrets(request.payload)
-        identity = (request.profile, request.subsystem, request.pending_id)
-        if retained:
-            evaluations[identity] = Evaluation("RETENIDA LOCALMENTE", "", {}, retention_categories=retained)
-            continue
-        if not catalog.criteria:
-            evaluations[identity] = Evaluation("SIN CRITERIOS", "", {})
-            continue
-        cached = reusable_results(request, catalog, model, state.get("results", {})) if model else {}
-        if len(cached) == len(catalog.criteria):
-            evaluations[identity] = Evaluation("EVALUADA", model, cached)
-            continue
-        evaluation = evaluate_with_jev(request, catalog.criteria, model)
-        _store_evaluation(state, request, catalog, evaluation)
-        evaluations[identity] = evaluation
-    return evaluations
+    retained = detect_possible_secrets(request.payload)
+    if retained:
+        return Evaluation("RETENIDA LOCALMENTE", "", {}, retention_categories=retained)
+    if not catalog.criteria:
+        return Evaluation("SIN CRITERIOS", "", {})
+    cached = reusable_results(request, catalog, model, state.get("results", {})) if model else {}
+    if len(cached) == len(catalog.criteria):
+        return Evaluation("EVALUADA", model, cached)
+    evaluation = evaluate_with_jev(request, catalog.criteria, model)
+    _store_evaluation(state, request, catalog, evaluation)
+    return evaluation
 
 
 def cache_key(request: PendingRequest, criterion: Criterion, model: str) -> str:
@@ -318,66 +312,197 @@ def reusable_results(request: PendingRequest, catalog: Catalog, model: str, cach
     return reusable
 
 
-def _wrap(value: str, width: int = 76) -> list[str]:
-    if not value:
-        return [""]
-    lines: list[str] = []
-    for paragraph in value.splitlines() or [""]:
-        while len(paragraph) > width:
-            lines.append(paragraph[:width])
-            paragraph = paragraph[width:]
-        lines.append(paragraph)
-    return lines
+_WIDTH = 72
+_DECISIONS = "approve · reject · pending · discuss"
+# Location fields (skill file paths) are deliberately not rendered: the reviewer
+# judges what is added, deleted, or replaced, not where it lands in the file.
+_KNOWN_OPERATION_KEYS = {
+    "action", "name", "target", "file_path", "old_text", "old_string", "content", "new_string", "file_content",
+}
+_VERBS = {
+    "add": "ADD", "create": "ADD", "write_file": "ADD",
+    "remove": "DELETE", "delete": "DELETE", "remove_file": "DELETE",
+    "replace": "REPLACE", "patch": "REPLACE", "edit": "REPLACE",
+}
 
 
-def _panel_line(value: str) -> str:
-    if len(value) > 78:
-        raise ReviewError("Panel value must be wrapped before rendering.")
-    return f"| {value:<78} |"
+@dataclass(frozen=True)
+class Operation:
+    verb: str
+    old: str = ""
+    new: str = ""
 
 
-def _panel_lines(value: str) -> list[str]:
-    return [_panel_line(line) for line in _wrap(value)]
+def _payload_operations(payload: dict[str, Any]) -> list[Any]:
+    operations = payload.get("operations")
+    return list(operations) if isinstance(operations, list) else [payload]
 
 
-def render_panel(request: PendingRequest, evaluation: Evaluation, position: int, total: int, catalog_version: int = 1) -> str:
-    lines = ["+" + "-" * 80 + "+"]
-    for value in (
-        f"SOLICITUD {position}/{total}",
-        f"PERFIL: {request.profile}   SUBSISTEMA: {request.subsystem}   DESTINO: {_destination_label(request)}",
-        f"ID: {request.pending_id}",
-        f"ESTADO: {evaluation.status}",
-        f"MODELO: {evaluation.model or 'N/A'}   CATALOGO: v{catalog_version}",
-    ):
-        lines.extend(_panel_lines(value))
-    lines.extend(_panel_lines("OPERACIONES PROPUESTAS:"))
-    if evaluation.status == "RETENIDA LOCALMENTE":
-        lines.extend(_panel_lines("CONTENIDO NO MOSTRADO: " + ", ".join(evaluation.retention_categories)))
-    else:
-        literal_lines = _wrap(json.dumps(request.payload, ensure_ascii=False, indent=2))
-        block_size = 18
-        block_count = max(1, (len(literal_lines) + block_size - 1) // block_size)
-        for block_index in range(block_count):
-            lines.extend(_panel_lines(f"OPERACIONES PROPUESTAS (BLOQUE {block_index + 1}/{block_count}):"))
-            start = block_index * block_size
-            for line in literal_lines[start:start + block_size]:
-                lines.append(_panel_line(line))
-    if evaluation.results:
-        lines.extend(_panel_lines("RESULTADOS JEV (probabilidad de que exista el problema):"))
-        for ident, probability in evaluation.results.items():
-            lines.extend(_panel_lines(f"- {ident}: {probability:.6f}"))
-    if evaluation.error:
-        lines.extend(_panel_lines("ERROR: " + evaluation.error))
-    lines.extend(_panel_lines("DECISION HUMANA: aprobar | rechazar | pendiente | discutir criterio"))
-    lines.append("+" + "-" * 80 + "+")
-    return "\n".join(lines)
+def describe_operations(request: PendingRequest) -> list[Operation]:
+    """Reduce a native payload to ADD/DELETE/REPLACE rows without hiding any content."""
+    described: list[Operation] = []
+    for raw in _payload_operations(request.payload):
+        if not isinstance(raw, dict):
+            described.append(Operation("UNKNOWN", new=canonical_json(raw)))
+            continue
+        action = str(raw.get("action", "unknown"))
+        old = str(raw.get("old_text", raw.get("old_string", "")) or "")
+        new = str(raw.get("content", raw.get("new_string", raw.get("file_content", ""))) or "")
+        extra = {key: value for key, value in raw.items() if key not in _KNOWN_OPERATION_KEYS}
+        if extra:
+            new = (new + "\n" if new else "") + canonical_json(extra)
+        # A replace that keeps its old text intact only adds text next to it.
+        if old and new != old and new.endswith(old):
+            described.append(Operation("ADD", new=new[:-len(old)].rstrip()))
+        elif old and new != old and new.startswith(old):
+            described.append(Operation("ADD", new=new[len(old):].lstrip()))
+        else:
+            described.append(Operation(_VERBS.get(action, action.upper()), old, new))
+    return described
 
 
-def _destination_label(request: PendingRequest) -> str:
+def target_label(request: PendingRequest) -> str:
     payload = request.payload
     if request.subsystem == "memory":
         return str(payload.get("target", "memory"))
-    return f"skill:{payload.get('name', '<unknown>')}"
+    names: list[str] = []
+    for raw in _payload_operations(payload):
+        name = (raw.get("name") if isinstance(raw, dict) else None) or payload.get("name")
+        if name and str(name) not in names:
+            names.append(str(name))
+    return ", ".join(f"skill:{name}" for name in names) or "skill:<unknown>"
+
+
+def _wrap(text: str, width: int) -> list[str]:
+    lines: list[str] = []
+    for paragraph in text.splitlines() or [""]:
+        lines.extend(textwrap.wrap(paragraph, width, break_on_hyphens=False, replace_whitespace=False) or [""])
+    return lines
+
+
+def _hang(prefix: str, text: str, width: int) -> list[str]:
+    """Wrap text under a prefix; continuation lines align after the prefix."""
+    body = _wrap(text, width - len(prefix))
+    return [prefix + body[0]] + [" " * len(prefix) + line for line in body[1:]]
+
+
+def _band(probability: float) -> str:
+    return "likely" if probability >= 0.7 else "unlikely" if probability <= 0.3 else "uncertain"
+
+
+def _bar(probability: float, cells: int = 10) -> str:
+    filled = max(0, min(cells, round(probability * cells)))
+    return "█" * filled + "░" * (cells - filled)
+
+
+def _verdict_note(evaluation: Evaluation) -> str:
+    if evaluation.status == "RETENIDA LOCALMENTE":
+        return "possible secret (" + ", ".join(evaluation.retention_categories) + "): kept local, Jev not called"
+    if evaluation.status == "SIN CRITERIOS":
+        return "no criteria in the catalog: Jev not called"
+    if evaluation.error:
+        return "Jev failed: " + evaluation.error
+    return ""
+
+
+def _questions(evaluation: Evaluation, catalog: Catalog) -> list[tuple[str, float | None]]:
+    """Every catalog question, scored or not, so the reviewer always sees what Jev was asked."""
+    return [(criterion.question, evaluation.results.get(criterion.criterion_id)) for criterion in catalog.criteria]
+
+
+def render_panel(
+    request: PendingRequest, evaluation: Evaluation, position: int, total: int, catalog: Catalog | None = None,
+) -> str:
+    catalog = catalog or Catalog(1, ())
+    inner = _WIDTH - 4
+    rule = lambda left, right: left + "─" * (_WIDTH - 2) + right  # noqa: E731
+
+    def rule_with_junction(left: str, right: str, content_col: int, junction: str) -> str:
+        """Draw a horizontal border with one vertical junction aligned to content column."""
+        span = ["─"] * (_WIDTH - 2)
+        index = content_col + 1  # content starts after leading "│ " in boxed rows
+        if 0 <= index < len(span):
+            span[index] = junction
+        return left + "".join(span) + right
+    def _fit(text: str) -> str:
+        if len(text) <= inner:
+            return text
+        if inner <= 1:
+            return text[:inner]
+        return text[:inner - 1] + "…"
+
+    box = lambda text: f"│ {_fit(text):<{inner}} │"  # noqa: E731
+
+    def _compose_with_right(left: str, right: str, width: int) -> str:
+        """Keep right-aligned metadata visible; shrink the left side first."""
+        if len(left) + 1 + len(right) <= width:
+            return left + " " * (width - len(left) - len(right)) + right
+        if width <= len(right):
+            return right[:width]
+        room_for_left = width - len(right) - 1
+        if room_for_left <= 0:
+            return right[:width]
+        if len(left) > room_for_left:
+            left = left[:max(1, room_for_left - 1)] + ("…" if room_for_left > 1 else "")
+        return left + " " * (width - len(left) - len(right)) + right
+
+    head = f"REQUEST {position}/{total}"
+    ident = request.profile
+    left = f"{head} │   Target: {target_label(request)}"
+    header = _compose_with_right(left, ident, inner)
+    divider_col = header.find("│")
+    if divider_col >= 0:
+        rows = [rule_with_junction("╭", "╮", divider_col, "┬"), box(header)]
+    else:
+        rows = [rule("╭", "╮"), box(header)]
+    # Jev comes first: long operations must never push the verdict out of a collapsed view.
+    if divider_col >= 0:
+        rows.append(rule_with_junction("├", "┤", divider_col, "┴"))
+    else:
+        rows.append(rule("├", "┤"))
+    note = _verdict_note(evaluation)
+    question_blocks: list[str] = []
+    questions = _questions(evaluation, catalog)
+    for index, (question, probability) in enumerate(questions):
+        if index > 0:
+            question_blocks.append("")
+        question_blocks.extend(_wrap(question, inner))
+        question_blocks.append("·  no score" if probability is None
+                               else f"{_bar(probability)}  {probability:.2f}")
+    if note and evaluation.status != "RETENIDA LOCALMENTE":
+        if question_blocks:
+            question_blocks.append("")
+        question_blocks.extend(_wrap(note, inner))
+    if question_blocks:
+        rows.append(box(""))
+        rows += [box(line) for line in question_blocks]
+        rows.append(box(""))
+    rows.append(rule("├", "┤"))
+    if evaluation.status == "RETENIDA LOCALMENTE":
+        rows += [box(line) for line in _wrap("Content withheld: " + note, inner)]
+    else:
+        def _verb_badge(verb: str) -> list[str]:
+            label = f" {verb} "
+            top = "╭" + "─" * len(label) + "╮"
+            mid = "│" + label + "│"
+            bot = "╰" + "─" * len(label) + "╯"
+            return [top.center(inner), mid.center(inner), bot.center(inner)]
+
+        operations = describe_operations(request)
+        if operations:
+            rows.append(box(""))
+        for index, op in enumerate(operations, 1):
+            if index > 1:
+                rows.append(box(""))
+            rows += [box(line) for line in _verb_badge(op.verb)]
+            if op.old:
+                rows += [box(line) for line in _hang("   − ", op.old, inner)]
+            if op.new:
+                rows += [box(line) for line in _hang("   + ", op.new, inner)]
+        if operations:
+            rows.append(box(""))
+    rows += [rule("╰", "╯")]
+    return "\n".join(rows)
 
 
 def _tree_digest(path: Path) -> str:
@@ -420,7 +545,7 @@ def _apply_native_decision_at_home(
         removed = wa.discard_pending(request.subsystem, request.pending_id)
         destination_unchanged = destination_before == _destination_digest(request)
         return {"success": bool(removed and not path.exists() and destination_unchanged), "decision": decision,
-                "pending_removed": not path.exists(), "destination": _destination_label(request),
+                "pending_removed": not path.exists(), "destination": target_label(request),
                 "destination_unchanged": destination_unchanged}
     from hermes_cli.write_approval_commands import _apply_one
     if request.subsystem == wa.MEMORY:
@@ -434,7 +559,7 @@ def _apply_native_decision_at_home(
                 "pending_removed": False}
     discarded = wa.discard_pending(request.subsystem, request.pending_id)
     return {"success": bool(discarded and not path.exists()), "decision": decision, "native_result": result,
-            "destination": _destination_label(request), "destination_changed": destination_before != _destination_digest(request),
+            "destination": target_label(request), "destination_changed": destination_before != _destination_digest(request),
             "pending_removed": not path.exists()}
 
 
@@ -469,6 +594,35 @@ def apply_native_decision(request: PendingRequest, decision: str, expected_recor
     if not isinstance(result, dict):
         raise ReviewError("Native Hermes decision returned a non-object result.")
     return result
+
+
+def load_checkout_env() -> None:
+    """Read KEY=VALUE lines from the checkout's gitignored .env; real env vars win."""
+    path = Path(__file__).resolve().parents[4] / ".env"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return
+    for line in lines:
+        key, sep, value = line.strip().removeprefix("export ").partition("=")
+        if sep and key.strip() and not key.lstrip().startswith("#"):
+            os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+
+
+def ensure_review_runtime() -> None:
+    # Resolve the checkout, not the caller's cwd or a project-skill symlink.
+    default = Path(__file__).resolve().parents[4] / ".agents" / "memory-review" / "bin" / "python"
+    selected = os.environ.get("HERMES_MEMORY_REVIEW_PYTHON") or str(default)
+    interpreter = os.path.abspath(os.path.expanduser(selected))
+    if not Path(interpreter).is_file() or not os.access(interpreter, os.X_OK):
+        raise ReviewError(
+            f"Review interpreter is unavailable: {interpreter}. "
+            "Run ./bootstrap from the checkout, or set HERMES_MEMORY_REVIEW_PYTHON "
+            "to a prepared interpreter. Review never installs dependencies."
+        )
+    # Do not resolve the executable symlink: virtualenvs share a base Python.
+    if os.path.abspath(sys.executable) != interpreter:
+        os.execv(interpreter, [interpreter, str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
 def _default_rule_path() -> Path:
@@ -524,10 +678,10 @@ def main(argv: list[str] | None = None) -> int:
         request = inventory.requests[args.position - 1]
         catalog = load_catalog(args.rule)
         state = load_review_state(args.home_root)
-        evaluations = evaluate_inventory(inventory, catalog, args.model, state)
+        evaluation = evaluate_one(request, catalog, args.model, state)
         save_review_state(args.home_root, state)
-        evaluation = evaluations[(request.profile, request.subsystem, request.pending_id)]
-        print(render_panel(request, evaluation, args.position, len(inventory.requests), catalog.catalog_version))
+        print(render_panel(request, evaluation, args.position, len(inventory.requests), catalog))
+        print(f"\nrecord_sha256: {request.record_sha256}")
         return 0
     if not args.human_decision or args.decision not in {"approve", "reject"}:
         raise ReviewError("A native decision requires --human-decision and --decision approve|reject.")
@@ -559,6 +713,8 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     try:
+        ensure_review_runtime()
+        load_checkout_env()
         raise SystemExit(main())
     except ReviewError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

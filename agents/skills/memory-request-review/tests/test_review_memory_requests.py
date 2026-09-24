@@ -74,8 +74,9 @@ class MemoryRequestReviewTests(unittest.TestCase):
 
         self.assertEqual(calls, [])
         self.assertEqual(result.status, "SIN CRITERIOS")
-        self.assertIn("| ESTADO: SIN CRITERIOS", panel)
-        self.assertIn('"content": "keep this"', panel)
+        self.assertIn("no criteria in the catalog", panel)
+        self.assertIn("Target: memory", panel)
+        self.assertIn("+ keep this", panel)
 
     def test_secret_like_payload_is_retained_without_exposing_value_or_calling_evaluator(self):
         secret = "sk-" + "a" * 24
@@ -115,14 +116,83 @@ class MemoryRequestReviewTests(unittest.TestCase):
         with self.assertRaises(review.ReviewError):
             review.load_catalog(self.rule)
 
-    def test_long_panel_uses_numbered_continuation_blocks_without_losing_payload(self):
-        content = "x" * 2000
-        self._pending("memory", "long", {"action": "add", "target": "memory", "content": content})
+    def test_card_shows_target_questions_scores_and_full_literal_text(self):
+        content = " ".join(f"word{index}" for index in range(400))
+        self._pending("memory", "long", {"action": "add", "target": "user", "content": content})
         request = review.inventory_pending(self.home).requests[0]
-        panel = review.render_panel(request, review.Evaluation("SIN CRITERIOS", "", {}), 1, 1)
-        self.assertIn("BLOQUE 1/", panel)
-        self.assertIn(content[:76], panel)
-        self.assertIn(content[-76:], panel)
+        catalog = review.Catalog(1, (
+            review.Criterion("vague", 1, "Is it vague?", {}, {"yes": "y", "no": "n"}, [], []),
+        ))
+        panel = review.render_panel(request, review.Evaluation("EVALUADA", "jev-test", {"vague": 0.27}), 1, 1, catalog)
+        flattened = " ".join(panel.replace("│", " ").split())
+        self.assertIn("Target: user", panel)
+        self.assertIn("Is it vague?", panel)
+        self.assertIn("0.27", panel)
+        self.assertIn("ADD", flattened)
+        self.assertIn("+ word0 ", flattened)
+        self.assertIn("word399", flattened)
+        self.assertTrue(all(len(line) <= review._WIDTH for line in panel.splitlines()))
+
+    def test_unscored_questions_still_show_what_jev_was_asked(self):
+        self._pending("memory", "one", {"action": "add", "target": "memory", "content": "x"})
+        request = review.inventory_pending(self.home).requests[0]
+        catalog = review.Catalog(1, (
+            review.Criterion("vague", 1, "Is it vague?", {}, {"yes": "y", "no": "n"}, [], []),
+        ))
+        failed = review.Evaluation("ERROR DE EVALUACION", "", {}, "boom")
+        panel = review.render_panel(request, failed, 1, 1, catalog)
+        self.assertIn("Is it vague?", panel)
+        self.assertIn("Jev failed: boom", panel)
+
+    def test_skill_target_names_skills_from_batch_operations(self):
+        self._pending("skills", "s", {"action": "batch", "operations": [
+            {"action": "patch", "name": "alpha", "old_string": "a", "new_string": "b"},
+            {"action": "write_file", "name": "beta", "file_path": "refs/x.md", "file_content": "body"},
+        ]})
+        request = review.inventory_pending(self.home).requests[0]
+        self.assertEqual(review.target_label(request), "skill:alpha, skill:beta")
+        operations = review.describe_operations(request)
+        self.assertEqual([(op.verb, op.old, op.new) for op in operations], [("REPLACE", "a", "b"), ("ADD", "", "body")])
+
+    def test_replace_that_keeps_its_old_text_is_shown_as_a_plain_add(self):
+        self._pending("memory", "m", {"action": "batch", "target": "memory", "operations": [
+            {"action": "replace", "old_text": "Anchor:", "content": "New fact. Anchor:"},
+            {"action": "replace", "old_text": "Anchor:", "content": "Anchor: more"},
+            {"action": "replace", "old_text": "Anchor:", "content": "Other", "extra": 1},
+            {"action": "remove", "old_text": "Gone"},
+        ]})
+        request = review.inventory_pending(self.home).requests[0]
+        operations = review.describe_operations(request)
+        self.assertEqual([(op.verb, op.old, op.new) for op in operations[:2]],
+                         [("ADD", "", "New fact."), ("ADD", "", "more")])
+        self.assertEqual(operations[2].verb, "REPLACE")
+        self.assertIn('"extra":1', operations[2].new)
+        self.assertEqual((operations[3].verb, operations[3].old), ("DELETE", "Gone"))
+        self.assertNotIn("Anchor", review.render_panel(request, review.Evaluation("SIN CRITERIOS", "", {}), 1, 1)
+                         .split("REPLACE")[0])
+
+    def test_show_evaluates_only_the_displayed_request(self):
+        self.rule.write_text(
+            "<!-- MEMORY-REQUEST-REVIEW-CATALOG\n"
+            '{"catalog_version": 1, "criteria": [{"id": "q", "version": 1, "question": "Q?", '
+            '"context": {}, "definition": {"yes": "y", "no": "n"}}]}\n'
+            "MEMORY-REQUEST-REVIEW-CATALOG -->\n",
+            encoding="utf-8",
+        )
+        self._pending("memory", "first", {"action": "add", "target": "memory", "content": "a"})
+        self._pending("memory", "second", {"action": "add", "target": "memory", "content": "b"})
+        seen = []
+        original = review.evaluate_with_jev
+        review.evaluate_with_jev = lambda request, *_: (
+            seen.append(request.pending_id) or review.Evaluation("EVALUADA", "jev-test", {"q": 0.5}))
+        try:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                review.main(["show", "--home-root", str(self.home), "--rule", str(self.rule), "--position", "2"])
+        finally:
+            review.evaluate_with_jev = original
+        self.assertEqual(seen, ["second"])
+        self.assertIn("0.50", output.getvalue())
 
     def test_reject_verifies_the_destination_was_not_applied(self):
         self._pending("memory", "reject", {"action": "add", "target": "memory", "content": "do not save"})

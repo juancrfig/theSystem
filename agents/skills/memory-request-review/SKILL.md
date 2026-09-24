@@ -1,6 +1,6 @@
 ---
 name: memory-request-review
-description: "Use when reviewing pending Hermes memory or skill writes across default, implementer, and reviewer. Inventory native requests, show one ASCII panel at a time, and require an explicit human decision."
+description: "Use when reviewing pending Hermes memory or skill writes across default, implementer, and reviewer. Inventory native requests, evaluate and show one ASCII dashboard at a time, and require an explicit human decision."
 ---
 
 # Revisión asistida de solicitudes de memoria
@@ -27,33 +27,41 @@ de pendientes y el único mecanismo que puede aplicar una decisión.
 
 ## Inicio de lote
 
-Antes de iniciar, aprovisiona fuera de esta skill un intérprete con una versión
-fijada de `typesafe-sdk` declarada en `requirements.txt` y expórtalo como
-`HERMES_MEMORY_REVIEW_PYTHON`. No instales dependencias al ejecutar una
-revisión.
+`./bootstrap` prepara el entorno con la versión fija de `typesafe-sdk` declarada
+en `requirements.txt`. El script de revisión lo descubre automáticamente desde
+su ubicación, independientemente del directorio actual y de los enlaces de
+skills. No pidas exportar variables ni interpretes una variable ausente como
+una instalación faltante. `HERMES_MEMORY_REVIEW_PYTHON` es solo una selección
+explícita opcional de otro intérprete preparado. No instales dependencias al
+ejecutar una revisión; si falta el entorno, indica que se ejecute bootstrap.
 
 ```sh
-"$HERMES_MEMORY_REVIEW_PYTHON" \
+python3 \
   agents/skills/memory-request-review/scripts/review_memory_requests.py inventory
 ```
 
 Informa los conteos de `memory`, `skills` y registros ilegibles. Los registros
 ilegibles no son aprobables; déjalos pendientes y muestra su identidad/error.
 
-Para preparar el lote, muestra la primera solicitud. Cada ejecución de `show`
-evalúa todos los pendientes elegibles del inventario actual antes de renderizar
-solo la posición indicada. Conserva los paneles resultantes en la conversación y
-no muestres más de una solicitud por turno.
+Revisa una solicitud a la vez. `show` envía a Jev solo la solicitud indicada
+(las demás esperan su turno) y renderiza su panel ya evaluado; no hay un paso
+previo de mostrar la propuesta y después evaluarla.
 
 ```sh
-"$HERMES_MEMORY_REVIEW_PYTHON" \
+python3 \
   agents/skills/memory-request-review/scripts/review_memory_requests.py show \
   --position 1
 ```
 
-El panel muestra perfil, subsistema, ID, operaciones literales, estado,
-identidad de modelo cuando existe, versión de catálogo y cada probabilidad. No
-uses medias ni conviertas resultados en una nota de calidad.
+Copia el panel dentro de un bloque de código, sin comentarios añadidos ni
+JSON. Para la vista humana, muestra solo el nombre del perfil en la cabecera
+y oculta identificadores técnicos (`pending-id`, `record_sha256`,
+`payload_sha256`). Conserva esos valores de forma interna para `decide`.
+El panel enseña `Target` (`memory`, `user` o `skill:<nombre>`), cada operación
+como `ADD`, `DELETE` o `REPLACE` con su texto (`−` anterior, `+` nuevo) sin
+detallar en qué parte del archivo cae, y cada pregunta de Jev con su
+probabilidad (mayor = problema más probable). No uses medias ni conviertas
+resultados en una nota de calidad. Muestra como máximo una solicitud por turno.
 
 ## Decisión por solicitud
 
@@ -61,12 +69,12 @@ Tras enseñar exactamente un panel, ofrece: **aprobar**, **rechazar**, **dejar
 pendiente** o **discutir/proponer criterio**. Avanzar no es una decisión.
 
 Solo después de que la persona responda explícitamente `aprobar` o `rechazar`,
-usa la identidad y el `record_sha256` que se mostraron al revisar la solicitud:
+usa la identidad y el `record_sha256` capturados al revisar la solicitud:
 perfil, subsistema e ID nativo. No elijas de nuevo por posición. El hash evita
 actuar sobre un pendiente modificado, reemplazado o ya resuelto:
 
 ```sh
-"$HERMES_MEMORY_REVIEW_PYTHON" \
+python3 \
   agents/skills/memory-request-review/scripts/review_memory_requests.py decide \
   --profile default --subsystem memory --pending-id '<id-revisado>' \
   --decision approve --human-decision \
@@ -104,12 +112,13 @@ cuando coincidan las cuatro dimensiones.
 Ejecuta las pruebas aisladas antes de declarar la entrega verificada:
 
 ```sh
-"$HERMES_MEMORY_REVIEW_PYTHON" \
+"${HERMES_MEMORY_REVIEW_PYTHON:-.agents/memory-review/bin/python}" \
   agents/skills/memory-request-review/tests/test_review_memory_requests.py
 ```
 
 La prueba real de Jev exige al menos un criterio aprobado, una solicitud elegible
-y credenciales de TypeSafe disponibles mediante su mecanismo normal. Si faltan,
+y `TYPESAFE_API_KEY`, en el entorno o en el `.env` ignorado de la raíz del
+checkout (ver `.env.example`); el entorno tiene prioridad. Si faltan,
 declara ese bloqueo; nunca simules una evaluación. La integración nativa debe
 probarse con un `HERMES_HOME` temporal, nunca aprobando o rechazando pendientes
 reales para cobertura.
