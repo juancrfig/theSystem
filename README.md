@@ -2,6 +2,10 @@
 
 A framework to reliably build high-quality software by leveraging AI agents. 
 
+# Setup
+
+After cloning, enable the tracked git hooks: `git config core.hooksPath .githooks`
+
 # Infrastructure
 
 - **[Hermes Harness](hermes-agent.nousresearch.com)**

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Every rule must carry the fields defined in agents/rules/AGENTS.md.
+# Reads the staged version of each file, so the check matches what is committed.
+set -euo pipefail
+
+fields=("Rule:" "Prevents:" "Enforce with:")
+failed=0
+
+while IFS= read -r file; do
+  [[ $(basename "$file") == AGENTS.md ]] && continue
+  content=$(git show ":$file")
+  for field in "${fields[@]}"; do
+    if ! grep -qi "^$field" <<<"$content"; then
+      echo "$file: missing '$field'" >&2
+      failed=1
+    fi
+  done
+done < <(git ls-files ':(glob)**/agents/rules/*.md')
+
+exit "$failed"
