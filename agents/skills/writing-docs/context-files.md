@@ -5,8 +5,8 @@ index, not a home for facts: it says what the scope is and points to where knowl
 
 ## Layers
 
-The workspace `AGENTS.md` is the global tier, a project's files refine it, and a clone's files
-refine the project. The more specific wins. Put a line at the narrowest layer where every task
+The workspace `AGENTS.md` is the global tier and a project's files refine it. The more specific
+wins. Put a line at the narrowest layer where every task
 needs it, and never restate a line from a broader layer.
 
 ## What earns a line
@@ -21,9 +21,10 @@ points there at most.
 
 ## CONTEXT.md
 
-Each project has one `CONTEXT.md` at `<project>/CONTEXT.md`: the glossary of its domain terms,
-shared by all of its clones. The workspace and individual clones do not get one. A term that only
-one clone uses is usually implementation vocabulary the code already states.
+The workspace `CONTEXT.md` is the glossary of the agent system's own terms (such as role), shared
+by every project. Each project has one `CONTEXT.md` at `<project>/CONTEXT.md`: the glossary of its
+domain terms, shared by all of its clones. Individual clones do not get one. A term that only one
+clone uses is usually implementation vocabulary the code already states.
 
 ## Who changes them
 
