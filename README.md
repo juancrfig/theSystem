@@ -27,11 +27,3 @@ Until a clear protocol is designed and battle-tested, the feedback loop must rem
 ### Setup
 
 Run `./bootstrap`.
-
-Bootstrap requires `uv` and prepares an isolated memory-review Python environment
-at `.agents/memory-review`, using the skill's `requirements.txt` as the dependency
-source.
-
-In a terminal it shows a step checklist. When its output is not a terminal, or
-with `--plain`, it prints one `bootstrap step=<id> status=<state>` line per event
-instead, so agents can read progress without parsing the checklist.
