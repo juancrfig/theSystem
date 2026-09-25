@@ -9,7 +9,7 @@ Crude is fine: a hard-coded minimal bundle, no parallelism, no budgets beyond a 
 Later tickets deepen each stage. This one proves the path exists.
 
 **Why:** build the loop before the furniture (analysis 3.1). The orchestrator is 3 lines today,
-while bootstrap and memory review are polished. The legacy-workspace attempt never ran a feature end to end.
+while bootstrap and memory review are polished. The legacy attempt never ran a feature end to end.
 
 **Blocked by:** 03, 04, 05
 
@@ -31,11 +31,11 @@ while bootstrap and memory review are polished. The legacy-workspace attempt nev
    `run.json`, `report.md`, and the raw agent streams, plus one line per run in
    `.runs/index.jsonl`.
 
-## Lessons carried from legacy-workspace (as criteria, not code)
+## Lessons carried from the legacy workspace (as criteria, not code)
 
-- [ ] There is no retry or attempt parameter. A run is one pass (legacy-workspace: `--attempt-limit`
+- [ ] There is no retry or attempt parameter. A run is one pass (legacy: `--attempt-limit`
       bypassed the documented policy).
-- [ ] `report.md` is created exclusively, only in a terminal state, by the orchestrator (legacy-workspace:
+- [ ] `report.md` is created exclusively, only in a terminal state, by the orchestrator (legacy:
       a report was created while the state was still `ready_for_reviewer`).
 - [ ] Before any model call, the orchestrator checks that the worktree exists, the container has
       the clone's toolchain (at least `git`), and every path named in the agent prompt exists

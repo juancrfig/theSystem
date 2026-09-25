@@ -11,7 +11,7 @@
 
 A run without a verdict stays `awaiting-verdict` and is listed by `./orchestrator runs`.
 
-**Why:** the learning loop must be a gate, not a habit. legacy-workspace had 20 closed efforts and zero
+**Why:** the learning loop must be a gate, not a habit. The legacy workspace had 20 closed efforts and zero
 harvests. The README already decided that humans own the feedback loop. This ticket gives that
 loop a place in the pipeline (analysis 3.9). The human's attention is spent once and serves as
 eval label, knowledge filter, and next step.

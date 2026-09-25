@@ -287,7 +287,7 @@
           </thead>
           <tbody>
             <tr><td class="cost">Writing code and docs</td><td>High</td><td><span class="shift cool">≈ 0</span></td><td>A skill, a config, a state machine: one session each.</td></tr>
-            <tr><td class="cost">Rewriting</td><td>High</td><td><span class="shift cool">≈ 0</span></td><td>The orchestrator was designed twice (legacy-workspace, then theSystem) at little token cost.</td></tr>
+            <tr><td class="cost">Rewriting</td><td>High</td><td><span class="shift cool">≈ 0</span></td><td>The orchestrator was designed twice (legacy workspace, then theSystem) at little token cost.</td></tr>
             <tr><td class="cost">Keeping copies in sync</td><td>High</td><td><span class="shift cool">Low, if a machine checks</span></td><td>Without a check, copies drifted every time (3.5).</td></tr>
             <tr><td class="cost">Verification</td><td>Medium</td><td><span class="shift hot">The bottleneck</span></td><td>Every serious incident was caught by a human re-reading.</td></tr>
             <tr><td class="cost">Spec clarity</td><td>Medium</td><td><span class="shift hot">Dominant</span></td><td>The Desvio formula was re-decided four or more times. The INST-142 path mismatch was hit again and again.</td></tr>
@@ -303,7 +303,7 @@
     <section id="keep">
       <h2><span class="n">2</span>What to keep</h2>
       <ul class="plain">
-        <li><strong>Deterministic control flow.</strong> "No LLM decides control flow inside the orchestrator" fixes the legacy-workspace draft, where <code>--attempt-limit</code> silently bypassed the documented retry policy. <span class="verified">verified</span></li>
+        <li><strong>Deterministic control flow.</strong> "No LLM decides control flow inside the orchestrator" fixes the legacy draft, where <code>--attempt-limit</code> silently bypassed the documented retry policy. <span class="verified">verified</span></li>
         <li><strong>Rules need an incident.</strong> <code>Prevents:</code> is a scarcity mechanism. It stops rule bloat, the knowledge-side version of abstraction bloat.</li>
         <li><strong>The docs ladder</strong> (drop, rule, ADR, ledger, wiki). It makes keeping a fact expensive now that producing one is free.</li>
         <li><strong>Bright lines over judgement calls.</strong> The comment rule was exploited while it allowed a judgement call. The rewrite named the incident and removed the judgement.</li>
@@ -322,8 +322,8 @@
         <dl class="facets">
           <dt>Old practice</dt><dd>Build each infrastructure piece well, one at a time, because rewriting is expensive.</dd>
           <dt>What changed</dt><dd>Rewriting is cheap. The expensive thing is not knowing whether the whole system works.</dd>
-          <dt>Evidence</dt><dd><code>orchestrator</code> is 3 lines and every role list in <code>orchestrator.yaml</code> is empty. <code>bootstrap</code> is 341 lines, with a spinner checklist. Memory review is 717 lines plus an external LLM judge, and its ASCII card took about 20 revision turns. A working-ish orchestrator with tests sits uncommitted in legacy-workspace, and it was re-derived in a 7-hour interview. <span class="verified">verified</span> The INST-142 rehearsal hit four infra failures and never attempted the feature itself.</dd>
-          <dt class="key">New practice</dt><dd class="key">Build a rough end-to-end run on a toy project before polishing any component. Carry forward the lessons of the legacy-workspace orchestrator, not its code.</dd>
+          <dt>Evidence</dt><dd><code>orchestrator</code> is 3 lines and every role list in <code>orchestrator.yaml</code> is empty. <code>bootstrap</code> is 341 lines, with a spinner checklist. Memory review is 717 lines plus an external LLM judge, and its ASCII card took about 20 revision turns. A working-ish orchestrator with tests sits uncommitted in the legacy workspace, and it was re-derived in a 7-hour interview. <span class="verified">verified</span> The INST-142 rehearsal hit four infra failures and never attempted the feature itself.</dd>
+          <dt class="key">New practice</dt><dd class="key">Build a rough end-to-end run on a toy project before polishing any component. Carry forward the lessons of the legacy orchestrator, not its code.</dd>
         </dl>
         <div class="tickets">Tickets <a class="tk" href="#t06">06</a> and the prior-art criteria in <a class="tk" href="#t06">06</a>–<a class="tk" href="#t09">09</a></div>
       </article>
@@ -367,7 +367,7 @@
         <dl class="facets">
           <dt>Old practice</dt><dd>Docs rot, so humans keep few of them.</dd>
           <dt>What changed</dt><dd>Docs are now input to agents. A broken pointer is a bug in the program, not a typo.</dd>
-          <dt>Evidence</dt><dd><code>AGENTS.md</code> points at three paths that do not exist, and agents rediscovered this in at least four sessions. The tier model appears in three places. <code>code-review</code> still describes a clone-scoped third tier and a removed <code>./preflight</code>. <code>to-spec</code> says both "do not publish externally" and "publish to the issue tracker". <span class="verified">verified</span> In legacy-workspace, a Spanish copy of six rules already contradicted the original.</dd>
+          <dt>Evidence</dt><dd><code>AGENTS.md</code> points at three paths that do not exist, and agents rediscovered this in at least four sessions. The tier model appears in three places. <code>code-review</code> still describes a clone-scoped third tier and a removed <code>./preflight</code>. <code>to-spec</code> says both "do not publish externally" and "publish to the issue tracker". <span class="verified">verified</span> In the legacy workspace, a Spanish copy of six rules already contradicted the original.</dd>
           <dt class="key">New practice</dt><dd class="key">State each fact once, point to it everywhere else, and let a pre-commit check prove that every pointer resolves.</dd>
         </dl>
         <div class="tickets">Tickets <a class="tk" href="#t01">01</a><a class="tk" href="#t02">02</a></div>

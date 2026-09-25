@@ -1,4 +1,4 @@
-Rules the implementer follows while writing a change and the reviewer checks it
+Rules the worker follows while writing a change and the reviewer checks it
 against. Each rule is one file with three fields:
 
 - `Rule:` the requirement.

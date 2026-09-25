@@ -15,7 +15,7 @@ explícitamente el diff exacto antes de escribirlo.
 
 ## Candidatos a discutir
 
-Surgieron de la solicitud 1 (credenciales QA demo-project y `flutter test` en Android).
+Surgieron de la solicitud 1 (credenciales QA del proyecto y `flutter test` en Android).
 Ninguno está aprobado; cada uno debe describir un solo problema, con mayor
 probabilidad = problema más probable.
 

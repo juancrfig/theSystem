@@ -16,7 +16,7 @@ Every practice pays down a cost. When the cost moves, the practice must move wit
 | Cost | Human era | Agent era | What your history shows |
 |---|---|---|---|
 | Writing code and docs | High | ~0 | A skill, a config, a state machine: one session each |
-| Rewriting | High | ~0 | The orchestrator was designed twice (legacy-workspace, then theSystem) at no token pain |
+| Rewriting | High | ~0 | The orchestrator was designed twice (legacy workspace, then theSystem) at no token pain |
 | Keeping copies in sync | High | Low **if a machine checks** | Without a check, copies drifted every time (section 3.5) |
 | Verification (human attention) | Medium | **The bottleneck** | Every serious incident was caught by a human re-reading |
 | Spec clarity | Medium | **Dominant** | Desvio formula re-decided 4+ times; INST-142 path mismatch rediscovered run after run |
@@ -30,8 +30,8 @@ desire, not a gate."* (Codex, 2026-09-10). Most of what follows expands that sen
 ## 2. What you already do right (keep it)
 
 - **Deterministic control flow.** "No LLM decides control flow inside the orchestrator" is the
-  correct answer to the legacy-workspace WIP, where `--attempt-limit` silently bypassed the documented
-  retry policy *(verified, legacy-workspace review1.md)*.
+  correct answer to the legacy WIP, where `--attempt-limit` silently bypassed the documented
+  retry policy *(verified, legacy review1.md)*.
 - **Rules need an incident.** `Prevents:` is a scarcity mechanism. It stops rule bloat, which is
   the knowledge-side version of abstraction bloat.
 - **The docs ladder** (drop → rule → ADR → ledger → wiki). It makes *keeping* a fact expensive
@@ -58,10 +58,10 @@ Each item: the old practice, the cost it paid down, what changed, your evidence,
   `orchestrator.yaml` is empty *(verified)*. `bootstrap` is 341 lines, with a spinner checklist UI.
   `memory-request-review` is 717 lines plus an external LLM judge, and its ASCII card went through
   ~20 revision turns. A working-ish orchestrator (`workflow_support/pipeline.py`, with tests) sits
-  untracked in legacy-workspace *(verified)* and was re-derived from scratch in a 7-hour interview. The
+  untracked in the legacy workspace *(verified)* and was re-derived from scratch in a 7-hour interview. The
   INST-142 rehearsal never attempted the feature itself: 4 infra failures came first.
 - **Revaluation:** a crude end-to-end tracer bullet on a toy project beats a polished component.
-  Carry forward the *lessons* of the legacy-workspace orchestrator (its review findings), not its code.
+  Carry forward the *lessons* of the legacy orchestrator (its review findings), not its code.
   Code is cheap to rewrite. Lessons are not.
 - **Tickets:** 06 (tracer bullet), and the prior-art criteria inside 06–09.
 
@@ -83,7 +83,7 @@ Each item: the old practice, the cost it paid down, what changed, your evidence,
 - **What changed:** agents produce changes faster than a human can read them. Attention must be
   spent on building checks, not on repeating checks.
 - **Evidence:** 20 closed MTBT efforts, zero harvested, even after the rule was written three
-  times *(verified, legacy-workspace ADR-no-ticket-tracking)*. The comment rule was gamed through a
+  times *(verified, legacy ADR-no-ticket-tracking)*. The comment rule was gamed through a
   judgement call. A dependency bump passed an existing rule, because rules only fire at review
   time.
 - **Revaluation:** anything that matters becomes a deterministic check that runs every time.
@@ -98,7 +98,7 @@ This is DHH's choke-point argument, and your system shows it clearly.
 - **What changed:** copies are free, and shared mutable state is where parallel agents collide
   and drift.
 - **Evidence *(verified)*:** both worker profiles hard-code one client's Docker image
-  (`legacy-workspace-db-inspect`) and volumes. Worker profiles have `memory_enabled: true` and carry legacy-workspace
+  (`client-db-inspect`) and volumes. Worker profiles have `memory_enabled: true` and carry legacy
   memories that have nothing to do with their role. `SOUL.md` is identical in all three live
   profiles, but it is not the canonical `agents/.harness/SOUL.md`. Skills reach profiles through
   persistent global symlinks. That conflicts with the per-run bundle that `AGENTS.md` describes.
@@ -123,7 +123,7 @@ This is DHH's choke-point argument, and your system shows it clearly.
   `context-files.md` was updated; `code-review` still describes a third, clone-scoped tier and a
   `./preflight` that was removed. `to-spec` says both "do not publish externally" and "publish it
   to the project issue tracker". The memory-review spec puts the criteria in a global rule, but
-  the implementation moved them to `criteria.json`. In legacy-workspace, a Spanish copy of 6 rules already
+  the implementation moved them to `criteria.json`. In the legacy workspace, a Spanish copy of 6 rules already
   contradicted the original.
 - **Revaluation:** state each fact once, point to it everywhere else, and let a pre-commit check
   prove that every pointer resolves.
