@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Configure this checkout as a Hermes workspace without replacing credentials.
+
 set -euo pipefail
 
 usage() {
