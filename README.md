@@ -18,8 +18,8 @@ blast radius write-allowed agents may cause?
 
 # Decisions
 
-- Instructions for agents must be carefully maintained. Ideally, agents should edit by themselves 
-their context files and tools. However, the protocol agents follow to do this must not be left in
+- Instructions for agents must be carefully maintained. Ideally, agents should handle entirely the 
+self-improvement mechanism. However, the protocol agents follow to do this must not be left in
 charge of agents. I've noticed agents are not good (by default) when trying to generalize their 
 reflections from mistakes, effectivelly bloating their own memory with ticket-specific learnings. 
 Until a clear protocol is designed and battle-tested, the feedback loop must remain in charge of humans. 
@@ -27,3 +27,7 @@ Until a clear protocol is designed and battle-tested, the feedback loop must rem
 ### Setup
 
 Run `./bootstrap`.
+
+Bootstrap requires `uv` and prepares an isolated memory-review Python environment
+at `.agents/memory-review`, using the skill's `requirements.txt` as the dependency
+source.
