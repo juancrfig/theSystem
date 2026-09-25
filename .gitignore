@@ -1,6 +1,3 @@
-# Personal, disposable local work. Each project may maintain its own .scratch/.
-**/.scratch/
-
 # Generated Hermes Agent links. Canonical skills live in agents/skills/.
 /.agents/
 

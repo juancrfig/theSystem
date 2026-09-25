@@ -1,0 +1,502 @@
+<title>theSystem Foundations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@80..100,500..800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --ground: #F4F6F3;
+    --surface: #FFFFFF;
+    --ink: #17201C;
+    --muted: #56625C;
+    --line: #D6DCD5;
+    --chip: #E7ECE6;
+    --accent: #1D5B87;
+    --hot: #A5401A;
+    --cool: #2C6E44;
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0F1412;
+      --surface: #161D1A;
+      --ink: #E3E9E5;
+      --muted: #97A39D;
+      --line: #2A3430;
+      --chip: #1F2925;
+      --accent: #88BBE0;
+      --hot: #E58D63;
+      --cool: #88C59C;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0F1412;
+    --surface: #161D1A;
+    --ink: #E3E9E5;
+    --muted: #97A39D;
+    --line: #2A3430;
+    --chip: #1F2925;
+    --accent: #88BBE0;
+    --hot: #E58D63;
+    --cool: #88C59C;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.6;
+  }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  code, .mono { font-family: var(--mono); font-size: 0.82em; }
+  code { background: var(--chip); padding: 0.08em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+
+  .page {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 48px 96px;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 56px;
+  }
+  .toc {
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + 24px);
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: var(--display);
+    font-size: 13.5px;
+    font-variation-settings: "wdth" 90;
+  }
+  .toc .label {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .toc a { color: var(--muted); text-decoration: none; display: flex; gap: 8px; }
+  .toc a:hover { color: var(--ink); }
+  .toc a .n { font-family: var(--mono); font-size: 11.5px; min-width: 26px; color: var(--accent); padding-top: 2px; }
+  .toc .sub { padding-left: 34px; font-size: 12.5px; }
+
+  main { min-width: 0; display: flex; flex-direction: column; gap: 64px; }
+  .prose { max-width: 68ch; }
+
+  header.top { display: flex; flex-direction: column; gap: 16px; }
+  .eyebrow {
+    font-family: var(--display);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+  h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15; }
+  h1 { font-size: clamp(34px, 5vw, 52px); font-weight: 780; font-variation-settings: "wdth" 84; letter-spacing: -0.01em; }
+  h2 { font-size: 27px; font-weight: 720; font-variation-settings: "wdth" 88; display: flex; gap: 14px; align-items: baseline; }
+  h2 .n { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--accent); }
+  h3 { font-size: 20px; font-weight: 680; font-variation-settings: "wdth" 92; }
+  p { margin: 0; }
+  .lead { font-size: 20px; line-height: 1.5; max-width: 62ch; }
+  .note { color: var(--muted); font-size: 15px; max-width: 68ch; }
+  section { display: flex; flex-direction: column; gap: 20px; scroll-margin-top: 24px; }
+
+  .quote {
+    border-left: 3px solid var(--accent);
+    padding: 4px 0 4px 18px;
+    font-style: italic;
+    max-width: 62ch;
+  }
+  .quote cite { display: block; font-style: normal; font-size: 14px; color: var(--muted); margin-top: 6px; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; vertical-align: top; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: 0; }
+  th {
+    font-family: var(--display);
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  td.cost { font-family: var(--display); font-weight: 620; font-variation-settings: "wdth" 92; white-space: nowrap; }
+  .shift { font-family: var(--mono); font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .shift.cool { color: var(--cool); }
+  .shift.hot { color: var(--hot); }
+
+  ul.plain { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 10px; max-width: 68ch; }
+  ul.plain li::marker { color: var(--accent); }
+
+  .reval {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-block: 26px;
+    border-top: 1px solid var(--line);
+    scroll-margin-top: 24px;
+  }
+  .reval-head { display: flex; gap: 14px; align-items: baseline; }
+  .reval-head .n { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--accent); min-width: 30px; }
+  .reval .aside { font-size: 15px; color: var(--muted); max-width: 68ch; }
+  dl.facets {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 136px minmax(0, 1fr);
+    gap: 10px 20px;
+    max-width: 80ch;
+  }
+  dl.facets dt {
+    font-family: var(--display);
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-top: 4px;
+  }
+  dl.facets dd { margin: 0; }
+  dl.facets dt.key { color: var(--accent); }
+  dl.facets dd.key { font-weight: 600; }
+  .verified {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--cool);
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    padding: 0 5px;
+    margin-left: 4px;
+    white-space: nowrap;
+    vertical-align: 2px;
+  }
+  .tickets { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; color: var(--muted); }
+  .tk {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    background: var(--chip);
+    color: var(--ink);
+    border-radius: 4px;
+    padding: 1px 7px;
+    text-decoration: none;
+  }
+  a.tk:hover { color: var(--accent); }
+
+  .status {
+    font-family: var(--mono);
+    font-size: 12px;
+    white-space: nowrap;
+    padding: 1px 7px;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+  }
+  .status.ready { color: var(--cool); border-color: currentColor; }
+  .status.decide { color: var(--hot); border-color: currentColor; }
+
+  ol.method { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 12px; max-width: 68ch; }
+  ol.method li::marker { font-family: var(--mono); color: var(--accent); font-weight: 600; }
+
+  .checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; max-width: 72ch; }
+  .checklist li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 12px; }
+  .checklist li::before {
+    content: "";
+    width: 14px;
+    height: 14px;
+    margin-top: 6px;
+    border: 1.5px solid var(--hot);
+    border-radius: 3px;
+  }
+
+  .diagram { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px; }
+  pre.mermaid { margin: 0; font-family: var(--mono); font-size: 13px; color: var(--ink); background: transparent; }
+
+  footer.end { color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); padding-top: 20px; max-width: 68ch; }
+
+  @media (max-width: 900px) {
+    .page { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-block: 32px 72px; }
+    .toc { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px 14px; }
+    .toc .label { width: 100%; }
+    .toc .sub { display: none; }
+    main { gap: 52px; }
+  }
+  @media (max-width: 560px) {
+    body { font-size: 16px; }
+    .lead { font-size: 18px; }
+    h2 { font-size: 23px; }
+    dl.facets { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    dl.facets dd { margin-bottom: 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+  html { scroll-behavior: smooth; }
+</style>
+
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <span class="label">Contents</span>
+    <a href="#cost-model"><span class="n">1</span>The cost model</a>
+    <a href="#keep"><span class="n">2</span>What to keep</a>
+    <a href="#revaluations"><span class="n">3</span>The revaluations</a>
+    <a class="sub" href="#r3-1">Loop before furniture</a>
+    <a class="sub" href="#r3-2">The eval set</a>
+    <a class="sub" href="#r3-3">Verification as a gate</a>
+    <a class="sub" href="#r3-4">Copy instead of share</a>
+    <a class="sub" href="#r3-5">Pointers checked by machine</a>
+    <a class="sub" href="#r3-6">The spec is expensive</a>
+    <a class="sub" href="#r3-7">Control flow terminates</a>
+    <a class="sub" href="#r3-8">The trace is the product</a>
+    <a class="sub" href="#r3-9">Learning as a gate</a>
+    <a href="#method"><span class="n">4</span>Finding more</a>
+    <a href="#risks"><span class="n">5</span>Risks not ticketed</a>
+    <a href="#do-now"><span class="n">6</span>Do now</a>
+    <a href="#tickets"><span class="n">7</span>Ticket map</a>
+  </nav>
+
+  <main>
+    <header class="top">
+      <div class="eyebrow"><span>theSystem</span><span>Working analysis</span><span>2026-09-24</span></div>
+      <h1>Foundations Analysis</h1>
+      <p class="lead">theSystem's core loop does not exist yet. The orchestrator is a three-line stub, while the tooling around it is polished. Build one rough end-to-end run first, and let verification, not writing, shape the design.</p>
+      <p class="note">Sources: the theSystem repo, the earlier legacy-workspace attempt, and the Hermes (default, implementer, reviewer, kanban), Codex and Claude Code history. <span class="verified">verified</span> marks evidence checked directly against files or databases. Other evidence comes from the research pass over session history. The twelve tickets in <code>.scratch/foundations/issues/</code> put these conclusions into practice.</p>
+    </header>
+
+    <section id="cost-model">
+      <h2><span class="n">1</span>The cost model</h2>
+      <p class="prose">Every practice pays down a cost. When the cost moves, the practice must move with it.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Cost</th><th>Human era</th><th>Agent era</th><th>What your history shows</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="cost">Writing code and docs</td><td>High</td><td><span class="shift cool">≈ 0</span></td><td>A skill, a config, a state machine: one session each.</td></tr>
+            <tr><td class="cost">Rewriting</td><td>High</td><td><span class="shift cool">≈ 0</span></td><td>The orchestrator was designed twice (legacy-workspace, then theSystem) at little token cost.</td></tr>
+            <tr><td class="cost">Keeping copies in sync</td><td>High</td><td><span class="shift cool">Low, if a machine checks</span></td><td>Without a check, copies drifted every time (3.5).</td></tr>
+            <tr><td class="cost">Verification</td><td>Medium</td><td><span class="shift hot">The bottleneck</span></td><td>Every serious incident was caught by a human re-reading.</td></tr>
+            <tr><td class="cost">Spec clarity</td><td>Medium</td><td><span class="shift hot">Dominant</span></td><td>The Desvio formula was re-decided four or more times. The INST-142 path mismatch was hit again and again.</td></tr>
+            <tr><td class="cost">Context window</td><td>n/a</td><td><span class="shift hot">Hard budget</span></td><td>Handoff docs used as the standard escape hatch, dozens of times.</td></tr>
+            <tr><td class="cost">Coordinating parallel writers</td><td>Low</td><td><span class="shift hot">High</span></td><td>Shared profile config, shared memory, a shared kanban loop.</td></tr>
+            <tr><td class="cost">Trust</td><td>Built slowly</td><td><span class="shift hot">Built structurally</span></td><td>Your trust tightened over six weeks: "prove it", "confirm to me".</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <blockquote class="quote">A skill asking the agent to not touch a file is a desire, not a gate.<cite>You, in Codex, 2026-09-10. Most of this page expands that sentence.</cite></blockquote>
+    </section>
+
+    <section id="keep">
+      <h2><span class="n">2</span>What to keep</h2>
+      <ul class="plain">
+        <li><strong>Deterministic control flow.</strong> "No LLM decides control flow inside the orchestrator" fixes the legacy-workspace draft, where <code>--attempt-limit</code> silently bypassed the documented retry policy. <span class="verified">verified</span></li>
+        <li><strong>Rules need an incident.</strong> <code>Prevents:</code> is a scarcity mechanism. It stops rule bloat, the knowledge-side version of abstraction bloat.</li>
+        <li><strong>The docs ladder</strong> (drop, rule, ADR, ledger, wiki). It makes keeping a fact expensive now that producing one is free.</li>
+        <li><strong>Bright lines over judgement calls.</strong> The comment rule was exploited while it allowed a judgement call. The rewrite named the incident and removed the judgement.</li>
+        <li><strong>Deterministic gates worked every time you built one:</strong> the surface-preservation sentinel, the comment pre-commit hook, the rule-field hook.</li>
+        <li><strong>The human stays in control during bring-up.</strong> Single-pass runs, no auto-fix loop. That is right until the loop can be measured (3.2).</li>
+        <li><strong>Reviewer independence.</strong> Fresh-context reviewers caught what implementers rationalized.</li>
+      </ul>
+    </section>
+
+    <section id="revaluations">
+      <h2><span class="n">3</span>The revaluations</h2>
+      <p class="prose">Each one comes from your own evidence. It names the old practice, what changed, what your history shows, the new practice, and the tickets that act on it.</p>
+
+      <article class="reval" id="r3-1">
+        <div class="reval-head"><span class="n">3.1</span><h3>Build the loop before the furniture</h3></div>
+        <dl class="facets">
+          <dt>Old practice</dt><dd>Build each infrastructure piece well, one at a time, because rewriting is expensive.</dd>
+          <dt>What changed</dt><dd>Rewriting is cheap. The expensive thing is not knowing whether the whole system works.</dd>
+          <dt>Evidence</dt><dd><code>orchestrator</code> is 3 lines and every role list in <code>orchestrator.yaml</code> is empty. <code>bootstrap</code> is 341 lines, with a spinner checklist. Memory review is 717 lines plus an external LLM judge, and its ASCII card took about 20 revision turns. A working-ish orchestrator with tests sits uncommitted in legacy-workspace, and it was re-derived in a 7-hour interview. <span class="verified">verified</span> The INST-142 rehearsal hit four infra failures and never attempted the feature itself.</dd>
+          <dt class="key">New practice</dt><dd class="key">Build a rough end-to-end run on a toy project before polishing any component. Carry forward the lessons of the legacy-workspace orchestrator, not its code.</dd>
+        </dl>
+        <div class="tickets">Tickets <a class="tk" href="#t06">06</a> and the prior-art criteria in <a class="tk" href="#t06">06</a>–<a class="tk" href="#t09">09</a></div>
+      </article>
+
+      <article class="reval" id="r3-2">
+        <div class="reval-head"><span class="n">3.2</span><h3>The eval set is the new spec</h3></div>
+        <dl class="facets">
+          <dt>Old practice</dt><dd>Unit tests verify code. Humans verify behaviour by using the product.</dd>
+          <dt>What changed</dt><dd>The system's main output is agent behaviour, and nothing measures it.</dd>
+          <dt>Evidence</dt><dd>No outcome label exists in any store: Hermes, Codex or Claude Code. The reviewer never reviewed a real diff. Codex success labels are graded by the same model that did the work. <code>criteria.json</code> holds one criterion, and it is a placeholder. <span class="verified">verified</span></dd>
+          <dt class="key">New practice</dt><dd class="key">No incident, no rule, so no incident, no eval. Each rule's <code>Prevents:</code> incident becomes a planted mistake in a sandbox project, and the reviewer must catch it. <code>Enforce with:</code> already says how.</dd>
+        </dl>
+        <div class="tickets">Tickets <a class="tk" href="#t05">05</a><a class="tk" href="#t10">10</a></div>
+      </article>
+
+      <article class="reval" id="r3-3">
+        <div class="reval-head"><span class="n">3.3</span><h3>Pay human attention once, then gate</h3></div>
+        <dl class="facets">
+          <dt>Old practice</dt><dd>Review each change carefully.</dd>
+          <dt>What changed</dt><dd>Agents produce changes faster than a human can read them. Spend attention on building checks, not on repeating them.</dd>
+          <dt>Evidence</dt><dd>Twenty closed MTBT efforts, zero harvested, even after the rule was written three times. <span class="verified">verified</span> The comment rule was gamed through a judgement call. A dependency bump passed an existing rule, because rules only fire at review time.</dd>
+          <dt class="key">New practice</dt><dd class="key">Anything that matters becomes a deterministic check that runs every time. Keep LLM judgement for what no check can express, and label it as judgement.</dd>
+        </dl>
+        <div class="tickets">Tickets <a class="tk" href="#t01">01</a><a class="tk" href="#t08">08</a><a class="tk" href="#t11">11</a></div>
+      </article>
+
+      <article class="reval" id="r3-4">
+        <div class="reval-head"><span class="n">3.4</span><h3>Copy instead of share</h3></div>
+        <p class="aside">This is DHH's choke-point argument, and your system shows it clearly.</p>
+        <dl class="facets">
+          <dt>Old practice</dt><dd>One shared configuration that everybody uses, so nothing is duplicated.</dd>
+          <dt>What changed</dt><dd>Copies are free. Shared mutable state is where parallel agents collide and drift.</dd>
+          <dt>Evidence</dt><dd>Both worker profiles hard-code one client's Docker image and volumes. Both have memory on and carry client memories unrelated to their role. The three live profiles share one <code>SOUL.md</code>, and it is not the canonical one. Skills reach profiles through persistent global symlinks, which conflicts with per-run bundles. The reviewer's "read-only" mount was writable: its own write probe succeeded 4 times out of 4. <span class="verified">verified</span></dd>
+          <dt class="key">New practice</dt><dd class="key">Each run gets its own bundle, its own container, and for the reviewer, its own disposable copy of the work. A hash before and after proves the reviewer changed nothing, and the reviewer can still run tests. Keep the declarations single: that is DRY for knowledge. Per-run copies only duplicate shape, and shape is free.</dd>
+        </dl>
+        <div class="tickets">Tickets <a class="tk" href="#t03">03</a><a class="tk" href="#t07">07</a><a class="tk" href="#t08">08</a></div>
+      </article>
+
+      <article class="reval" id="r3-5">
+        <div class="reval-head"><span class="n">3.5</span><h3>Pointers checked by machine</h3></div>
+        <dl class="facets">
+          <dt>Old practice</dt><dd>Docs rot, so humans keep few of them.</dd>
+          <dt>What changed</dt><dd>Docs are now input to agents. A broken pointer is a bug in the program, not a typo.</dd>
+          <dt>Evidence</dt><dd><code>AGENTS.md</code> points at three paths that do not exist, and agents rediscovered this in at least four sessions. The tier model appears in three places. <code>code-review</code> still describes a clone-scoped third tier and a removed <code>./preflight</code>. <code>to-spec</code> says both "do not publish externally" and "publish to the issue tracker". <span class="verified">verified</span> In legacy-workspace, a Spanish copy of six rules already contradicted the original.</dd>
+          <dt class="key">New practice</dt><dd class="key">State each fact once, point to it everywhere else, and let a pre-commit check prove that every pointer resolves.</dd>
+        </dl>
+        <div class="tickets">Tickets <a class="tk" href="#t01">01</a><a class="tk" href="#t02">02</a></div>
+      </article>
+
+      <article class="reval" id="r3-6">
+        <div class="reval-head"><span class="n">3.6</span><h3>The spec is the expensive artifact</h3></div>
+        <dl class="facets">
+          <dt>Old practice</dt><dd>A spec is a rough guide. The developer fills the gaps while coding.</dd>
+          <dt>What changed</dt><dd>An agent fills gaps at machine speed, confidently, in the wrong direction.</dd>
+          <dt>Evidence</dt><dd>The INST-142 task pointed agents at a host path while the spec was mounted elsewhere. A board had no default workdir. Skills named in a task were not installed on the profile. None of these were code problems. All of them were unstated assumptions in the task.</dd>
+          <dt class="key">New practice</dt><dd class="key">A ticket is a contract that the orchestrator validates before it spends a token. Every acceptance criterion states how it is verified.</dd>
+        </dl>
+        <div class="tickets">Ticket <a class="tk" href="#t04">04</a></div>
+      </article>
+
+      <article class="reval" id="r3-7">
+        <div class="reval-head"><span class="n">3.7</span><h3>Control flow must terminate</h3></div>
+        <dl class="facets">
+          <dt>Old practice</dt><dd>Retries and requeues are free, so be generous.</dd>
+          <dt>What changed</dt><dd>An unattended agent loop has no natural end, and nobody watches it.</dd>
+          <dt>Evidence</dt><dd>Kanban task <code>t_ed81287a</code> has logged 1,237 respawns since 2026-09-22 and was still running. Rate-limit and auth requeues do not count as failures, so no breaker trips. <span class="verified">verified</span> One Codex session burned 26.5M tokens from one prompt. <code>/goal</code> budgets were used once in about 900 prompts.</dd>
+          <dt class="key">New practice</dt><dd class="key">Every run ends in exactly one labelled final state, within time and token budgets that the orchestrator enforces, not the agent.</dd>
+        </dl>
+        <div class="tickets">Ticket <a class="tk" href="#t09">09</a></div>
+      </article>
+
+      <article class="reval" id="r3-8">
+        <div class="reval-head"><span class="n">3.8</span><h3>The trace is the product</h3></div>
+        <dl class="facets">
+          <dt>Old practice</dt><dd>Logs exist for debugging.</dd>
+          <dt>What changed</dt><dd>When an agent does the work, the trace is the only thing a human can verify.</dd>
+          <dt>Evidence</dt><dd>Worker sessions record $0 cost because of subscription billing. Rate-limit errors were shown as "Authorization error" and became the title of 18 sessions. No task links to the commit it produced.</dd>
+          <dt class="key">New practice</dt><dd class="key">One structured record per run: ticket, clone, base and head commits, bundle manifest, model per role, tokens, duration, final state, findings tagged with rule ids, and the human verdict. Start with a JSON Lines file. Move to OpenTelemetry once you know which questions you ask.</dd>
+        </dl>
+        <div class="tickets">Tickets <a class="tk" href="#t06">06</a><a class="tk" href="#t10">10</a></div>
+      </article>
+
+      <article class="reval" id="r3-9">
+        <div class="reval-head"><span class="n">3.9</span><h3>The learning loop is a gate, and its input must shrink</h3></div>
+        <dl class="facets">
+          <dt>Old practice</dt><dd>People remember to write down lessons.</dd>
+          <dt>What changed</dt><dd>Nobody remembers, and agents over-generalize. The README already decides that humans own this loop.</dd>
+          <dt>Evidence</dt><dd>Zero harvests out of twenty. The memory queue holds 10 memory and 21 skill requests against a placeholder criterion. <span class="verified">verified</span> One pending proposal would record where a QA password is stored.</dd>
+          <dt class="key">New practice</dt><dd class="key">Closing a run takes one human pass with three jobs: verdict (the outcome label), harvest (zero is normal), and next action. Shrink the input instead of building a better reviewer for it: worker profiles learn only through approved bundles, never through autonomous memory.</dd>
+        </dl>
+        <div class="tickets">Tickets <a class="tk" href="#t03">03</a><a class="tk" href="#t11">11</a></div>
+      </article>
+    </section>
+
+    <section id="method">
+      <h2><span class="n">4</span>How to keep finding revaluations</h2>
+      <ol class="method">
+        <li>For any practice, ask what cost it paid down, and whether that cost moved.</li>
+        <li><strong>Let the run history be your friction log.</strong> Every run ends in a labelled state with a one-line human note. Each week, group runs by final state and by rule id, and turn the top category into a ticket. This answers the README's fourth problem: how the system improves over time.</li>
+        <li>Tag each rule and decision with the cost it pays down. When models get cheaper, contexts grow, or a check becomes automatable, revisit exactly the rules tagged with that cost.</li>
+        <li>Treat a re-derivation as a finding. The orchestrator was designed twice because nothing indexed what already existed.</li>
+      </ol>
+    </section>
+
+    <section id="risks">
+      <h2><span class="n">5</span>Risks not ticketed yet</h2>
+      <ul class="plain">
+        <li><strong>Parallel runs share state outside the worktree:</strong> dev database, ports, the <code>sqlserver_default</code> network, git identity. Decide a policy before two tickets run at once.</li>
+        <li><strong>Provider limits</strong> (429, 402, 403 across Copilot, OpenRouter and OpenCode) caused the most failed runs. A run must fail fast as <code>infra_blocked</code> or <code>provider_error</code>, never requeue silently.</li>
+        <li><strong>Security-scanner false positives</strong> ("Nested executable body could not be resolved") appear in both worker profiles, and the logs cannot tell them from real blocks.</li>
+        <li><strong>Text-only review misses rendering bugs.</strong> The bootstrap duplicated-row bug surfaced only when real terminal output was pasted.</li>
+        <li><strong>Model routing is manual by decision.</strong> The run record must at least store which model each role used.</li>
+        <li><strong>Vendored skills without provenance.</strong> grill-me, to-spec, tdd, triage, codebase-design and diagnosing-bugs come from an upstream collection with no recorded version.</li>
+      </ul>
+    </section>
+
+    <section id="do-now">
+      <h2><span class="n">6</span>Do now</h2>
+      <p class="prose">Human operations, a few minutes each.</p>
+      <ul class="checklist">
+        <li><span>Stop or archive kanban task <code>t_ed81287a</code>, the INST-142 "repaired pipeline smoke".</span></li>
+        <li><span>Reject pending memory <code>bcd2040a</code>, the proposal that records a password's location.</span></li>
+        <li><span>Delete <code>legacy-workspace/MTBT/.scratch/ado.pat</code>, a plaintext Azure DevOps token, and rotate it.</span></li>
+      </ul>
+    </section>
+
+    <section id="tickets">
+      <h2><span class="n">7</span>Ticket map</h2>
+      <p class="prose">The critical path runs through the tracer-bullet run (06). Everything after it deepens one stage of that run.</p>
+      <div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  T01["01 Check gate"] --> T02["02 Knowledge drift"]
+  T03["03 Worker profiles"] --> T06
+  T04["04 Ticket contract"] --> T05["05 Sandbox + golden tickets"]
+  T04 --> T06["06 Tracer-bullet run"]
+  T05 --> T06
+  T06 --> T07["07 Bundle builder"]
+  T06 --> T08["08 Isolation"]
+  T06 --> T09["09 Budgets + states"]
+  T06 --> T11["11 Verdict + harvest"]
+  T05 --> T10["10 Eval runner"]
+  T09 --> T10
+  T07 --> T12["12 Dogfood"]
+  T08 --> T12
+  T10 --> T12
+  T11 --> T12
+</pre>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Ticket</th><th>Force</th><th>Blocked by</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr id="t01"><td class="mono">01</td><td>Workspace check gate</td><td>Verification, knowledge DRY</td><td class="mono">—</td><td><span class="status ready">ready-for-agent</span></td></tr>
+            <tr id="t02"><td class="mono">02</td><td>Resolve knowledge drift</td><td>Knowledge DRY</td><td class="mono">01</td><td><span class="status decide">needs-decision</span></td></tr>
+            <tr id="t03"><td class="mono">03</td><td>Canonical worker profiles</td><td>Shared state, trust</td><td class="mono">—</td><td><span class="status decide">needs-decision</span></td></tr>
+            <tr id="t04"><td class="mono">04</td><td>Ticket contract</td><td>Spec ambiguity</td><td class="mono">—</td><td><span class="status decide">needs-decision</span></td></tr>
+            <tr id="t05"><td class="mono">05</td><td>Sandbox project and golden tickets</td><td>Evals</td><td class="mono">04</td><td><span class="status ready">ready-for-agent</span></td></tr>
+            <tr id="t06"><td class="mono">06</td><td>Tracer-bullet orchestrator run</td><td>Loop before furniture</td><td class="mono">03, 04, 05</td><td><span class="status decide">needs-decision</span></td></tr>
+            <tr id="t07"><td class="mono">07</td><td>Bundle builder</td><td>Locality, contract choke point</td><td class="mono">06</td><td><span class="status decide">needs-decision</span></td></tr>
+            <tr id="t08"><td class="mono">08</td><td>Enforced isolation</td><td>Trust, verification</td><td class="mono">06</td><td><span class="status ready">ready-for-agent</span></td></tr>
+            <tr id="t09"><td class="mono">09</td><td>Budgets and final states</td><td>Termination</td><td class="mono">06</td><td><span class="status ready">ready-for-agent</span></td></tr>
+            <tr id="t10"><td class="mono">10</td><td>Eval runner and run history</td><td>Evals, observability</td><td class="mono">05, 09</td><td><span class="status ready">ready-for-agent</span></td></tr>
+            <tr id="t11"><td class="mono">11</td><td>Verdict and harvest gate</td><td>Learning loop</td><td class="mono">06</td><td><span class="status decide">needs-decision</span></td></tr>
+            <tr id="t12"><td class="mono">12</td><td>Dogfood theSystem through the orchestrator</td><td>All of the above</td><td class="mono">07, 08, 10, 11</td><td><span class="status decide">needs-decision</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note"><span class="status decide">needs-decision</span> means a human answers the ticket's listed decisions first. Each decision carries a recommended answer.</p>
+    </section>
+
+    <footer class="end">Working material, not durable documentation. Promote to rules, ADRs or the wiki only what passes the <code>writing-docs</code> ladder.</footer>
+  </main>
+</div>
