@@ -32,12 +32,6 @@ class SharedSkillsTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
 
-            # The requested skills are currently being added in this worktree;
-            # preserve them in this clone fixture just as the eventual commit will.
-            for source in (ROOT / "agents" / "skills").iterdir():
-                if source.is_dir() and not (checkout / "agents" / "skills" / source.name).exists():
-                    subprocess.run(["cp", "-a", str(source), str(checkout / "agents" / "skills" / source.name)], check=True)
-
             link = checkout / ".agents" / "skills"
             bootstrap_functions = temp / "bootstrap-functions"
             bootstrap_functions.write_text((checkout / "bootstrap").read_text().split("\nsteps=(", 1)[0])
@@ -59,6 +53,16 @@ class SharedSkillsTests(unittest.TestCase):
                 for path in (checkout / "agents" / "skills").rglob("SKILL.md")
             }
             self.assertTrue(expected, "checkout contains no skills")
+            self.assertTrue(
+                {
+                    "productivity/pdf",
+                    "productivity/ocr-and-documents",
+                    "productivity/session-librarian",
+                    "productivity/teams-meeting-pipeline",
+                }.issubset(expected),
+                f"clone is missing selected skills: {expected}",
+            )
+            self.assertNotIn("productivity/nano-pdf", expected)
             self.assertEqual(
                 sentinel.read_text(),
                 "user-installed skill; must not be changed\n",
