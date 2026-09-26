@@ -13,14 +13,13 @@ Notes:
 Productivity:
   - docx
   - meeting-action-items #details
-  - nano-pdf #details
-  - ocr-and-documents #details
-  - pdf #details
+  - ocr-and-documents
+  - pdf
   - powerpoint
-  - session-librarian #details
+  - session-librarian
   - xlsx
   - weekly-review-planning #details
-  - teams-meeting-pipeline #details
+  - teams-meeting-pipeline
   - meeting-action-items #details
 
 Research:
