@@ -9,7 +9,7 @@ theSystem's differentiating requirement is not a durable task board; it is a bou
 
 Hermes Kanban provides durable tasks, dependencies, atomic claims, dispatch, attempt history, and review transitions. But its ordinary dispatch does not itself enforce theSystem's explicit human-approval boundary or container/overlay isolation contract. Its review lifecycle uses separate implementation and reviewer runs and can route requested changes back to the worker. The documented non-Hermes CLI/container worker lane is not yet a paved integration. Kanban completion also does not itself mean a branch has been merged.
 
-Relevant design evidence: [`AGENTS.md`](../../AGENTS.md), [tracer-bullet orchestrator run](../../.scratch/foundations/issues/06-tracer-bullet-orchestrator-run.md), and [foundations analysis](../../.scratch/foundations/analysis.md). Hermes references: [Kanban](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban) and [worker lanes](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban-worker-lanes).
+Relevant design evidence: [`AGENTS.md`](../../AGENTS.md), [tracer-bullet orchestrator run](https://github.com/juancrfig/theSystem/issues/6), and [dogfood theSystem](https://github.com/juancrfig/theSystem/issues/12). Hermes references: [Kanban](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban) and [worker lanes](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban-worker-lanes).
 
 ## Decision
 
