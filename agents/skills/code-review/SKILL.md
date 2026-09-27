@@ -56,7 +56,11 @@ When delegation is available and the review is substantial, run the Standards an
 
 The Standards pass must report only findings grounded in an applicable document or clearly labelled judgement calls. The Spec pass must quote the requirement it believes is missing, incorrect, or exceeded. Each finding needs an accurate file and line, impact, and a concise remediation. Do not infer runtime success from static inspection.
 
-For source-code changes, run relevant project checks when the environment permits. If review is followed by an authorized code change, run the clone's required `./preflight` before modifying code. Distinguish static review, local test/runtime evidence, browser/device evidence, and live-provider evidence; report unavailable validation plainly.
+For source-code changes, perform an explicit security pass over changed trust boundaries. Trace plausible paths from untrusted input to sensitive operations (for example, secret handling, command or query construction, deserialization, path access, and data egress), reading surrounding code as needed. Report a security concern only when the changed code and its context support a concrete risk and impact; a regex match or suspicious-looking token alone is a lead to investigate, not a finding. Place each substantiated finding on the applicable Standards or Spec axis without merging the axes.
+
+Run relevant project checks when the environment permits. When a check fails, distinguish a regression from a pre-existing failure by running the same check against the fixed-point revision in an isolated checkout or worktree where feasible. Do not stash/pop or otherwise alter the review worktree to establish a baseline. Call a failure new or pre-existing only when the baseline and changed revision were checked under comparable commands and conditions; otherwise mark its origin inconclusive.
+
+If review is followed by an authorized code change, run the clone's required `./preflight` before modifying code. Distinguish static review, local test/runtime evidence, browser/device evidence, and live-provider evidence. Report checks that were unavailable, skipped, or failed with the reason and relevant command/result; do not silently treat missing tools or unrun checks as passing.
 
 ## 5. Report
 
