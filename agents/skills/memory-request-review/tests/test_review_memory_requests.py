@@ -22,8 +22,36 @@ class MemoryRequestReviewTests(unittest.TestCase):
         self.home.mkdir()
         self.catalog = Path(self.tmp.name) / "criteria.json"
         self.catalog.write_text('{"catalog_version": 1, "criteria": []}\n', encoding="utf-8")
+        # Native decisions execute in a separate interpreter. Supply a minimal
+        # isolated Hermes runtime so these tests exercise that boundary without
+        # relying on a developer's checkout-local review environment.
+        self.runtime = Path(self.tmp.name) / "runtime"
+        (self.runtime / "tools").mkdir(parents=True)
+        (self.runtime / "hermes_cli").mkdir()
+        (self.runtime / "tools" / "__init__.py").write_text("")
+        (self.runtime / "hermes_cli" / "__init__.py").write_text("")
+        (self.runtime / "tools" / "write_approval.py").write_text(
+            "import os\nfrom pathlib import Path\nMEMORY = 'memory'\n"
+            "def discard_pending(subsystem, pending_id):\n"
+            " p = Path(os.environ['HERMES_HOME']) / 'pending' / subsystem / f'{pending_id}.json'\n"
+            " if not p.exists(): return False\n"
+            " p.unlink(); return True\n"
+        )
+        (self.runtime / "tools" / "memory_tool.py").write_text("def load_on_disk_store(): return object()\n")
+        (self.runtime / "hermes_cli" / "write_approval_commands.py").write_text(
+            "import os\nfrom pathlib import Path\n"
+            "def _apply_one(subsystem, record, _store):\n"
+            " payload = record['payload']; root = Path(os.environ['HERMES_HOME'])\n"
+            " if subsystem == 'memory':\n"
+            "  name = 'USER.md' if payload.get('target') == 'user' else 'MEMORY.md'\n"
+            "  path = root / 'memories' / name; path.parent.mkdir(parents=True, exist_ok=True)\n"
+            "  path.write_text(payload.get('content', ''), encoding='utf-8')\n"
+            " return True, '', {'applied': True}\n"
+        )
+        sys.path.insert(0, str(self.runtime))
 
     def tearDown(self):
+        sys.path.remove(str(self.runtime))
         self.tmp.cleanup()
 
     def _pending(self, subsystem, ident, payload, *, home=None):
@@ -67,7 +95,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
         panel = review.render_panel(request, result, 1, 1)
 
         self.assertEqual(calls, [])
-        self.assertEqual(result.status, "SIN CRITERIOS")
+        self.assertEqual(result.status, "NO CRITERIA")
         self.assertIn("no criteria in the catalog", panel)
         self.assertIn("Target: memory", panel)
         self.assertIn("+ keep this", panel)
@@ -85,7 +113,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
         panel = review.render_panel(request, result, 1, 1)
 
         self.assertEqual(calls, [])
-        self.assertEqual(result.status, "RETENIDA LOCALMENTE")
+        self.assertEqual(result.status, "RETAINED LOCALLY")
         self.assertNotIn(secret, panel)
         self.assertIn("possible API key", panel)
 
@@ -119,7 +147,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
         catalog = review.Catalog(1, (
             review.Criterion("vague", 1, "Is it vague?", {}, {"yes": "y", "no": "n"}, [], []),
         ))
-        panel = review.render_panel(request, review.Evaluation("EVALUADA", "jev-test", {"vague": 0.27}), 1, 1, catalog)
+        panel = review.render_panel(request, review.Evaluation("EVALUATED", "jev-test", {"vague": 0.27}), 1, 1, catalog)
         flattened = " ".join(panel.replace("│", " ").split())
         self.assertIn("Target: user", panel)
         self.assertIn("Is it vague?", panel)
@@ -135,7 +163,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
         catalog = review.Catalog(1, (
             review.Criterion("vague", 1, "Is it vague?", {}, {"yes": "y", "no": "n"}, [], []),
         ))
-        failed = review.Evaluation("ERROR DE EVALUACION", "", {}, "boom")
+        failed = review.Evaluation("EVALUATION ERROR", "", {}, "boom")
         panel = review.render_panel(request, failed, 1, 1, catalog)
         self.assertIn("Is it vague?", panel)
         self.assertIn("Jev failed: boom", panel)
@@ -164,7 +192,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
         self.assertEqual(operations[2].verb, "REPLACE")
         self.assertIn('"extra":1', operations[2].new)
         self.assertEqual((operations[3].verb, operations[3].old), ("DELETE", "Gone"))
-        self.assertNotIn("Anchor", review.render_panel(request, review.Evaluation("SIN CRITERIOS", "", {}), 1, 1)
+        self.assertNotIn("Anchor", review.render_panel(request, review.Evaluation("NO CRITERIA", "", {}), 1, 1)
                          .split("REPLACE")[0])
 
     def test_show_evaluates_only_the_displayed_request(self):
@@ -178,7 +206,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
         seen = []
         original = review.evaluate_with_jev
         review.evaluate_with_jev = lambda request, *_: (
-            seen.append(request.pending_id) or review.Evaluation("EVALUADA", "jev-test", {"q": 0.5}))
+            seen.append(request.pending_id) or review.Evaluation("EVALUATED", "jev-test", {"q": 0.5}))
         try:
             output = io.StringIO()
             with redirect_stdout(output):
