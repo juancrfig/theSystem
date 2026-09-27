@@ -207,16 +207,16 @@ def evaluate_with_jev(request: PendingRequest, criteria: tuple[Criterion, ...], 
     try:
         from typesafe_sdk import Noul, TypeSafeClient
     except ImportError as exc:
-        return Evaluation("ERROR DE EVALUACION", "", {}, f"TypeSafe SDK unavailable: {exc}")
+        return Evaluation("EVALUATION ERROR", "", {}, f"TypeSafe SDK unavailable: {exc}")
     questions = {criterion.criterion_id: Noul(instructions=_criterion_instructions(criterion)) for criterion in criteria}
     try:
         with TypeSafeClient(model=model) as client:
             response = client.system_one(state={"proposal": request.payload}, questions=questions, model=model)
         results = {criterion.criterion_id: float(response.nouls[criterion.criterion_id].noul) for criterion in criteria}
         effective_model = str(getattr(response, "model", None) or model or "jev")
-        return Evaluation("EVALUADA", effective_model, results)
+        return Evaluation("EVALUATED", effective_model, results)
     except Exception as exc:  # provider failure must remain visible and non-authorizing
-        return Evaluation("ERROR DE EVALUACION", model or "", {}, f"{type(exc).__name__}: {exc}")
+        return Evaluation("EVALUATION ERROR", model or "", {}, f"{type(exc).__name__}: {exc}")
 
 
 def evaluate_request(
@@ -227,9 +227,9 @@ def evaluate_request(
 ) -> Evaluation:
     retained = detect_possible_secrets(request.payload)
     if retained:
-        return Evaluation("RETENIDA LOCALMENTE", "", {}, retention_categories=retained)
+        return Evaluation("RETAINED LOCALLY", "", {}, retention_categories=retained)
     if not catalog.criteria:
-        return Evaluation("SIN CRITERIOS", "", {})
+        return Evaluation("NO CRITERIA", "", {})
     if evaluator is not None:
         return evaluator(request, catalog.criteria)
     return evaluate_with_jev(request, catalog.criteria, model)
@@ -263,7 +263,7 @@ def save_review_state(root: Path, state: dict[str, Any]) -> None:
 
 
 def _store_evaluation(state: dict[str, Any], request: PendingRequest, catalog: Catalog, evaluation: Evaluation) -> None:
-    if evaluation.status != "EVALUADA" or not evaluation.model:
+    if evaluation.status != "EVALUATED" or not evaluation.model:
         return
     results = state.setdefault("results", {})
     for criterion in catalog.criteria:
@@ -283,12 +283,12 @@ def evaluate_one(
     state = state if state is not None else {"results": {}}
     retained = detect_possible_secrets(request.payload)
     if retained:
-        return Evaluation("RETENIDA LOCALMENTE", "", {}, retention_categories=retained)
+        return Evaluation("RETAINED LOCALLY", "", {}, retention_categories=retained)
     if not catalog.criteria:
-        return Evaluation("SIN CRITERIOS", "", {})
+        return Evaluation("NO CRITERIA", "", {})
     cached = reusable_results(request, catalog, model, state.get("results", {})) if model else {}
     if len(cached) == len(catalog.criteria):
-        return Evaluation("EVALUADA", model, cached)
+        return Evaluation("EVALUATED", model, cached)
     evaluation = evaluate_with_jev(request, catalog.criteria, model)
     _store_evaluation(state, request, catalog, evaluation)
     return evaluation
@@ -392,9 +392,9 @@ def _bar(probability: float, cells: int = 10) -> str:
 
 
 def _verdict_note(evaluation: Evaluation) -> str:
-    if evaluation.status == "RETENIDA LOCALMENTE":
+    if evaluation.status == "RETAINED LOCALLY":
         return "possible secret (" + ", ".join(evaluation.retention_categories) + "): kept local, Jev not called"
-    if evaluation.status == "SIN CRITERIOS":
+    if evaluation.status == "NO CRITERIA":
         return "no criteria in the catalog: Jev not called"
     if evaluation.error:
         return "Jev failed: " + evaluation.error
@@ -465,7 +465,7 @@ def render_panel(
         question_blocks.extend(_wrap(question, inner))
         question_blocks.append("·  no score" if probability is None
                                else f"{_bar(probability)}  {probability:.2f}")
-    if note and evaluation.status != "RETENIDA LOCALMENTE":
+    if note and evaluation.status != "RETAINED LOCALLY":
         if question_blocks:
             question_blocks.append("")
         question_blocks.extend(_wrap(note, inner))
@@ -474,7 +474,7 @@ def render_panel(
         rows += [box(line) for line in question_blocks]
         rows.append(box(""))
     rows.append(rule("├", "┤"))
-    if evaluation.status == "RETENIDA LOCALMENTE":
+    if evaluation.status == "RETAINED LOCALLY":
         rows += [box(line) for line in _wrap("Content withheld: " + note, inner)]
     else:
         def _verb_badge(verb: str) -> list[str]:
@@ -575,7 +575,14 @@ def apply_native_decision(request: PendingRequest, decision: str, expected_recor
     runtime_path = os.pathsep.join(path for path in sys.path if path)
     process = subprocess.run(
         command,
-        env={"HERMES_HOME": str(request.home), "PYTHONPATH": runtime_path},
+        # The child must retain the exact prepared interpreter selected for this
+        # review. Otherwise its startup guard falls back to a checkout-local
+        # path even though we deliberately invoked sys.executable below.
+        env={
+            "HERMES_HOME": str(request.home),
+            "HERMES_MEMORY_REVIEW_PYTHON": sys.executable,
+            "PYTHONPATH": runtime_path,
+        },
         text=True,
         capture_output=True,
         check=False,
@@ -613,7 +620,7 @@ def ensure_review_runtime() -> None:
     if not Path(interpreter).is_file() or not os.access(interpreter, os.X_OK):
         raise ReviewError(
             f"Review interpreter is unavailable: {interpreter}. "
-            "Run ./bootstrap from the checkout, or set HERMES_MEMORY_REVIEW_PYTHON "
+            "Run ./install from the checkout, or set HERMES_MEMORY_REVIEW_PYTHON "
             "to a prepared interpreter. Review never installs dependencies."
         )
     # Do not resolve the executable symlink: virtualenvs share a base Python.
@@ -666,7 +673,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(output, ensure_ascii=False, indent=2))
         return 0
     if not inventory.requests:
-        print("No hay solicitudes pendientes en los perfiles autorizados.")
+        print("No pending requests in the authorized profiles.")
         return 0
     if args.command == "show":
         if args.position < 1 or args.position > len(inventory.requests):

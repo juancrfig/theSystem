@@ -37,7 +37,7 @@ Use the most constrained form that can hold the fact:
 | Artifact | What limits it |
 |---|---|
 | **Rule** | `Prevents:` demands a real incident. A rule without one is a preference. |
-| **ADR** | Requires a named rejected alternative. No decision, no file. ADRs live in `wiki/adr/`. |
+| **ADR** | Requires a named rejected alternative. No decision, no file. ADRs live in `docs/ADRs/`. |
 | **Ledger line** | One line. The format forbids growth. |
 | **Wiki page** | **Nothing.** No scarcity mechanism at all. |
 
