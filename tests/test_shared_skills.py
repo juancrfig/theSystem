@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SharedSkillsTests(unittest.TestCase):
-    def test_bootstrap_exposes_checkout_skills_to_hermes_without_installing_over_global_skills(self):
+    def test_install_exposes_checkout_skills_to_hermes_without_installing_over_global_skills(self):
         """A fresh checkout links its shared skills; it never copies into Hermes home."""
         with tempfile.TemporaryDirectory(prefix="theSystem-skills-") as temp:
             temp = Path(temp)
@@ -31,12 +31,13 @@ class SharedSkillsTests(unittest.TestCase):
                 capture_output=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+            (checkout / "install").write_text((ROOT / "install").read_text())
 
             link = checkout / ".agents" / "skills"
-            bootstrap_functions = temp / "bootstrap-functions"
-            bootstrap_functions.write_text((checkout / "bootstrap").read_text().split("\nsteps=(", 1)[0])
+            install_functions = temp / "install-functions"
+            install_functions.write_text((checkout / "install").read_text().split("\nsteps=(", 1)[0])
             setup = (
-                f"source {shlex.quote(str(bootstrap_functions))}\n"
+                f"source {shlex.quote(str(install_functions))}\n"
                 f"repo_root={shlex.quote(str(checkout))}\n"
                 f"project_skills_link={shlex.quote(str(link))}\n"
                 "link_project_skills\n"
@@ -66,7 +67,7 @@ class SharedSkillsTests(unittest.TestCase):
             self.assertEqual(
                 sentinel.read_text(),
                 "user-installed skill; must not be changed\n",
-                "bootstrap must not overwrite Hermes-installed global skills",
+                "install must not overwrite Hermes-installed global skills",
             )
             self.assertFalse((global_skills / "autonomous-ai-agents").exists())
 

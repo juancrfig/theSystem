@@ -26,6 +26,7 @@ project_skills_link="$repo_root/.agents/skills"
 default_hermes_home="$HOME/.hermes"
 memory_review_requirements="$repo_root/agents/skills/memory-request-review/requirements.txt"
 memory_review_env="$repo_root/.agents/memory-review"
+required_toolsets="$repo_root/agents/.harness/required_toolsets.txt"
 
 require_file() {
   if [[ ! -f "$1" ]]; then
@@ -124,11 +125,27 @@ PY
 
 check_prerequisites() {
   require_file "$canonical_config"
+  require_file "$required_toolsets"
   require_file "$repo_root/.githooks/pre-commit"
   require_file "$memory_review_requirements"
   require_command hermes
   require_command python3
   require_command uv
+}
+
+enable_required_toolsets() {
+  local toolset previous='' names=()
+  while IFS= read -r toolset || [[ -n "$toolset" ]]; do
+    [[ -z "$toolset" || "$toolset" == \#* ]] && continue
+    [[ "$toolset" =~ ^[a-z][a-z0-9_]*$ ]] || { printf 'Invalid required toolset name: %s\n' "$toolset" >&2; exit 1; }
+    for previous in "${names[@]}"; do
+      [[ "$previous" != "$toolset" ]] || { printf 'Duplicate toolset name: %s\n' "$toolset" >&2; exit 1; }
+    done
+    names+=("$toolset")
+  done < "$required_toolsets"
+  ((${#names[@]})) || { printf 'Required toolset manifest is empty: %s\n' "$required_toolsets" >&2; exit 1; }
+  HERMES_HOME="$default_hermes_home" hermes tools enable --platform cli "${names[@]}"
+  step_detail="${#names[@]} required toolsets"
 }
 
 provision_memory_review() {
@@ -252,6 +269,7 @@ for name in sorted({path.parent.name for path in manifests}):
 
 steps=(
   "prerequisites|Check prerequisites|check_prerequisites"
+  "toolsets|Enable required Hermes toolsets|enable_required_toolsets"
   "memory-review|Prepare memory review environment|provision_memory_review"
   "git-hooks|Configure git hooks|configure_git_hooks"
   "hermes-config|Apply canonical Hermes config|apply_canonical_config"

@@ -50,21 +50,6 @@ display:
   show_reasoning: false
   interim_assistant_messages: false
 
-platform_toolsets:
-  cli:
-    - clarify
-    - todo
-    - delegation
-    - kanban
-    - memory
-    - session_search
-    - skills
-    - file
-    - cronjob
-    - terminal
-    - vision
-    - web
-
 approvals:
   deny:
     - "git push --force*"

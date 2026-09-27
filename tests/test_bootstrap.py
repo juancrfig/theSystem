@@ -21,6 +21,9 @@ class MemoryReviewBootstrapTests(unittest.TestCase):
         self.log = self.root / "calls"
         self.requirements = self.root / "requirements.txt"
         self.requirements.write_text("typesafe-sdk==0.7.1\n")
+        required_toolsets = self.root / "agents" / ".harness" / "required_toolsets.txt"
+        required_toolsets.parent.mkdir(parents=True)
+        required_toolsets.write_text("file\n")
         self.env_dir = self.root / "review env"
         self.mock_command("uv", '''#!/usr/bin/env python3
 import json, os, pathlib, sys

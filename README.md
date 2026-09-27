@@ -1,4 +1,4 @@
-# Overview 
+# Overview
 
 A framework to reliably build high-quality software by leveraging AI agents. 
 
@@ -26,8 +26,19 @@ Until a clear protocol is designed and battle-tested, the feedback loop must rem
 
 ### Setup
 
-Run `./bootstrap`.
+Run locally with `./install`. The installer asks for a workspace (default
+`~/workspace`), downloads distribution content without retaining a git checkout,
+installs missing `uv` and Hermes, and configures only the dedicated Hermes `master`
+profile using official Blank Slate setup.
 
-Bootstrap requires `uv` and prepares an isolated memory-review Python environment
-at `.agents/memory-review`, using the skill's `requirements.txt` as the dependency
-source.
+## theSystem work tracking
+
+Work on this repository is tracked in the public GitHub Issues for
+[`juancrfig/theSystem`](https://github.com/juancrfig/theSystem/issues) and the private
+[`theSystem` Project](https://github.com/users/juancrfig/projects/8). The agent working on
+theSystem owns ticket creation, review, updates, organization, dependency links, evidence,
+verification, and closure; the user is not expected to maintain the tracker. Product projects
+retain their own documented tracker and execution contract.
+
+See `agents/skills/ticket-system-maintenance/SKILL.md` for the required create/review/migration
+workflow. Durable design decisions live in `docs/ADRs/`, indexed by `docs/stuff/decisions.md`.

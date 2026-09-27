@@ -1,0 +1,19 @@
+# Hermes CLI toolsets required for the main agent when working on theSystem.
+# Bootstrap enables these additively and leaves unrelated toolsets untouched.
+web
+browser
+terminal
+file
+code_execution
+vision
+stt
+skills
+todo
+kanban
+memory
+context_engine
+session_search
+clarify
+delegation
+cronjob
+computer_use
