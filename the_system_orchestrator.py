@@ -26,7 +26,7 @@ _provider_opener=build_opener(_NoCredentialRedirect())
 
 class HostCredentialBroker:
     """Host-owned provider credential and short-lived, model-scoped agent capability."""
-    def __init__(self, upstream_url, provider_key, model, lifetime=3600, max_requests=100):
+    def __init__(self, upstream_url, provider_key, model, lifetime=3600, max_requests=2000):
         parsed=urlsplit(upstream_url)
         if parsed.scheme not in ("http","https") or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise OrchestratorError("CREDENTIAL_BROKER_INVALID","broker upstream must be an absolute HTTP(S) URL")
@@ -40,7 +40,7 @@ class HostCredentialBroker:
         self.server=None; self.thread=None; self.socket_path=None
 
     @classmethod
-    def from_environment(cls,runtime,env=None,lifetime=3600):
+    def from_environment(cls,runtime,env=None,lifetime=3600,max_requests=2000):
         env=os.environ if env is None else env
         upstream=env.get("THESYSTEM_BROKER_UPSTREAM_URL")
         key=env.get("THESYSTEM_BROKER_PROVIDER_KEY")
@@ -55,7 +55,7 @@ class HostCredentialBroker:
             raise OrchestratorError("CREDENTIAL_BROKER_REQUIRED","contained %s requires THESYSTEM_BROKER_UPSTREAM_URL and a host-held broker/provider key" % runtime)
         default_model="gpt-4.1-mini" if upstream == "https://api.openai.com/v1" else "openai/gpt-4.1-mini"
         model=env.get("THESYSTEM_BROKER_MODEL") or env.get("COPILOT_MODEL") or default_model
-        return cls(upstream,key,model,lifetime=lifetime)
+        return cls(upstream,key,model,lifetime=lifetime,max_requests=max_requests)
 
     def serve(self, socket_path):
         socket_path=Path(socket_path)
@@ -105,7 +105,8 @@ class HostCredentialBroker:
                 try: requested_model=json.loads(body or b"{}") ["model"]
                 except (KeyError,TypeError,json.JSONDecodeError): return self._reject(handler,400)
                 if requested_model != self.model: return self._reject(handler,403)
-            headers={k:v for k,v in handler.headers.items() if k.lower() in ("content-type","accept")}
+            filtered={"host","authorization","content-length","connection","transfer-encoding"}
+            headers={k:v for k,v in handler.headers.items() if k.lower() not in filtered}
             headers["Authorization"]="Bearer "+self.provider_key
             request=Request(self.upstream_url+handler.path[3:],data=body,headers=headers,method=handler.command)
             try: response=_provider_opener.open(request,timeout=120)
@@ -136,7 +137,7 @@ class Relay(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length) if length else None
         headers = {key:value for key,value in self.headers.items()
-                   if key.lower() in ("content-type", "accept")}
+                   if key.lower() not in ("host", "authorization", "content-length", "connection", "transfer-encoding")}
         headers["Authorization"] = "Bearer " + capability
         try:
             upstream = UnixConnection("localhost")
@@ -167,6 +168,9 @@ def git(c,*a):
     p=subprocess.run(["git",*a],cwd=c,text=True,capture_output=True)
     if p.returncode: raise OrchestratorError("GIT_FAILED",p.stderr.strip() or "git failed")
     return p.stdout.strip()
+
+def _slug(value):
+    return isinstance(value,str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}",value)
 
 class Orchestrator:
     def __init__(self,project):
@@ -199,14 +203,45 @@ class Orchestrator:
     def task(self,i):
         if i not in self.state["tasks"]: raise OrchestratorError("TASK_NOT_FOUND",i)
         return self.state["tasks"][i]
+    def _normalize_acceptance(self, acceptance, fallback_prompt):
+        if not acceptance:
+            acceptance=[{"text":fallback_prompt.strip(),"verify":{"type":"human","instructions":"Validate manually against the stated behavior."}}]
+        normalized=[]
+        for index,item in enumerate(acceptance):
+            if isinstance(item,str):
+                normalized.append({"text":item,"verify":{"type":"human","instructions":"Validate manually against this criterion."}})
+            elif isinstance(item,dict):
+                normalized.append(item)
+            else:
+                raise OrchestratorError("ACCEPTANCE_INVALID",f"acceptance criterion {index+1} must be a string or object")
+        return normalized
+    def _acceptance_lines(self, t):
+        lines=[]
+        for criterion in t.get("acceptance",[]):
+            if isinstance(criterion,str):
+                lines.append(criterion)
+                continue
+            text=(criterion.get("text") or "").strip()
+            verify=criterion.get("verify") if isinstance(criterion,dict) else None
+            if isinstance(verify,dict):
+                if verify.get("type")=="command":
+                    lines.append(f"{text} (Verify: command `{verify.get('command','')}`)")
+                elif verify.get("type")=="human":
+                    lines.append(f"{text} (Verify: human — {verify.get('instructions','')})")
+                else:
+                    lines.append(text)
+            else:
+                lines.append(text)
+        return [x for x in lines if x]
     def create_task(self,task_id,source_clone,command,runtime="hermes",ticket="local",acceptance=None,dependencies=None,roles=None):
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}",task_id) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}",ticket): raise OrchestratorError("IDENTIFIER_INVALID","task and ticket must be safe slugs")
+        if not _slug(task_id) or not _slug(ticket): raise OrchestratorError("IDENTIFIER_INVALID","task and ticket must be safe slugs")
         if task_id in self.state["tasks"]: raise OrchestratorError("TASK_EXISTS",task_id)
         clone=Path(source_clone).expanduser().resolve()
         if not clone.is_dir() or not (clone/".git").exists(): raise OrchestratorError("SOURCE_CLONE_INVALID",str(clone))
         if runtime not in RUNTIMES: raise OrchestratorError("RUNTIME_INVALID",runtime)
         if not isinstance(command,str) or not command.strip(): raise OrchestratorError("PROMPT_REQUIRED","agent prompt is required")
-        self.state["tasks"][task_id]={"id":task_id,"ticket":ticket,"source_clone":str(clone),"prompt":command,"command":command,"runtime":runtime,"acceptance":acceptance or [],"dependencies":dependencies or [],"roles":roles or ["base","worker"],"approval":"proposed","created_at":now()}; self.save(); self._materialize_task(self.task(task_id)); return self.task(task_id)
+        criteria=self._normalize_acceptance(acceptance,command)
+        self.state["tasks"][task_id]={"id":task_id,"ticket":ticket,"source_clone":str(clone),"prompt":command,"command":command,"runtime":runtime,"acceptance":criteria,"dependencies":dependencies or [],"roles":roles or ["base","worker"],"base_ref":"HEAD","approval":"proposed","created_at":now()}; self.save(); self._materialize_task(self.task(task_id)); return self.task(task_id)
     def approve(self,task_id,dispatch=True,timeout=3600):
         if not 1 <= int(timeout) <= 3600: raise OrchestratorError("TIMEOUT_INVALID","attempt timeout must be 1..3600 seconds")
         t=self.task(task_id)
@@ -219,6 +254,123 @@ class Orchestrator:
             if e.code == "BLOCKED": return t
             raise
     def _task_directory(self,t): return self.project/"tickets"/t["ticket"]/"tasks"/t["id"]
+    def _task_contract(self,t):
+        return {
+            "project":str(self.project),
+            "ticket":t["ticket"],
+            "task":t["id"],
+            "source_clone":t["source_clone"],
+            "base_ref":t.get("base_ref","HEAD"),
+            "runtime":t["runtime"],
+            "roles":t.get("roles",[]),
+            "what_to_build":t.get("prompt",""),
+            "acceptance_criteria":t.get("acceptance",[]),
+            "blockers":[{"task":dep} for dep in t.get("dependencies",[])],
+            "status":"done" if t.get("status")=="done" else "ready-for-agent" if t["approval"]=="approved" else "proposed",
+        }
+    def _read_task_contract(self,t):
+        path=self._task_directory(t)/"task.md"
+        errors=[]
+        if not path.exists():
+            return None,[f"missing contract file: {path}"]
+        text=path.read_text()
+        if not text.startswith("---\n"):
+            return None,["task contract must begin with front matter delimiter ---"]
+        end=text.find("\n---\n",4)
+        if end==-1:
+            return None,["task contract front matter is not closed with ---"]
+        front=text[4:end].strip()
+        try:
+            contract=json.loads(front)
+        except json.JSONDecodeError as error:
+            return None,[f"task contract front matter must be JSON-compatible YAML object: {error.msg}"]
+        if not isinstance(contract,dict):
+            return None,["task contract front matter must decode to an object"]
+        return contract,errors
+    def _validate_task_contract(self,t):
+        contract,errors=self._read_task_contract(t)
+        if contract is None:
+            raise OrchestratorError("TICKET_INVALID","; ".join(errors))
+        required=("project","ticket","task","source_clone","base_ref","runtime","roles","what_to_build","acceptance_criteria","blockers","status")
+        for field in required:
+            if field not in contract: errors.append(f"missing required field: {field}")
+        if isinstance(contract.get("project"),str):
+            if contract["project"]!=str(self.project): errors.append("project must match the orchestrator project path")
+        elif "project" in contract:
+            errors.append("project must be a string")
+        if "ticket" in contract and (not isinstance(contract["ticket"],str) or not _slug(contract["ticket"])):
+            errors.append("ticket must be a safe slug")
+        elif isinstance(contract.get("ticket"),str) and contract["ticket"]!=t["ticket"]:
+            errors.append("ticket must match orchestrator task metadata")
+        if "task" in contract and (not isinstance(contract["task"],str) or not _slug(contract["task"])):
+            errors.append("task must be a safe slug")
+        elif isinstance(contract.get("task"),str) and contract["task"]!=t["id"]:
+            errors.append("task must match orchestrator task metadata")
+        source=contract.get("source_clone")
+        if "source_clone" in contract:
+            if not isinstance(source,str) or not source.strip():
+                errors.append("source_clone must be a non-empty string")
+            elif source!=t["source_clone"]:
+                errors.append("source_clone must match orchestrator task metadata")
+        if "runtime" in contract and contract.get("runtime") not in RUNTIMES:
+            errors.append("runtime must be one of: "+", ".join(sorted(RUNTIMES)))
+        elif contract.get("runtime")!=t["runtime"]:
+            errors.append("runtime must match orchestrator task metadata")
+        roles=contract.get("roles")
+        if "roles" in contract:
+            if not isinstance(roles,list) or not all(isinstance(role,str) for role in roles):
+                errors.append("roles must be a list of strings")
+            elif "worker" not in roles:
+                errors.append("roles must include worker")
+        if "what_to_build" in contract and (not isinstance(contract["what_to_build"],str) or not contract["what_to_build"].strip()):
+            errors.append("what_to_build must be a non-empty string")
+        criteria=contract.get("acceptance_criteria")
+        if "acceptance_criteria" in contract:
+            if not isinstance(criteria,list) or not criteria:
+                errors.append("acceptance_criteria must be a non-empty list")
+            else:
+                for index,criterion in enumerate(criteria,start=1):
+                    if not isinstance(criterion,dict):
+                        errors.append(f"acceptance_criteria[{index}] must be an object")
+                        continue
+                    text=(criterion.get("text") or "") if isinstance(criterion.get("text"),str) else ""
+                    if not text.strip(): errors.append(f"acceptance_criteria[{index}].text is required")
+                    verify=criterion.get("verify")
+                    if not isinstance(verify,dict):
+                        errors.append(f"acceptance_criteria[{index}].verify is required")
+                        continue
+                    verify_type=verify.get("type")
+                    if verify_type=="command":
+                        if not isinstance(verify.get("command"),str) or not verify["command"].strip():
+                            errors.append(f"acceptance_criteria[{index}].verify.command is required")
+                    elif verify_type=="human":
+                        if not isinstance(verify.get("instructions"),str) or not verify["instructions"].strip():
+                            errors.append(f"acceptance_criteria[{index}].verify.instructions is required")
+                    else:
+                        errors.append(f"acceptance_criteria[{index}].verify.type must be command or human")
+        blockers=contract.get("blockers")
+        blocker_tasks=[]
+        if "blockers" in contract:
+            if not isinstance(blockers,list):
+                errors.append("blockers must be a list")
+            else:
+                for index,blocker in enumerate(blockers,start=1):
+                    if isinstance(blocker,dict) and isinstance(blocker.get("task"),str) and blocker["task"].strip():
+                        blocker_tasks.append(blocker["task"].strip())
+                    elif isinstance(blocker,dict) and isinstance(blocker.get("external"),str) and blocker.get("state") in {"done","open"}:
+                        pass
+                    else:
+                        errors.append(f"blockers[{index}] must be {{task:<id>}} or {{external:<id>,state:done|open}}")
+        expected=sorted(str(dep) for dep in t.get("dependencies",[]))
+        if sorted(blocker_tasks)!=expected:
+            errors.append("blockers must match orchestrator dependency list")
+        if "status" in contract and contract["status"] not in {"proposed","ready-for-agent","done"}:
+            errors.append("status must be proposed, ready-for-agent, or done")
+        if "base_ref" in contract and (not isinstance(contract["base_ref"],str) or not contract["base_ref"].strip()):
+            errors.append("base_ref must be a non-empty string")
+        if errors:
+            raise OrchestratorError("TICKET_INVALID","; ".join(errors))
+        return contract,blockers
     def _materialize_task(self,t):
         d=self._task_directory(t); d.mkdir(parents=True,exist_ok=True)
         ticket=d.parent.parent
@@ -226,10 +378,20 @@ class Orchestrator:
         if not f.exists(): f.write_text(f"# {t['ticket']}\n\nLocal acceptance ticket.\n")
         spec=ticket/"spec.md"
         if not spec.exists(): spec.write_text("# Specification\n\nSee the individual approved tasks for scope.\n")
-        (d/"task.md").write_text("---\nstatus: "+("done" if t.get("status")=="done" else "ready-for-agent" if t["approval"]=="approved" else "proposed")+"\nsource_clone: "+str(t["source_clone"])+"\nroles:\n  - worker\n---\n\n"+t["prompt"]+"\n\n## Acceptance criteria\n"+"\n".join("- "+x for x in t.get("acceptance",[]))+"\n")
+        contract=self._task_contract(t)
+        frontmatter=json.dumps(contract,indent=2,sort_keys=True)
+        acceptance="\n".join(f"- {line}" for line in self._acceptance_lines(t))
+        blockers="\n".join(f"- {item['task']}" for item in contract.get("blockers",[])) or "- None (can start immediately)"
+        (d/"task.md").write_text("---\n"+frontmatter+"\n---\n\n# "+t["id"]+"\n\n## What to build\n\n"+contract["what_to_build"].strip()+"\n\n## Acceptance criteria\n"+acceptance+"\n\n## Blocked by\n"+blockers+"\n")
     def _admission(self,t):
-        for dep in t.get("dependencies",[]):
-            if dep not in self.state["tasks"] or self.state["tasks"][dep].get("status")!="done": raise OrchestratorError("BLOCKED",dep)
+        _,blockers=self._validate_task_contract(t)
+        for blocker in blockers:
+            if isinstance(blocker,dict) and isinstance(blocker.get("task"),str):
+                dep=blocker["task"].strip()
+                if dep not in self.state["tasks"] or self.state["tasks"][dep].get("status")!="done":
+                    raise OrchestratorError("BLOCKED",dep)
+            elif isinstance(blocker,dict) and isinstance(blocker.get("external"),str) and blocker.get("state")!="done":
+                raise OrchestratorError("BLOCKED",blocker["external"])
         if not t.get("roles") or "worker" not in t["roles"]: raise OrchestratorError("ROLE_INVALID","worker role required")
         if t.get("approval_digest") != digest({k:t[k] for k in ("source_clone","prompt","runtime","acceptance","roles")}): raise OrchestratorError("APPROVAL_STALE","task scope changed after approval")
     def active(self,i): return [r for r in self.state["runs"].values() if r["task_id"]==i and r["status"] in ACTIVE]
@@ -284,8 +446,11 @@ class Orchestrator:
     def _docker(self,image,work,cmd,timeout,prompt,readonly=False,layer=None,runtime="copilot",container_name=None):
         if not shutil.which("docker"): raise OrchestratorError("DOCKER_UNAVAILABLE","docker is required")
         if not image: raise OrchestratorError("AGENT_IMAGE_REQUIRED","configure an image with the selected CLI")
-        broker=HostCredentialBroker.from_environment(runtime,lifetime=max(1,int(timeout))+30)
-        args=["docker","run","--rm",*(["--name",container_name] if container_name else []),"--network","none","--init","--cap-drop=ALL","--security-opt","no-new-privileges","--pids-limit","256","--memory","2g","--cpus","2","--user",f"{os.getuid()}:{os.getgid()}","-v",f"{work}:/workspace"+(':ro' if readonly else ''),"-v",f"{prompt}:/run/prompt:ro","-w","/workspace"]
+        broker=HostCredentialBroker.from_environment(runtime,lifetime=max(1,int(timeout))+30,max_requests=max(2000,int(timeout)*10))
+        network_mode=(os.environ.get("THESYSTEM_CONTAINER_NETWORK") or "none").strip().lower()
+        if network_mode not in {"none","bridge"}:
+            raise OrchestratorError("CONTAINER_NETWORK_INVALID","THESYSTEM_CONTAINER_NETWORK must be none or bridge")
+        args=["docker","run","--rm",*(["--name",container_name] if container_name else []),"--network",network_mode,"--init","--cap-drop=ALL","--security-opt","no-new-privileges","--pids-limit","256","--memory","2g","--cpus","2","--user",f"{os.getuid()}:{os.getgid()}","-v",f"{work}:/workspace"+(':ro' if readonly else ''),"-v",f"{prompt}:/run/prompt:ro","-w","/workspace"]
         if layer: args += ["-v",f"{layer}:/review"]
         env=os.environ.copy()
         for name in ("COPILOT_GITHUB_TOKEN","GH_TOKEN","GITHUB_TOKEN","OPENROUTER_API_KEY","OPENAI_API_KEY","ANTHROPIC_API_KEY","CLAUDE_CODE_OAUTH_TOKEN","COPILOT_PROVIDER_API_KEY","COPILOT_PROVIDER_BEARER_TOKEN","THESYSTEM_BROKER_PROVIDER_KEY"):
@@ -300,7 +465,7 @@ class Orchestrator:
             try:
                 args += ["-v",f"{agent_home}:/run/thesystem","-v",f"{relay_path}:/run/thesystem-relay.py:ro","-e","THESYSTEM_BROKER_CAPABILITY="+broker.capability]
                 if runtime=="copilot":
-                    args += ["-v",f"{agent_home}:/run/copilot-home","-e","COPILOT_HOME=/run/copilot-home","-e","COPILOT_PROVIDER_TYPE=openai","-e","COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:18080/v1","-e","COPILOT_PROVIDER_API_KEY="+broker.capability,"-e","COPILOT_MODEL="+broker.model]
+                    args += ["-v",f"{agent_home}:/run/copilot-home","-e","HOME=/run/copilot-home","-e","XDG_CACHE_HOME=/run/copilot-home/.cache","-e","COPILOT_HOME=/run/copilot-home","-e","COPILOT_PROVIDER_TYPE=openai","-e","COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:18080/v1","-e","COPILOT_PROVIDER_API_KEY="+broker.capability,"-e","COPILOT_MODEL="+broker.model]
                 elif runtime=="hermes":
                     (agent_home/"config.yaml").write_text("model:\n  default: %s\n  provider: custom\n  base_url: http://127.0.0.1:18080/v1\n  api_key: ${THESYSTEM_BROKER_CAPABILITY}\n" % broker.model)
                     # Hermes initializes a disposable home at startup; only
@@ -331,7 +496,7 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
             shutil.rmtree(agent_home,ignore_errors=True)
     def _agent_command(self,runtime,review=False,prompt=""):
         if runtime=="copilot":
-            return ["copilot","-p",(prompt+"\nInspect application files in /workspace read-only. This is a git worktree whose .git pointer targets host metadata not accessible in the container; do not try to resolve it. Run tests only in /review. End your response with exactly VERDICT: PASS or VERDICT: FAIL and a reason. Do not change /workspace." if review else prompt+"\nImplement in /workspace. This is an intentionally empty initial clone; the .git worktree pointer targets host metadata not mounted in the container. Do not attempt to resolve that pointer; create the requested files. The host orchestrator owns commits. Do not access paths outside /workspace."),"--allow-all-tools","--disallow-temp-dir","--disable-builtin-mcps",*(["--allow-all-paths"] if review else []),"--no-auto-update","--no-remote","--no-remote-export","--no-ask-user"]
+            return ["copilot","-p",(prompt+"\nInspect application files in /workspace read-only. This is a git worktree whose .git pointer targets host metadata not accessible in the container; do not try to resolve it. Run tests only in /review. End your response with exactly VERDICT: PASS or VERDICT: FAIL and a reason. Do not change /workspace." if review else prompt+"\nImplement in /workspace. This is an intentionally empty initial clone; the .git worktree pointer targets host metadata not mounted in the container. Do not attempt to resolve that pointer; create the requested files. The host orchestrator owns commits. Do not access paths outside /workspace."),"--allow-all-tools","--disallow-temp-dir","--disable-builtin-mcps","--available-tools","bash","--reasoning-effort","none",*(["--allow-all-paths"] if review else []),"--no-auto-update","--no-remote","--no-remote-export","--no-ask-user"]
         return ["hermes","chat","--oneshot","--yolo","--ignore-rules","--provider","custom","--query-file","/run/prompt","--in","/workspace","--run-budget","600","--max-turns","40"]
     def _worker(self,r,t):
         clone=Path(t["source_clone"]); work=self.root/"worktrees"/r["id"]; work.parent.mkdir(parents=True,exist_ok=True); git(clone,"worktree","add",str(work),r["branch"])
@@ -339,7 +504,7 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
         if previous:
             seed=previous[-1]; git(work,"-c","user.email=theSystem@localhost","-c","user.name=theSystem","cherry-pick",seed["worker_result"]["commit"]); r["seeded_from_run"]=seed["id"]; self.save()
         image=os.environ.get("THESYSTEM_"+t["runtime"].upper()+"_IMAGE") or os.environ.get("THESYSTEM_AGENT_IMAGE")
-        prompt=t["prompt"]+"\nAcceptance criteria:\n"+"\n".join(t.get("acceptance",[]))+"\nYou are the worker. Edit only /workspace; do not push or publish."
+        prompt=t["prompt"]+"\nAcceptance criteria:\n"+"\n".join(self._acceptance_lines(t))+"\nYou are the worker. Edit only /workspace; do not push or publish."
         pf=self.root/"prompts"/(r["id"]+"-worker.txt"); pf.parent.mkdir(parents=True,exist_ok=True); pf.write_text(prompt)
         try:
             p=self._docker(image,work,self._agent_command(t["runtime"],prompt=prompt),max(1,int(r["started_epoch"]+r["timeout_seconds"]-time.time())),pf,runtime=t["runtime"],container_name="thesystem-"+r["id"]+"-worker")
@@ -355,7 +520,7 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
         review_runtime=os.environ.get("THESYSTEM_REVIEW_RUNTIME",t["runtime"])
         if review_runtime not in RUNTIMES: raise OrchestratorError("REVIEW_RUNTIME_INVALID",review_runtime)
         image=os.environ.get("THESYSTEM_"+review_runtime.upper()+"_IMAGE") or os.environ.get("THESYSTEM_REVIEW_IMAGE") or os.environ.get("THESYSTEM_AGENT_IMAGE")
-        pf=self.root/"prompts"/(r["id"]+"-review.txt"); pf.write_text("Independent review. Criteria:\n"+"\n".join(t.get("acceptance",[]))+"\nInspect /workspace and use /review for writable tests. End exactly VERDICT: PASS or VERDICT: FAIL with reasons.")
+        pf=self.root/"prompts"/(r["id"]+"-review.txt"); pf.write_text("Independent review. Criteria:\n"+"\n".join(self._acceptance_lines(t))+"\nInspect /workspace and use /review for writable tests. End exactly VERDICT: PASS or VERDICT: FAIL with reasons.")
         layer=self.root/"layers"/r["id"]; shutil.copytree(work,layer,ignore=shutil.ignore_patterns('.git'))
         before=git(work,"status","--porcelain"); commit=git(work,"rev-parse","HEAD")
         try:
