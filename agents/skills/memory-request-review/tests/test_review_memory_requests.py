@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
+from subprocess import CompletedProcess
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "review_memory_requests.py"
 SPEC = importlib.util.spec_from_file_location("memory_request_review", SCRIPT)
@@ -85,6 +87,44 @@ class MemoryRequestReviewTests(unittest.TestCase):
             [(item.profile, item.subsystem, item.pending_id) for item in inventory.requests],
             [("default", "memory", "same"), ("implementer", "skills", "same"), ("reviewer", "memory", "other")],
         )
+
+    def test_inventory_includes_installed_master_profile(self):
+        master = self.home / "profiles" / "master"
+        self._pending("memory", "company", {"action": "add", "target": "memory", "content": "company fact"}, home=master)
+        inventory = review.inventory_pending(self.home)
+        self.assertEqual([(item.profile, item.pending_id) for item in inventory.requests], [("master", "company")])
+
+    def test_copilot_fallback_returns_reasons_without_fabricated_scores(self):
+        self._pending("memory", "copilot", {"action": "add", "target": "memory", "content": "proposal"})
+        request = review.inventory_pending(self.home).requests[0]
+        catalog = review.Catalog(1, (
+            review.Criterion("clear", 1, "Is it unclear?", {}, {"yes": "yes", "no": "no"}, [], []),
+        ))
+        old = {key: os.environ.get(key) for key in ("SYSTEM_ONE_API", "MEMORY_REVIEW_RUNTIME")}
+        os.environ.pop("SYSTEM_ONE_API", None)
+        os.environ["MEMORY_REVIEW_RUNTIME"] = "copilot"
+        try:
+            with patch("shutil.which", return_value="/usr/bin/copilot"), patch.object(
+                review.subprocess, "run", return_value=CompletedProcess([], 0,
+                    '{"concerns":[{"criterion_id":"clear","reason":"Change is ambiguous"}]}', "")) as run:
+                result = review.evaluate_one(request, catalog)
+                self.assertEqual(run.call_args.args[0][0], "/usr/bin/copilot")
+                self.assertIn('"proposal"', run.call_args.args[0][2])
+                self.assertNotIn("hermes", " ".join(run.call_args.args[0]).lower())
+        finally:
+            for key, value in old.items():
+                if value is None: os.environ.pop(key, None)
+                else: os.environ[key] = value
+        self.assertEqual((result.status, result.model, result.results), ("CONCERNS", "copilot", {}))
+        self.assertEqual(result.concerns, ("clear: Change is ambiguous",))
+        self.assertIn("Change is ambiguous", review.render_panel(request, result, 1, 1, catalog))
+
+    def test_company_master_excludes_unrelated_default_profile(self):
+        master=self.home/"profiles"/"master"
+        self._pending("memory", "personal", {"action":"add","content":"personal"})
+        self._pending("memory", "company", {"action":"add","content":"company"},home=master)
+        inventory=review.inventory_pending(self.home)
+        self.assertEqual([(r.profile,r.pending_id) for r in inventory.requests],[("master","company")])
 
     def test_empty_catalog_never_calls_evaluator_and_panel_marks_no_criteria(self):
         self._pending("memory", "one", {"action": "add", "target": "memory", "content": "keep this"})

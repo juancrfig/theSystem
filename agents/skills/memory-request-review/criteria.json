@@ -4,15 +4,18 @@
     {
       "id": "unclear-proposal",
       "version": 1,
-      "question": "Is this proposed change unclear or hard to understand for a reader without extra context?",
+      "question": "Is this proposed change unclear to a reader who has only the proposal?",
       "context": {
         "subject": "A pending Hermes memory or skill write, given as its literal payload.",
-        "purpose": "Generic placeholder criterion used to exercise the review dashboard."
+        "purpose": "Approved advisory criterion under the MVP agreement; human decides, evaluator advises."
       },
       "definition": {
-        "yes": "A reader cannot tell what the change stores or modifies, or why, from the payload alone.",
-        "no": "A reader can tell what the change stores or modifies from the payload alone."
-      }
+        "yes": "The reader cannot determine what knowledge or procedure is being added, changed, or removed from the proposal itself.",
+        "no": "The proposed knowledge or procedure is understandable on its own."
+      },
+      "exclusions": [
+        "Missing proof of correctness is not, by itself, a clarity problem."
+      ]
     }
   ]
 }

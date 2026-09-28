@@ -24,7 +24,7 @@ Reconsider Kanban only after the orchestrator has been used on representative wo
 
 ## Consequences
 
-- TheSystem must implement and validate its own deterministic execution path; the current `orchestrator` placeholder is not an operational substitute for Kanban.
-- The planned tracer-bullet run remains the first end-to-end validation target; this ADR does not claim that orchestration is already implemented.
+- TheSystem must implement and validate its own deterministic execution path; local operational probes do not establish every contract guarantee or make it a production substitute for Kanban.
+- The tracer-bullet path now has local contained agent runs and review evidence; remaining unverified guarantees are recorded in [MVP evidence](../MVP-EVIDENCE.md). This ADR does not claim full acceptance.
 - Hermes Kanban may still be used for unrelated work, but it is not authoritative for theSystem-approved tasks.
 - No separate Kanban-integration ticket is created now. The reconsideration trigger is evidence from real orchestrator use, not a commitment to adopt Kanban.

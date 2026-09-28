@@ -12,6 +12,9 @@ import subprocess
 import sys
 import tempfile
 
+# Orchestrator is imported lazily so registration remains usable in a minimal
+# installed distribution that predates the optional execution module.
+
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
 EXIT_ERROR = 1
 EXIT_USAGE = 2
@@ -50,7 +53,34 @@ def workspace_path() -> Path:
 
 
 def usage() -> str:
-    return "Usage: COMPANY [--help|--json] [add-project PATH]"
+    return "Usage: COMPANY [--help|--json] [add-project PATH|orchestrator ACTION ...]"
+
+
+def run_orchestrator(args: list[str]) -> int:
+    """Run an orchestrator action while preserving the company's JSON error contract."""
+    try:
+        if args and args[0] == "orchestrator":
+            args = args[1:]
+        if "--project" not in args:
+            return fail("PROJECT_REQUIRED", "orchestrator commands require --project PATH", EXIT_USAGE)
+        action = args[0] if args else ""
+        if action not in {"create-task", "approve", "start", "status", "cancel", "integrate"}:
+            return fail("UNKNOWN_COMMAND", f"unknown orchestrator command: {action}", EXIT_USAGE)
+        import contextlib
+        from io import StringIO
+        from the_system_orchestrator import main as orchestrator_main
+        # The module's public CLI is intentionally reused so company and direct
+        # entry points have identical validation and lifecycle semantics.
+        with contextlib.redirect_stdout(StringIO()) as captured:
+            code = orchestrator_main(args)
+        text = captured.getvalue().strip()
+        if text:
+            print(text)
+        return code
+    except SystemExit as exc:
+        return int(exc.code or 0)
+    except Exception as exc:
+        return fail("ORCHESTRATOR_UNAVAILABLE", str(exc))
 
 
 def _lstat(path: Path):
@@ -202,11 +232,45 @@ def add_project(raw: str, workspace: Path) -> int:
     return 0
 
 
-def launch_master(workspace: Path) -> int:
+def launch_master(workspace: Path, direct: bool = False, runtime: str | None = None, json_mode: bool = False) -> int:
+    selected = runtime or ((workspace / ".thesystem" / "runtime").read_text().strip() if (workspace / ".thesystem" / "runtime").exists() else "hermes")
+    if selected not in ("hermes", "copilot"):
+        return fail("RUNTIME_NOT_CONFIGURED", "no chat runtime configured")
+    env = dict(os.environ, THESYSTEM_WORKSPACE=str(workspace))
+    if selected == "copilot" and not any(env.get(k) for k in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")):
+        auth = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=15)
+        if auth.returncode or not auth.stdout.splitlines():
+            return fail("COPILOT_AUTH_REQUIRED", "GitHub Copilot authentication unavailable")
+        env["COPILOT_GITHUB_TOKEN"] = auth.stdout.splitlines()[-1].strip()
+    if direct:
+        command = ["hermes", "-p", "master"] if selected == "hermes" else ["copilot"]
+        try: return subprocess.call(command, cwd=str(workspace), env=env)
+        except OSError as exc: return fail("RUNTIME_NOT_AVAILABLE", str(exc))
+    if __import__("shutil").which("herdr") is None:
+        return fail("HERDR_NOT_AVAILABLE", "Herdr is required for normal launch")
+    args=["herdr","workspace","create","--cwd",str(workspace),"--label",workspace.name,"--no-focus"]
+    # Herdr's --env option embeds the value in command-line arguments visible
+    # to other local processes. Never put a provider credential on that path.
+    created=subprocess.run(args,capture_output=True,text=True,timeout=20,env=env)
+    if created.returncode:
+        return fail("HERDR_WORKSPACE_FAILED", "Herdr could not create the workspace")
     try:
-        return subprocess.call(["hermes", "-p", "master"], cwd=str(workspace), env=dict(os.environ, THESYSTEM_WORKSPACE=str(workspace)))
-    except OSError as exc:
-        return fail("HERMES_NOT_AVAILABLE", str(exc))
+        result=json.loads(created.stdout.splitlines()[-1])["result"]
+        pane=result["root_pane"]["pane_id"]; workspace_id=result["workspace"]["workspace_id"]
+    except (ValueError,IndexError,KeyError,TypeError):
+        return fail("HERDR_RESPONSE_INVALID", "Herdr returned no workspace or pane ID")
+    launch=["herdr","agent","start",selected,"--kind",selected,"--pane",pane,"--timeout","15000"]
+    if selected=="hermes": launch.extend(["--","-p","master"])
+    started=subprocess.run(launch,capture_output=True,text=True,timeout=25,env=env)
+    status="started" if started.returncode==0 else "awaiting-interaction"
+    if started.returncode and "agent_not_ready" not in (started.stdout+started.stderr):
+        subprocess.run(["herdr","workspace","close",workspace_id],capture_output=True,text=True,timeout=10)
+        return fail("HERDR_AGENT_FAILED", "Herdr could not launch the selected agent")
+    if json_mode or not sys.stdin.isatty():
+        emit({"status":status,"runtime":selected,"workspace_id":workspace_id,"pane_id":pane})
+        return 0
+    subprocess.run(["herdr","workspace","focus",workspace_id],capture_output=True,text=True,timeout=10)
+    return subprocess.call(["herdr"],cwd=str(workspace),env=env)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -221,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if json_mode and not args:
         return fail("JSON_COMMAND_REQUIRED", "--json requires a non-interactive command", EXIT_USAGE)
+    if args and (args[0] == "orchestrator" or args[0] in {"create-task", "approve", "start", "status", "cancel", "integrate"}):
+        return run_orchestrator(args)
     if args and args[0] == "add-project":
         if len(args) != 2 or not args[1]:
             return fail("MISSING_ARGUMENT", "add-project requires PATH", EXIT_USAGE)
@@ -229,13 +295,14 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             return fail("WORKSPACE_NOT_BOUND", str(exc))
         return add_project(args[1], workspace)
-    if args:
+    if args and args not in (["launch"],["--direct"]):
         return fail("UNKNOWN_COMMAND", f"unknown command: {args[0]}", EXIT_USAGE)
     try:
         workspace = workspace_path()
     except ValueError as exc:
         return fail("WORKSPACE_NOT_BOUND", str(exc))
-    return launch_master(workspace)
+    if args not in ([],["launch"],["--direct"]): return fail("UNKNOWN_COMMAND", f"unknown command: {args[0]}", EXIT_USAGE)
+    return launch_master(workspace,direct=args==["--direct"],json_mode=json_mode)
 
 
 if __name__ == "__main__":

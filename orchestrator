@@ -1,3 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env python3
+"""Command-line entry point for the deterministic theSystem orchestrator."""
+from the_system_orchestrator import main
 
-echo "Hello, Orchestrator!"
+if __name__ == "__main__":
+    raise SystemExit(main())

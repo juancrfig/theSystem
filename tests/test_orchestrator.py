@@ -1,0 +1,191 @@
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+from the_system_orchestrator import Orchestrator, OrchestratorError
+
+ROOT = Path(__file__).resolve().parents[1]
+
+class OrchestratorTests(unittest.TestCase):
+    def repo(self, root):
+        repo = root / "src"; repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+        (repo / "README").write_text("base\n")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+        return repo
+
+    def fake_docker(self, root):
+        docker = root / "docker"
+        docker.write_text("""#!/usr/bin/env python3
+import os, subprocess, sys
+mount = next(x.split(':', 1)[0] for x in sys.argv if x.startswith('/') and ':' in x)
+command = sys.argv[-1]
+p = subprocess.run(['sh', '-lc', command], cwd=mount, text=True)
+raise SystemExit(p.returncode)
+""")
+        docker.chmod(0o755)
+        return docker
+
+    def test_provider_secret_is_redacted_before_worker_output_becomes_evidence(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);o=Orchestrator(root);prompt=root/"prompt";prompt.write_text("task")
+            secret="TEST_SECRET_DO_NOT_USE"
+            completed=subprocess.CompletedProcess(["docker"],0,stdout="debug "+secret,stderr="warning "+secret)
+            with patch.dict(os.environ,{"COPILOT_GITHUB_TOKEN":secret}),patch("the_system_orchestrator.subprocess.run",return_value=completed):
+                result=o._docker("test-image",root,["copilot"],10,prompt,runtime="copilot")
+            self.assertNotIn(secret,result.stdout+result.stderr)
+            self.assertIn("[REDACTED]",result.stdout)
+            self.assertIn("[REDACTED]",result.stderr)
+
+    def test_approval_dispatches_without_second_start(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root)
+            o=Orchestrator(root)
+            o.create_task("t1",repo,"Build an app",runtime="copilot")
+            with self.assertRaises(OrchestratorError) as failure: o.start("t1")
+            self.assertEqual(failure.exception.code,"TASK_NOT_APPROVED")
+            with patch.object(o,"start",return_value={"id":"r1","status":"starting"}) as start:
+                result=o.approve("t1")
+                self.assertEqual(result["id"],"r1")
+                start.assert_called_once_with("t1",timeout=3600,detach=True)
+            o.task("t1")["prompt"]="changed scope"; o.save()
+            with self.assertRaises(OrchestratorError) as failure: o.start("t1")
+            self.assertEqual(failure.exception.code,"APPROVAL_STALE")
+
+    def test_one_active_run_and_moved_base_block_integration(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); repo = self.repo(root)
+            o = Orchestrator(root)
+            o.create_task("t1", repo, "true")
+            from unittest.mock import patch
+            with patch.object(o,"start",return_value={}): o.approve("t1")
+            o.state["runs"]["fake"] = {"id":"fake", "task_id":"t1", "status":"running"}
+            o.save()
+            with self.assertRaises(OrchestratorError) as failure: o.start("t1")
+            self.assertEqual(failure.exception.code, "RUN_ALREADY_ACTIVE")
+
+    def test_missing_agent_image_refuses_before_creating_run_or_branch(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); repo = self.repo(root); o = Orchestrator(root)
+            o.create_task("missing-image", repo, "Build a page", runtime="copilot")
+            with patch.dict(os.environ, {"THESYSTEM_COPILOT_IMAGE": "", "THESYSTEM_AGENT_IMAGE": ""}):
+                with self.assertRaises(OrchestratorError) as failure:
+                    o.approve("missing-image")
+            self.assertEqual(failure.exception.code, "AGENT_IMAGE_REQUIRED")
+            self.assertEqual(o.task("missing-image")["approval"], "approved")
+            self.assertEqual(o.state["runs"], {})
+            branches = subprocess.run(["git", "-C", str(repo), "branch", "--list", "thesystem/*"], capture_output=True, text=True, check=True)
+            self.assertEqual(branches.stdout.strip(), "")
+
+    def test_stale_writer_cannot_revoke_approval_or_change_terminal_verdict(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); first=Orchestrator(root)
+            first.create_task("one",repo,"Build a page",runtime="copilot")
+            stale=Orchestrator(root)
+            with patch.object(first,"start",return_value={}): first.approve("one")
+            stale.create_task("two",repo,"Build a second page",runtime="copilot")
+            self.assertEqual(Orchestrator(root).task("one")["approval"],"approved")
+            terminal=Orchestrator(root)
+            terminal.state["runs"]["r1"]={"id":"r1","task_id":"one","status":"changes-requested","review_result":{"verdict":"FAIL"}}
+            terminal.save()
+            stale.state["runs"]["r1"]={"id":"r1","task_id":"one","status":"passed","review_result":{"verdict":"PASS"}}
+            stale.save()
+            outcome=Orchestrator(root).state["runs"]["r1"]
+            self.assertEqual(outcome["status"],"changes-requested")
+            self.assertEqual(outcome["review_result"]["verdict"],"FAIL")
+            stale.state["runs"]["r1"]["status"]="changes-requested"
+            stale.save()
+            self.assertEqual(Orchestrator(root).state["runs"]["r1"]["review_result"]["verdict"],"FAIL")
+
+    def test_dependency_blocks_and_auto_dispatches_after_integration(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("first", repo, "Build first", runtime="copilot")
+            o.create_task("second", repo, "Build second", runtime="copilot", dependencies=["first"])
+            with patch.object(o, "start", return_value={"id":"first-run"}):
+                o.approve("first")
+            with patch.object(o, "start", wraps=o.start) as start:
+                blocked=o.approve("second")
+                self.assertEqual(blocked["approval"],"approved")
+                self.assertEqual(len(o.state["runs"]),0)
+                self.assertEqual(start.call_count,1)
+            with self.assertRaises(OrchestratorError) as failure: o.start("second")
+            self.assertEqual(failure.exception.code,"BLOCKED")
+
+    def test_moved_integration_base_refuses_merge_and_completion(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);repo=self.repo(root);o=Orchestrator(root)
+            o.create_task("moved",repo,"Build something",runtime="copilot")
+            base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
+            subprocess.run(["git","-C",str(repo),"branch","thesystem/moved-test"],check=True)
+            (repo/"README").write_text("base changed\n")
+            subprocess.run(["git","-C",str(repo),"commit","-qam","another integration"],check=True)
+            current=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
+            o.state["runs"]["passed-run"]={"id":"passed-run","task_id":"moved","status":"passed","base_commit":base,"branch":"thesystem/moved-test"}
+            o.save()
+            with self.assertRaises(OrchestratorError) as failure: o.integrate("passed-run")
+            self.assertEqual(failure.exception.code,"INTEGRATION_BASE_MOVED")
+            self.assertIn(current,str(failure.exception))
+            self.assertEqual(subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip(),current)
+            self.assertNotEqual(o.task("moved").get("status"),"done")
+
+    def test_passing_run_only_becomes_done_after_real_local_merge(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("ready",repo,"Build a page",runtime="copilot")
+            base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
+            integration_branch=subprocess.run(["git","-C",str(repo),"symbolic-ref","--short","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
+            subprocess.run(["git","-C",str(repo),"checkout","-qb","thesystem/ready-test"],check=True)
+            (repo/"index.html").write_text("<title>ready</title>\n")
+            subprocess.run(["git","-C",str(repo),"add","index.html"],check=True)
+            subprocess.run(["git","-C",str(repo),"commit","-qm","delivery"],check=True)
+            subprocess.run(["git","-C",str(repo),"checkout","-q",integration_branch],check=True)
+            o.state["runs"]["approved-run"]={"id":"approved-run","task_id":"ready","status":"passed","base_commit":base,"branch":"thesystem/ready-test"}
+            o.save()
+            self.assertNotEqual(Orchestrator(root).task("ready").get("status"),"done")
+            o.integrate("approved-run")
+            fresh=Orchestrator(root)
+            self.assertEqual(fresh.task("ready")["status"],"done")
+            self.assertEqual(fresh.state["runs"]["approved-run"]["integration_commit"],subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip())
+            self.assertTrue((repo/"index.html").exists())
+
+    def test_recovery_uses_immutable_terminal_record_instead_of_false_abortion(self):
+        from the_system_orchestrator import atomic
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);repo=self.repo(root);o=Orchestrator(root)
+            o.create_task("recovery",repo,"Build one file",runtime="copilot")
+            with __import__("unittest.mock",fromlist=["patch"]).patch.object(o,"start",return_value={}):
+                o.approve("recovery")
+            run={"id":"recovered","task_id":"recovery","status":"reviewing","detached":True,"pid":999999999,"base_commit":"base","branch":"branch","runtime":"copilot","started_at":"start"}
+            o.state["runs"]["recovered"]=run;o.save()
+            terminal=dict(run,status="changes-requested",finished_at="end",review_result={"verdict":"FAIL"})
+            atomic(o.evidence/"recovered.json",terminal)
+            fresh=Orchestrator(root)
+            self.assertEqual(fresh.state["runs"]["recovered"]["status"],"changes-requested")
+            self.assertEqual(Orchestrator(root).state["runs"]["recovered"]["review_result"]["verdict"],"FAIL")
+
+    def test_capacity_and_attempt_caps_do_not_alter_approval_scope(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);repo=self.repo(root);o=Orchestrator(root)
+            o.create_task("capacity",repo,"Implement app",runtime="copilot")
+            with __import__("unittest.mock",fromlist=["patch"]).patch.object(o,"start",return_value={}):
+                o.approve("capacity")
+            for index in range(3):
+                o.state["runs"][str(index)]={"id":str(index),"task_id":"capacity","status":"changes-requested"}
+            o.save()
+            with self.assertRaises(OrchestratorError) as failure: o.start("capacity")
+            self.assertEqual(failure.exception.code,"ATTEMPTS_EXHAUSTED")
+            self.assertEqual(o.task("capacity")["approval"],"approved")
+
+if __name__ == "__main__": unittest.main()
