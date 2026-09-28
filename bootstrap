@@ -21,7 +21,8 @@ EOF_USAGE
 }
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-canonical_config="$repo_root/agents/.harness/canonical_config.yaml"
+canonical_config="$repo_root/agents/.harness/canonical_config.tsv"
+canonical_profiles="$repo_root/agents/.harness/canonical_profiles.txt"
 project_skills_link="$repo_root/.agents/skills"
 default_hermes_home="$HOME/.hermes"
 memory_review_requirements="$repo_root/agents/skills/memory-request-review/requirements.txt"
@@ -43,7 +44,20 @@ require_command() {
 }
 
 set_config() {
-  HERMES_HOME="$default_hermes_home" hermes config set --force "$1" "$2" >/dev/null
+  local profile=$1 key=$2 value=$3
+  HERMES_HOME="$default_hermes_home" hermes -p "$profile" config set --force "$key" "$value" >/dev/null
+}
+
+profile_exists() {
+  local profile=$1
+  HERMES_HOME="$default_hermes_home" hermes profile list 2>/dev/null | awk -v p="$profile" '$0 ~ "(^|[[:space:]])" p "([[:space:]]|$)" { found=1 } END { exit(found ? 0 : 1) }'
+}
+
+ensure_profile_exists() {
+  local profile=$1
+  if ! profile_exists "$profile"; then
+    HERMES_HOME="$default_hermes_home" hermes profile create "$profile" --no-skills >/dev/null
+  fi
 }
 
 resolve_hermes_python() {
@@ -101,30 +115,58 @@ import json
 import sys
 from pathlib import Path
 
-import yaml
+source = Path(sys.argv[1])
+text = source.read_text(encoding='utf-8')
+if not text.strip():
+    raise SystemExit(f"{source} is empty")
+
+for line_no, raw in enumerate(text.splitlines(), start=1):
+    line = raw.strip()
+    if not line or line.startswith('#'):
+        continue
+    if '\t' not in raw:
+        raise SystemExit(f"{source}:{line_no}: expected <key>\\t<json-value>")
+    key, value = raw.split('\t', 1)
+    key = key.strip()
+    value = value.strip()
+    if not key:
+        raise SystemExit(f"{source}:{line_no}: empty key")
+    for segment in key.split('.'):
+        if not segment or any(ch.isspace() for ch in segment):
+            raise SystemExit(f"{source}:{line_no}: invalid key segment in {key!r}")
+    parsed = json.loads(value)
+    print(f"{key}\t{json.dumps(parsed, separators=(',', ':'))}")
+PY
+}
+
+canonical_profiles_list() {
+  python3 - "$canonical_profiles" <<'PY'
+import re
+import sys
+from pathlib import Path
 
 source = Path(sys.argv[1])
-document = yaml.safe_load(source.read_text())
-if not isinstance(document, dict):
-    raise SystemExit(f"{source} must contain a YAML mapping")
+text = source.read_text(encoding='utf-8')
+if not text.strip():
+    raise SystemExit(f"{source} is empty")
 
-def emit(value, path=()):
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if not isinstance(key, str) or not key:
-                raise SystemExit(f"Invalid configuration key below {'.'.join(path) or '<root>'}")
-            emit(child, (*path, key))
-        return
-    if not path:
-        raise SystemExit("The canonical configuration cannot be a scalar")
-    print(f"{'.'.join(path)}\t{json.dumps(value, separators=(',', ':'))}")
-
-emit(document)
+seen = set()
+for line_no, raw in enumerate(text.splitlines(), start=1):
+    line = raw.strip()
+    if not line or line.startswith('#'):
+        continue
+    if not re.fullmatch(r"[a-z][a-z0-9]*", line):
+        raise SystemExit(f"{source}:{line_no}: invalid profile name {line!r}")
+    if line in seen:
+        raise SystemExit(f"{source}:{line_no}: duplicate profile name {line!r}")
+    seen.add(line)
+    print(line)
 PY
 }
 
 check_prerequisites() {
   require_file "$canonical_config"
+  require_file "$canonical_profiles"
   require_file "$required_toolsets"
   require_file "$repo_root/.githooks/pre-commit"
   require_file "$memory_review_requirements"
@@ -188,16 +230,40 @@ configure_git_hooks() {
 # settings here. New canonical keys are applied automatically on the next run;
 # credentials and unrelated device settings remain untouched.
 apply_canonical_config() {
-  local key value canonical_setting_count=0
+  local profile key value setting profile_count=0 canonical_setting_count=0
+  local profiles_raw settings_raw
+  local -a profiles settings
+
+  profiles_raw=$(canonical_profiles_list)
+  settings_raw=$(canonical_entries)
+
+  while IFS= read -r profile; do
+    [[ -n "$profile" ]] || continue
+    profiles+=("$profile")
+  done <<<"$profiles_raw"
   while IFS=$'\t' read -r key value; do
-    set_config "$key" "$value"
-    ((canonical_setting_count += 1))
-  done < <(canonical_entries)
+    [[ -n "$key" ]] || continue
+    settings+=("$key"$'\t'"$value")
+  done <<<"$settings_raw"
+
+  profile_count=${#profiles[@]}
+  canonical_setting_count=${#settings[@]}
+  if (( profile_count == 0 )); then
+    printf 'Canonical profile declaration contains no profiles: %s\n' "$canonical_profiles" >&2
+    exit 1
+  fi
   if (( canonical_setting_count == 0 )); then
     printf 'Canonical configuration contains no settings: %s\n' "$canonical_config" >&2
     exit 1
   fi
-  step_detail="$canonical_setting_count settings"
+  for profile in "${profiles[@]}"; do
+    ensure_profile_exists "$profile"
+    for setting in "${settings[@]}"; do
+      IFS=$'\t' read -r key value <<<"$setting"
+      set_config "$profile" "$key" "$value"
+    done
+  done
+  step_detail="$canonical_setting_count settings x $profile_count profiles"
 }
 
 # Also expose the skills through Hermes's project-local convention. This gives
