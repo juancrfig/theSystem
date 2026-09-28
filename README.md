@@ -1,6 +1,10 @@
 # Overview
 
-A framework to reliably build high-quality software by leveraging AI agents. 
+A framework to reliably build high-quality software by leveraging AI agents
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash
+```
 
 # Infrastructure
 
@@ -23,10 +27,6 @@ self-improvement mechanism. However, the protocol agents follow to do this must 
 charge of agents. I've noticed agents are not good (by default) when trying to generalize their 
 reflections from mistakes, effectivelly bloating their own memory with ticket-specific learnings. 
 Until a clear protocol is designed and battle-tested, the feedback loop must remain in charge of humans. 
-
-### Setup
-
-Install with `curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash`.
 
 ## theSystem work tracking
 
