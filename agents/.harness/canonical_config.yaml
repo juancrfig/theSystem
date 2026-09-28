@@ -46,6 +46,9 @@ tool_loop_guardrails:
   loop_caps:
     max_subagents: 10
 
+goals:
+  max_turns: 90
+
 display:
   show_reasoning: false
   interim_assistant_messages: false
