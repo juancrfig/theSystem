@@ -51,8 +51,7 @@ All of a project's work lives in one tree, keyed by ticket:
       run.json                       the run's terminal state
       learnings-review.json          the human's decision on each learning
 ```
-
-Task front matter identifies the source clone, roles, and blockers. The manual defines intended workflow and state semantics.
+### Ticket Anatomy 
 
 ```yaml
 ---
