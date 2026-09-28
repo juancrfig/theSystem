@@ -1,5 +1,7 @@
 # MVP execution evidence (resumed, incomplete)
 
+Issue #24 Linux clean-install and lifecycle container evidence: [ISSUE-24-LINUX-CLEAN-ACCEPTANCE.md](ISSUE-24-LINUX-CLEAN-ACCEPTANCE.md). Results cover Ubuntu 24.04 and Arch base containers only, not Omarchy or interactive/provider-authenticated behavior.
+
 ## Checkpoint commit 2026-09-28 07:20 -05:00
 
 Juanes requested a commit-and-push handoff: "Commit and push the current progress. Update the docs, plan, everything so I can continue working here." This records the live state at publication, not a completion claim. Full verification at commit time: `python3 -m unittest discover -s tests -q` ran 54 tests, all OK; `bash -n install`; `python3 -m py_compile company_cli.py the_system_orchestrator.py`; `git diff --check`, all passed.
