@@ -522,6 +522,31 @@ raise SystemExit(p.returncode)
             self.assertEqual(run["error"]["code"],"ISOLATION_VIOLATED")
             self.assertNotEqual(run["worker_tree_hash"]["before_review"],run["worker_tree_hash"]["after_review"])
 
+    def test_reviewer_edits_only_disposable_copy(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("review-copy",repo,"Build app",runtime="copilot")
+            task=o.task("review-copy")
+            base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
+            branch="thesystem/review-copy"; subprocess.run(["git","-C",str(repo),"branch",branch,base],check=True)
+            run={"id":"run-review-copy","task_id":"review-copy","status":"reviewing","runtime":"copilot","ticket":"local","source_clone":str(repo),"base_commit":base,"branch":branch,"started_at":"now","started_epoch":time.time(),"timeout_seconds":300,"worker":{"bundle":{"path":"/tmp/worker-bundle"}},"reviewer":{"bundle":{"path":"/tmp/reviewer-bundle"}}}
+            before_tree=subprocess.run(["git","-C",str(repo),"rev-parse",branch+"^{tree}"],capture_output=True,text=True,check=True).stdout.strip()
+            real_run=subprocess.run
+            def fake_run(args, **kwargs):
+                if isinstance(args,list) and args[:2]==["docker","run"]:
+                    return subprocess.CompletedProcess(args,0,"ok","")
+                return real_run(args, **kwargs)
+            def fake_docker(_image, work, _cmd, _timeout, _prompt, **_kwargs):
+                (Path(work)/"review-notes.txt").write_text("review scratch\n")
+                return subprocess.CompletedProcess(["docker"],0,"VERDICT: PASS because tests pass\n","")
+            with patch.dict(os.environ,{"THESYSTEM_AGENT_IMAGE":"fake-image"}), patch("the_system_orchestrator.subprocess.run",side_effect=fake_run), patch.object(o,"_docker",side_effect=fake_docker):
+                review=o._review(run,task)
+            after_tree=subprocess.run(["git","-C",str(repo),"rev-parse",branch+"^{tree}"],capture_output=True,text=True,check=True).stdout.strip()
+            self.assertEqual(review["verdict"],"PASS")
+            self.assertTrue(review["worker_tree_unchanged"])
+            self.assertEqual(before_tree,after_tree)
+
     def test_bundle_uses_project_role_overlay_and_skill_directory_replacement(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
