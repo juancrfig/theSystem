@@ -2,6 +2,7 @@ import json
 import http.client
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -55,7 +56,7 @@ raise SystemExit(p.returncode)
             secret="TEST_SECRET_DO_NOT_USE"
             completed=subprocess.CompletedProcess(["docker"],0,stdout="debug "+secret,stderr="warning "+secret)
             env={"THESYSTEM_BROKER_UPSTREAM_URL":"http://127.0.0.1:9/v1","THESYSTEM_BROKER_PROVIDER_KEY":secret,"THESYSTEM_BROKER_MODEL":"model-a","COPILOT_GITHUB_TOKEN":"HOST_ONLY_TEST_TOKEN"}
-            with patch.dict(os.environ,env),patch("the_system_orchestrator.subprocess.run",return_value=completed) as run:
+            with patch.dict(os.environ,env),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"),patch("the_system_orchestrator.subprocess.run",return_value=completed) as run:
                 result=o._docker("test-image",root,["copilot"],10,prompt,runtime="copilot")
             args=run.call_args.args[0]
             self.assertNotIn(secret," ".join(args))
@@ -80,11 +81,11 @@ raise SystemExit(p.returncode)
                 "THESYSTEM_BROKER_MODEL":"model-a",
                 "THESYSTEM_CONTAINER_NETWORK":"bridge",
             }
-            with patch.dict(os.environ,env),patch("the_system_orchestrator.subprocess.run",return_value=completed) as run:
+            with patch.dict(os.environ,env),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"),patch("the_system_orchestrator.subprocess.run",return_value=completed) as run:
                 o._docker("test-image",root,["copilot"],10,prompt,runtime="copilot")
             args=run.call_args.args[0]
             self.assertEqual(args[args.index("--network")+1],"bridge")
-            with patch.dict(os.environ,{**env,"THESYSTEM_CONTAINER_NETWORK":"invalid"}):
+            with patch.dict(os.environ,{**env,"THESYSTEM_CONTAINER_NETWORK":"invalid"}),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"):
                 with self.assertRaises(OrchestratorError) as failure:
                     o._docker("test-image",root,["copilot"],10,prompt,runtime="copilot")
             self.assertEqual(failure.exception.code,"CONTAINER_NETWORK_INVALID")
@@ -95,7 +96,7 @@ raise SystemExit(p.returncode)
             root=Path(td); repo=self.repo(root); o=Orchestrator(root)
             o.create_task("broker-absent",repo,"Build app",runtime="copilot")
             environment={"THESYSTEM_COPILOT_IMAGE":"thesystem-copilot:local","THESYSTEM_BROKER_PROVIDER_KEY":"","THESYSTEM_BROKER_UPSTREAM_URL":"","OPENROUTER_API_KEY":"","OPENAI_API_KEY":""}
-            with patch.dict(os.environ,environment),patch("the_system_orchestrator.subprocess.run",return_value=subprocess.CompletedProcess([],0,"","")):
+            with patch.dict(os.environ,environment),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"),patch("the_system_orchestrator.subprocess.run",return_value=subprocess.CompletedProcess([],0,"","")):
                 with self.assertRaises(OrchestratorError) as failure: o.approve("broker-absent")
             self.assertEqual(failure.exception.code,"CREDENTIAL_BROKER_REQUIRED")
             self.assertEqual(o.state["runs"],{})
@@ -106,7 +107,7 @@ raise SystemExit(p.returncode)
 
     def test_actual_container_forwards_only_a_scoped_capability(self):
         from unittest.mock import patch
-        if subprocess.run(["docker","image","inspect","thesystem-copilot:local"],capture_output=True).returncode:
+        if not shutil.which("docker") or subprocess.run(["docker","image","inspect","thesystem-copilot:local"],capture_output=True).returncode:
             self.skipTest("disposable Copilot image or Docker daemon is unavailable")
         marker="DISPOSABLE_PROVIDER_SECRET_NOT_REAL"
         seen=[]
@@ -280,7 +281,7 @@ raise SystemExit(p.returncode)
         with tempfile.TemporaryDirectory() as td:
             root = Path(td); repo = self.repo(root); o = Orchestrator(root)
             o.create_task("missing-image", repo, "Build a page", runtime="copilot")
-            with patch.dict(os.environ, {"THESYSTEM_COPILOT_IMAGE": "", "THESYSTEM_AGENT_IMAGE": ""}):
+            with patch.dict(os.environ, {"THESYSTEM_COPILOT_IMAGE": "", "THESYSTEM_AGENT_IMAGE": ""}), patch("the_system_orchestrator.shutil.which", return_value="/usr/bin/docker"):
                 with self.assertRaises(OrchestratorError) as failure:
                     o.approve("missing-image")
             self.assertEqual(failure.exception.code, "AGENT_IMAGE_REQUIRED")
