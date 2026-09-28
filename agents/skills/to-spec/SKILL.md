@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
 
-Write the specification to the location the user requested. Do not publish to an external issue tracker unless the user explicitly requested that external action.
+Write the specification to the location the user requested. By default, publish to the local issue tracker used by this workspace (same policy as `to-tasks`) and label it `ready-for-agent`; do not publish to an external issue tracker unless the user explicitly requested that external action.
 
 ## Process
 
@@ -16,7 +16,7 @@ Write the specification to the location the user requested. Do not publish to an
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Write the spec using the template below, then publish it to the local issue tracker and label it `ready-for-agent` (matching `to-tasks`) - no need for additional triage.
 
 <spec-template>
 

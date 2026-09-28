@@ -12,6 +12,8 @@ metadata:
     related_skills: [weekly-review-planning]
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # Session Librarian
 
 Manage the user's session library conversationally: find past sessions about a

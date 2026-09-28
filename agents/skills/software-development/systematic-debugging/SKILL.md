@@ -11,6 +11,8 @@ metadata:
     related_skills: [test-driven-development, subagent-driven-development]
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # Systematic Debugging
 
 ## Overview

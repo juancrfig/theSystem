@@ -11,6 +11,8 @@ metadata:
     related_skills: [systematic-debugging, node-inspect-debugger]
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # Python Debugger (pdb and debugpy)
 
 Use a debugger when a reproducible Python failure needs inspection of execution state that a traceback, focused test, or temporary logging cannot explain. Keep the reproduction narrow and confirm the result with the project's normal test command afterward.

@@ -110,39 +110,34 @@ and append "..." to indicate truncation.
 ## Agent Brief
 
 **Category:** enhancement
-**Summary:** Add `.out-of-scope/` directory support for tracking rejected feature requests
+**Summary:** Add issue template selection by category in the triage flow
 
 **Current behavior:**
-When a feature request is rejected, the issue is closed with a `wontfix` label
-and a comment. There is no persistent record of the decision or reasoning.
-Future similar requests require the maintainer to recall or search for the
-prior discussion.
+When creating follow-up issues from triage, maintainers must manually choose
+and copy a template. The process is inconsistent and leads to mixed formatting
+across bug and enhancement tickets.
 
 **Desired behavior:**
-Rejected feature requests should be documented in `.out-of-scope/<concept>.md`
-files that capture the decision, reasoning, and links to all issues that
-requested the feature. When triaging new issues, these files should be
-checked for matches.
+Triage should select the correct issue template automatically based on category
+(`bug` or `enhancement`) and prefill the generated issue body accordingly.
+Maintainers can still edit before submission.
 
 **Key interfaces:**
-- Markdown file format in `.out-of-scope/`: each file should have a
-  `# Concept Name` heading, a `**Decision:**` line, a `**Reason:**` line,
-  and a `**Prior requests:**` list with issue links
-- The triage workflow should read all `.out-of-scope/*.md` files early
-  and match incoming issues against them by concept similarity
+- Triage issue-creation path should accept category-aware template selection
+- Template metadata should declare category applicability
+- Generated draft body should include the AI disclaimer line and preserve
+  existing title/body fields
 
 **Acceptance criteria:**
-- [ ] Closing a feature as wontfix creates/updates a file in `.out-of-scope/`
-- [ ] The file includes the decision, reasoning, and link to the closed issue
-- [ ] If a matching `.out-of-scope/` file already exists, the new issue is
-      appended to its "Prior requests" list rather than creating a duplicate
-- [ ] During triage, existing `.out-of-scope/` files are checked and surfaced
-      when a new issue matches a prior rejection
+- [ ] Creating a follow-up bug issue from triage uses the bug template
+- [ ] Creating a follow-up enhancement issue from triage uses the enhancement template
+- [ ] Existing manual override still allows choosing a different template
+- [ ] Draft output remains valid when no template metadata is configured
 
 **Out of scope:**
-- Automated matching (human confirms the match)
-- Reopening previously rejected features
-- Bug reports (only enhancement rejections go to `.out-of-scope/`)
+- Designing new template schemas
+- Migrating historical issues
+- Auto-posting without maintainer confirmation
 ```
 
 ### Good agent brief (PR)
