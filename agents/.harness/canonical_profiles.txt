@@ -1,0 +1,5 @@
+# Canonical Hermes profiles reconciled by bootstrap.
+# Add profiles here; bootstrap creates missing ones and applies canonical config.
+default
+implementer
+reviewer

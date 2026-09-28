@@ -100,9 +100,12 @@ if args[:2] == ["pip", "install"]:
         hook = self.root / ".githooks/pre-commit"
         hook.parent.mkdir()
         hook.touch()
+        profiles = self.root / "canonical_profiles.txt"
+        profiles.write_text("default\n")
         script = self.source + self.setup + (
             f"repo_root={shlex.quote(str(self.root))}\n"
             f"canonical_config={shlex.quote(str(self.requirements))}\n"
+            f"canonical_profiles={shlex.quote(str(profiles))}\n"
             f"PATH={shlex.quote(str(self.bin))}\ncheck_prerequisites\n"
         )
         result = subprocess.run(["bash"], input=script, text=True,

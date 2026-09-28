@@ -54,6 +54,7 @@ display:
   interim_assistant_messages: false
 
 approvals:
+  mode: off
   deny:
     - "git push --force*"
     - "git push -f*"
