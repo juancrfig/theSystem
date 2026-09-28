@@ -11,17 +11,19 @@ say() { printf '[theSystem] %s\n' "$*"; }
 die() { printf '[theSystem] error: %s\n' "$*" >&2; exit 1; }
 usage() {
   printf '%s\n' \
-    'Usage: install [--workspace PATH] [--company NAME] [--non-interactive]' '' \
+    'Usage: install [--workspace PATH] [--company NAME] [--non-interactive] [--experimental]' '' \
     'Installs distribution files (not a git checkout), then configures the' \
-    'dedicated Hermes profile master. The default profile is not modified.'
+    'dedicated Hermes profile master. The default profile is not modified.' \
+    'Experimental rules are excluded unless --experimental is passed.'
 }
 
-workspace=''; company=''; non_interactive=0
+workspace=''; company=''; non_interactive=0; experimental=0
 while (($#)); do
   case "$1" in
     --workspace) (($# >= 2)) || die '--workspace needs a path'; workspace=$2; shift 2 ;;
     --company) (($# >= 2)) || die '--company needs a name'; company=$2; shift 2 ;;
     --non-interactive) non_interactive=1; shift ;;
+    --experimental) experimental=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -121,12 +123,29 @@ safe_source_path() {
   fi
 }
 
+is_experimental_rule() {
+  local line marked=1
+  [[ "$1" == */rules/*.md && -f "$1" ]] || return 1
+  {
+    IFS= read -r line || return 1
+    [[ "${line%$'\r'}" == --- ]] || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line=${line%$'\r'}
+      [[ "$line" == --- ]] && return "$marked"
+      if [[ "$line" =~ ^experimental:[[:space:]]*true[[:space:]]*(#.*)?$ ]]; then marked=0; fi
+    done
+  } <"$1"
+  return 1
+}
+
 copy_additive() {
   local source=$1 target=$2 item name
   mkdir -p "$target"
   for item in "$source"/* "$source"/.[!.]*; do
     [[ -e "$item" || -L "$item" ]] || continue
     name=${item##*/}; [[ "$name" == .git || "$name" == .gitignore ]] && continue
+    safe_source_path "$source" "$name"
+    if (( ! experimental )) && is_experimental_rule "$item"; then continue; fi
     if [[ -L "$item" ]]; then
       safe_source_path "$source" "$name"
       [[ -e "$target/$name" || -L "$target/$name" ]] && continue

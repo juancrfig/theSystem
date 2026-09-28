@@ -11,6 +11,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallerIntegrationTests(unittest.TestCase):
+    def test_experimental_rules_require_opt_in_and_preserve_existing_files(self):
+        with tempfile.TemporaryDirectory(prefix="thesystem-experimental-") as td:
+            workspace = Path(td) / "workspace"
+            rule = workspace / "agents/rules/second-order-thinking-checks.md"
+            def provision(*flags):
+                result = subprocess.run(
+                    ["bash", "-c", 'script=$1; source_root=$2; target=$3; shift 3; source "$script"; provision_distribution "$source_root" "$target"',
+                     "bash", str(ROOT / "install"), str(ROOT), str(workspace), *flags],
+                    text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+            provision()
+            self.assertFalse(rule.exists())
+            self.assertTrue((workspace / "agents/rules/comments-state-why-not-what.md").exists())
+            provision("--experimental")
+            self.assertEqual(rule.read_text(), (ROOT / "agents/rules/second-order-thinking-checks.md").read_text())
+            rule.write_text("user customization\n")
+            provision()
+            provision("--experimental")
+            self.assertEqual(rule.read_text(), "user customization\n")
+
     def test_noninteractive_install_provisions_workspace_and_master_only(self):
         with tempfile.TemporaryDirectory(prefix="thesystem-install-") as td:
             root = Path(td)
