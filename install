@@ -14,7 +14,7 @@ usage() {
     'Usage: install [--workspace PATH] [--company NAME] [--non-interactive] [--experimental]' '' \
     'Installs distribution files (not a git checkout), then configures the' \
     'dedicated Hermes profile master. The default profile is not modified.' \
-    'Experimental rules are excluded unless --experimental is passed.'
+    'Experimental rules and skills are excluded unless --experimental is passed.'
 }
 
 workspace=''; company=''; non_interactive=0; experimental=0
@@ -123,9 +123,15 @@ safe_source_path() {
   fi
 }
 
-is_experimental_rule() {
+is_experimental_content() {
   local line marked=1
-  [[ "$1" == */rules/*.md && -f "$1" ]] || return 1
+  local manifest=$1
+  if [[ -d "$manifest" && "$manifest" == */skills/* ]]; then
+    manifest="$manifest/SKILL.md"
+  elif [[ "$manifest" != */rules/*.md ]]; then
+    return 1
+  fi
+  [[ -f "$manifest" ]] || return 1
   {
     IFS= read -r line || return 1
     [[ "${line%$'\r'}" == --- ]] || return 1
@@ -134,7 +140,7 @@ is_experimental_rule() {
       [[ "$line" == --- ]] && return "$marked"
       if [[ "$line" =~ ^experimental:[[:space:]]*true[[:space:]]*(#.*)?$ ]]; then marked=0; fi
     done
-  } <"$1"
+  } <"$manifest"
   return 1
 }
 
@@ -145,7 +151,7 @@ copy_additive() {
     [[ -e "$item" || -L "$item" ]] || continue
     name=${item##*/}; [[ "$name" == .git || "$name" == .gitignore ]] && continue
     safe_source_path "$source" "$name"
-    if (( ! experimental )) && is_experimental_rule "$item"; then continue; fi
+    if (( ! experimental )) && is_experimental_content "$item"; then continue; fi
     if [[ -L "$item" ]]; then
       safe_source_path "$source" "$name"
       [[ -e "$target/$name" || -L "$target/$name" ]] && continue

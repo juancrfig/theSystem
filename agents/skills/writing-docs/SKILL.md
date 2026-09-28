@@ -7,6 +7,8 @@ description: Decide whether a fact deserves documentation and where it goes. Use
 
 ## Write only what the code cannot say
 
+Human-facing user manuals are an exception: users must not need to read source to operate the product. `MANUAL.md` owns the human-approved functional contract. When available, use the experimental `manual-authoring` skill for its presentation and verification workflow.
+
 Before writing anything, ask whether an agent with the whole repository checked out and unlimited
 time to read it would still not know this. If reading the code answers it, do not write it. Code
 records *what* and *how*; it does not record *why* it is this way or that it is deliberate.
