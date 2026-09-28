@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install 
 ```
 
 1. Choose a workspace; the default is `~/workspace`.
-2. Choose a company command, such as `Acme`, or leave it blank to skip it. Use ASCII letters and digits, beginning with a letter.
+2. Choose the name of the main command; the default is `company`. Use a single word with standard English characters.
 3. For a new `master` profile, complete the Hermes setup wizard and choose **Blank Slate**. You own the provider and model choices.
 
 **Success:** the installer reports `Ready` with the profile and workspace. An earlier error means installation is incomplete; some files may already exist.
@@ -56,7 +56,7 @@ The installer creates a distribution, **not a Git checkout**. It configures the 
 Example with explicit choices:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash -s -- --workspace "$HOME/workspace" --company Acme --experimental
+curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash -s -- --workspace "$HOME/workspace" --company company --experimental
 ```
 
 Shared skills are trusted for the workspace, and those needing curator protection are pinned. Concrete model selection remains yours.
@@ -65,10 +65,10 @@ Shared skills are trusted for the workspace, and those needing curator protectio
 
 ### 2. Open your workspace
 
-If you chose `Acme`:
+If you chose `company`:
 
 ```bash
-Acme
+company
 ```
 
 **Success:** Hermes opens with `master` in the command's bound workspace, regardless of your current directory. The command lives in `~/.local/bin`, which must be on your shell's `PATH`.
@@ -79,11 +79,11 @@ If you skipped the company command, open Hermes with `master` from the installed
 
 A **workspace** contains projects. A **project** holds its knowledge and work records and may contain multiple **source clones**—the repositories being changed.
 
-Create or choose an existing project directory inside your workspace. For the default workspace and example company:
+Create or choose an existing project directory inside your workspace. For the default workspace and main command:
 
 ```bash
 mkdir -p "$HOME/workspace/payments"
-Acme add-project "$HOME/workspace/payments"
+company add-project "$HOME/workspace/payments"
 ```
 
 **Success:** a result with `status: "ok"`, the project path, and whether it was already registered. Registration creates missing `wiki`, `agents`, and `tickets` directories; repeating it preserves content and avoids duplicates.
