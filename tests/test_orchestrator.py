@@ -38,6 +38,16 @@ raise SystemExit(p.returncode)
         docker.chmod(0o755)
         return docker
 
+    def read_contract(self, task_file: Path) -> tuple[dict, str]:
+        text = task_file.read_text()
+        self.assertTrue(text.startswith("---\n"))
+        end = text.find("\n---\n", 4)
+        self.assertNotEqual(end, -1)
+        return json.loads(text[4:end]), text[end + 5 :]
+
+    def write_contract(self, task_file: Path, contract: dict, body: str):
+        task_file.write_text("---\n" + json.dumps(contract, indent=2, sort_keys=True) + "\n---\n" + body)
+
     def test_provider_secret_is_redacted_before_worker_output_becomes_evidence(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
@@ -51,11 +61,33 @@ raise SystemExit(p.returncode)
             self.assertNotIn(secret," ".join(args))
             self.assertNotIn("HOST_ONLY_TEST_TOKEN"," ".join(args))
             self.assertEqual(args[args.index("--network")+1],"none")
+            self.assertIn("HOME=/run/copilot-home", args)
+            self.assertIn("XDG_CACHE_HOME=/run/copilot-home/.cache", args)
             self.assertNotIn(secret,str(run.call_args.kwargs["env"]))
             self.assertNotIn("HOST_ONLY_TEST_TOKEN",str(run.call_args.kwargs["env"]))
             self.assertNotIn(secret,result.stdout+result.stderr)
             self.assertIn("[REDACTED]",result.stdout)
             self.assertIn("[REDACTED]",result.stderr)
+
+    def test_container_network_mode_override_and_validation(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);o=Orchestrator(root);prompt=root/"prompt";prompt.write_text("task")
+            completed=subprocess.CompletedProcess(["docker"],0,stdout="ok",stderr="")
+            env={
+                "THESYSTEM_BROKER_UPSTREAM_URL":"http://127.0.0.1:9/v1",
+                "THESYSTEM_BROKER_PROVIDER_KEY":"TEST_SECRET",
+                "THESYSTEM_BROKER_MODEL":"model-a",
+                "THESYSTEM_CONTAINER_NETWORK":"bridge",
+            }
+            with patch.dict(os.environ,env),patch("the_system_orchestrator.subprocess.run",return_value=completed) as run:
+                o._docker("test-image",root,["copilot"],10,prompt,runtime="copilot")
+            args=run.call_args.args[0]
+            self.assertEqual(args[args.index("--network")+1],"bridge")
+            with patch.dict(os.environ,{**env,"THESYSTEM_CONTAINER_NETWORK":"invalid"}):
+                with self.assertRaises(OrchestratorError) as failure:
+                    o._docker("test-image",root,["copilot"],10,prompt,runtime="copilot")
+            self.assertEqual(failure.exception.code,"CONTAINER_NETWORK_INVALID")
 
     def test_broker_configuration_fails_closed_before_branch_allocation(self):
         from unittest.mock import patch
@@ -177,6 +209,43 @@ raise SystemExit(p.returncode)
             self.assertEqual(received,[])
         finally:
             upstream.shutdown(); upstream.server_close(); target.shutdown(); target.server_close()
+
+    def test_broker_forwards_non_auth_headers(self):
+        captured=[]
+        class Upstream(BaseHTTPRequestHandler):
+            def do_POST(self):
+                captured.append(dict(self.headers.items()))
+                self.rfile.read(int(self.headers.get("Content-Length","0")))
+                body=b'{"ok":true}'
+                self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+            def log_message(self, format, *args): pass
+        upstream=ThreadingHTTPServer(("127.0.0.1",0),Upstream)
+        threading.Thread(target=upstream.serve_forever,daemon=True).start()
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                broker=HostCredentialBroker(f"http://127.0.0.1:{upstream.server_port}/v1","PROVIDER_KEY","model-a").serve(Path(td)/"broker.sock")
+                try:
+                    with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
+                        client.settimeout(10); client.connect(str(broker.socket_path))
+                        body=b'{"model":"model-a","messages":[]}'
+                        request=(f"POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {broker.capability}\r\nX-Copilot-Feature: enabled\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n").encode()+body
+                        client.sendall(request)
+                        response=http.client.HTTPResponse(client); response.begin(); response.read()
+                        self.assertEqual(response.status,200)
+                finally:
+                    broker.close()
+            self.assertEqual(captured[0].get("X-Copilot-Feature"),"enabled")
+            self.assertEqual(captured[0].get("Authorization"),"Bearer PROVIDER_KEY")
+        finally:
+            upstream.shutdown(); upstream.server_close()
+
+    def test_copilot_agent_command_uses_portable_reasoning_setting(self):
+        with tempfile.TemporaryDirectory() as td:
+            command = Orchestrator(Path(td))._agent_command("copilot", review=False, prompt="do work")
+        self.assertIn("--reasoning-effort", command)
+        self.assertIn("none", command)
+        self.assertIn("--available-tools", command)
+        self.assertIn("bash", command)
 
     def test_approval_dispatches_without_second_start(self):
         from unittest.mock import patch
@@ -321,5 +390,56 @@ raise SystemExit(p.returncode)
             with self.assertRaises(OrchestratorError) as failure: o.start("capacity")
             self.assertEqual(failure.exception.code,"ATTEMPTS_EXHAUSTED")
             self.assertEqual(o.task("capacity")["approval"],"approved")
+
+    def test_ticket_contract_validator_accepts_materialized_contract(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("contract-ok", repo, "Build contract")
+            task=o.task("contract-ok")
+            contract, blockers = o._validate_task_contract(task)
+            self.assertEqual(contract["task"], "contract-ok")
+            self.assertEqual(blockers, [])
+
+    def test_ticket_contract_validator_rejects_missing_clone_and_missing_verify(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("contract-invalid", repo, "Build contract")
+            with patch.object(o, "start", return_value={}):
+                o.approve("contract-invalid")
+            task=o.task("contract-invalid")
+            task_file = root / "tickets" / "local" / "tasks" / "contract-invalid" / "task.md"
+            contract, body = self.read_contract(task_file)
+            contract["source_clone"] = ""
+            contract["acceptance_criteria"][0].pop("verify", None)
+            self.write_contract(task_file, contract, body)
+            with self.assertRaises(OrchestratorError) as failure:
+                o._admission(task)
+            self.assertEqual(failure.exception.code, "TICKET_INVALID")
+            message = str(failure.exception)
+            self.assertIn("source_clone must be a non-empty string", message)
+            self.assertIn("acceptance_criteria[1].verify is required", message)
+
+    def test_ticket_contract_validator_reports_multiple_missing_fields(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("contract-missing", repo, "Build contract")
+            with patch.object(o, "start", return_value={}):
+                o.approve("contract-missing")
+            task=o.task("contract-missing")
+            task_file = root / "tickets" / "local" / "tasks" / "contract-missing" / "task.md"
+            contract, body = self.read_contract(task_file)
+            contract.pop("project", None)
+            contract.pop("runtime", None)
+            contract["acceptance_criteria"] = []
+            self.write_contract(task_file, contract, body)
+            with self.assertRaises(OrchestratorError) as failure:
+                o._admission(task)
+            self.assertEqual(failure.exception.code, "TICKET_INVALID")
+            message = str(failure.exception)
+            self.assertIn("missing required field: project", message)
+            self.assertIn("missing required field: runtime", message)
+            self.assertIn("acceptance_criteria must be a non-empty list", message)
 
 if __name__ == "__main__": unittest.main()
