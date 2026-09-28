@@ -26,10 +26,7 @@ Until a clear protocol is designed and battle-tested, the feedback loop must rem
 
 ### Setup
 
-Run locally with `./install`. The installer asks for a workspace (default
-`~/workspace`), downloads distribution content without retaining a git checkout,
-installs missing `uv` and Hermes, and configures only the dedicated Hermes `master`
-profile using official Blank Slate setup.
+Install with `curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash`.
 
 ## theSystem work tracking
 
