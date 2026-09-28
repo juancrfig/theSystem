@@ -3,7 +3,9 @@
 A framework to reliably build high-quality software by leveraging AI agents
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash
+curl -fsSL \
+  https://raw.githubusercontent.com/juancrfig/theSystem/master/install \
+  | bash
 ```
 
 # Infrastructure
