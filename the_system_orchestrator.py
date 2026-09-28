@@ -691,7 +691,7 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
         review_runtime=os.environ.get("THESYSTEM_REVIEW_RUNTIME",t["runtime"])
         if review_runtime not in RUNTIMES: raise OrchestratorError("REVIEW_RUNTIME_INVALID",review_runtime)
         image=os.environ.get("THESYSTEM_"+review_runtime.upper()+"_IMAGE") or os.environ.get("THESYSTEM_REVIEW_IMAGE") or os.environ.get("THESYSTEM_AGENT_IMAGE")
-        pf=self.root/"prompts"/(r["id"]+"-review.txt"); pf.write_text("Independent review. Criteria:\n"+"\n".join(self._acceptance_lines(t))+"\n/workspace is a disposable review copy. You may run tests/builds and make temporary edits there. End exactly VERDICT: PASS or VERDICT: FAIL with reasons.")
+        pf=self.root/"prompts"/(r["id"]+"-review.txt"); pf.parent.mkdir(parents=True,exist_ok=True); pf.write_text("Independent review. Criteria:\n"+"\n".join(self._acceptance_lines(t))+"\n/workspace is a disposable review copy. You may run tests/builds and make temporary edits there. End exactly VERDICT: PASS or VERDICT: FAIL with reasons.")
         layer=self.root/"layers"/r["id"]
         if layer.exists(): shutil.rmtree(layer)
         shutil.copytree(work,layer,ignore=shutil.ignore_patterns('.git'))
