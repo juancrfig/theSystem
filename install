@@ -61,6 +61,30 @@ ensure_python() {
   require_command python3
 }
 
+ensure_runtime_prerequisites() {
+  # Minimal distribution images can have Python but no download or Git tools.
+  # Install supported system packages before invoking vendor installers.
+  local missing=0 tool privilege=()
+  for tool in curl git tar; do
+    command -v "$tool" >/dev/null 2>&1 || missing=1
+  done
+  python3 -c 'import ctypes; ctypes.CDLL("libatomic.so.1")' >/dev/null 2>&1 || missing=1
+  (( missing )) || return 0
+  if [[ "$(id -u)" != 0 ]]; then
+    require_command sudo
+    privilege=(sudo)
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    "${privilege[@]}" apt-get update
+    "${privilege[@]}" apt-get install -y curl ca-certificates git tar libatomic1
+  elif command -v pacman >/dev/null 2>&1; then
+    "${privilege[@]}" pacman -Sy --needed --noconfirm curl ca-certificates git tar gcc-libs
+  else
+    die 'curl, Git, and tar are required; no supported package manager (apt-get/pacman) found'
+  fi
+  for tool in curl git tar; do require_command "$tool"; done
+}
+
 ensure_hermes() {
   if command -v hermes >/dev/null 2>&1; then
     hermes --version >/dev/null 2>&1 || die 'Hermes is on PATH but failed verification'
@@ -528,6 +552,7 @@ main() {
     return
   fi
   ensure_python
+  if [[ "$runtime" != none ]]; then ensure_runtime_prerequisites; fi
   if [[ "$runtime" == hermes ]]; then
     ensure_hermes
     ensure_uv

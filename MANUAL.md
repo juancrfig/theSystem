@@ -14,8 +14,8 @@ Build software with AI agents. Keep control of the requirements, permissions, an
 | Installation, company command, project registration | Implemented |
 | Shared planning skills and assisted memory/skill review | Implemented in Hermes; coverage and fallback are being verified |
 | Experimental rules and skills | Opt-in with `--experimental` |
-| Automated task admission, isolated execution, independent review, run records | **Partial local implementation; MVP stopped incomplete** |
-| Native Copilot operation, Herdr launch, upgrade/rollback/uninstall, wiki ingestion | **Partial local verification; MVP stopped incomplete** |
+| Automated task admission, isolated execution, independent review, run records | **Partial local implementation; MVP incomplete** |
+| Native Copilot operation, Herdr launch, upgrade/rollback/uninstall, wiki ingestion | **Partial local verification; MVP incomplete** |
 
 “Implemented” describes repository capability, not a fresh deployment certification.
 
@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install 
 The installer creates a distribution, **not a Git checkout**. It configures the dedicated `master` profile, shared skills, required CLI toolsets, and the memory-review environment. Your default Hermes profile is not configured. An existing `master` is reused, but theSystem's managed settings still apply.
 
 > [!NOTE]
-> **Current installer limitation:** Upgrade, rollback, and uninstall preserved company data in isolated local probes; clean normal installation on both supported targets is not yet certified. The intended lifecycle safely upgrades, rolls back installed software, and uninstalls without deleting company knowledge, source repositories, work records, or credentials. Rollback does not undo completed work. Interrupted installation must be recoverable without claiming success prematurely.
+> **Current installer limitation:** Fresh local-distribution Copilot-only installation and blank installation passed in clean Ubuntu 24.04 and Arch base containers. Upgrade, rollback, and uninstall preserved company data in isolated local probes. Interactive desktop/account setup, Hermes normal install, remote-distribution install, and interrupted-install recovery are not yet certified. The intended lifecycle safely upgrades, rolls back installed software, and uninstalls without deleting company knowledge, source repositories, work records, or credentials. Rollback does not undo completed work.
 
 <details>
 <summary><strong>Installer options</strong></summary>
@@ -75,7 +75,7 @@ company
 
 **Intended success:** Herdr opens the selected agent in the command's bound workspace, regardless of your current directory. The command lives in `~/.local/bin`, which must be on your shell's `PATH`. If Herdr reports an interaction is pending, the agent is not yet ready.
 
-Herdr manages the session display, not task execution or approval. Remote access stays off by default. Direct/no-Herdr and headless operation remain available. In blank mode, non-chat company operations work without an agent runtime; chat requires an explicitly selected installed runtime or reports none configured. Normal Herdr launch is not yet verified after a credential-safety correction; direct and headless paths have limited local probes in [MVP evidence](docs/MVP-EVIDENCE.md).
+Herdr manages the session display, not task execution or approval. Remote access stays off by default. Direct/no-Herdr and headless operation remain available. In blank mode, non-chat company operations work without an agent runtime; chat requires an explicitly selected installed runtime or reports none configured. Copilot launch in Herdr has a local isolated proof after the credential-safety correction; installed normal launch on both supported targets and Hermes-in-Herdr are not yet certified. Direct and headless paths have limited local probes in [MVP evidence](docs/MVP-EVIDENCE.md).
 
 If you skipped the company command, open Hermes with `master` from the installed workspace instead. Describe your goal to the main agent. **Conversation alone does not approve execution or learning.**
 

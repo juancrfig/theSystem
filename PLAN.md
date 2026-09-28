@@ -1,4 +1,12 @@
-# Temporary MVP execution plan — stopped incomplete
+# Temporary MVP execution plan — resumed, incomplete
+
+## Commit-and-push checkpoint (2026-09-28 07:20 -05:00)
+
+Next session resumes from the published commit; this plan is not superseded. Two phase-2 implementation slices are already delivered and integrated locally. Credential containment is locally certified (2/3 attempts, no third needed); CLI coverage is delivered (1/3). Habit acceptance remains blocked (three prior attempts exhausted in the earlier phase; not relabeled). See the [evidence ledger](docs/MVP-EVIDENCE.md) for the checked-off verified items and the exact unverified blockers to replan onward (interactive Herdr launch, Hermes normal install and Hermes-in-Herdr, remote-distribution install, interrupted-install recovery, installed end-to-end retry, native pending-write application, and approved wiki ingestion application). The authorized continuation deadline below remains 2026-09-28 14:07:48 -05:00. The client-managed `master`/`default` toolset decision was deferred for the next in-context session.
+
+## Authorized continuation (2026-09-28 06:07:48 -05:00)
+
+Juanes authorized a new bounded phase starting 2026-09-28T06:07:48-05:00, deadline 2026-09-28T14:07:48-05:00. This phase allows at most two concurrent implementation workers, at most three **new** attempts per incomplete task, and 60 minutes per attempt. Previous attempts remain historical evidence: habits attempts `cc4765d8927448c29578bfc1845e6902`, `608a130a70ce4543b0dee0d2d65db364`, and `fe6e3883e82149db8b76ebbe760e264c` are exhausted in the previous phase and are never relabeled. New-phase accounting starts at zero per incomplete task and must be recorded with actual run identifiers. The stop handoff below remains the state at resumption, not a completion claim. No push or deployment authorized.
 
 ## Stop handoff (2026-09-28 05:34 -05:00)
 

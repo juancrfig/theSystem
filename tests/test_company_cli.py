@@ -14,6 +14,102 @@ CLI = ROOT / "company_cli.py"
 
 
 class CompanyCliTests(unittest.TestCase):
+    def test_source_clone_registration_is_project_scoped_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "payments"
+            clone = project / "api"
+            clone.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(clone)], check=True)
+            self.assertEqual(self.run_cli(workspace, "add-project", str(project)).returncode, 0)
+            first = self.run_cli(workspace, "add-source-clone", str(project), str(clone))
+            second = self.run_cli(workspace, "add-source-clone", str(project), str(clone))
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertFalse(json.loads(first.stdout)["idempotent"])
+            self.assertTrue(json.loads(second.stdout)["idempotent"])
+            registered = json.loads((workspace / ".thesystem" / "source-clones.json").read_text())
+            self.assertEqual(registered, [{"project": str(project.resolve()), "path": str(clone.resolve())}])
+
+    def test_source_clone_registration_refuses_unregistered_project_and_escape(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "payments"
+            clone = Path(td) / "api"
+            project.mkdir(parents=True)
+            clone.mkdir()
+            subprocess.run(["git", "init", "-q", str(clone)], check=True)
+            result = self.run_cli(workspace, "add-source-clone", str(project), str(clone))
+            self.assertEqual(json.loads(result.stdout)["code"], "PROJECT_NOT_REGISTERED")
+
+    def test_create_task_cannot_bypass_registered_source_clone(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "payments"
+            clone = project / "api"
+            clone.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(clone)], check=True)
+            self.assertEqual(self.run_cli(workspace, "add-project", str(project)).returncode, 0)
+            result = self.run_cli(workspace, "create-task", "--project", str(project), "--task", "one",
+                                  "--source-clone", str(clone), "--command", "add a test")
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)["code"], "SOURCE_CLONE_NOT_REGISTERED")
+
+    def test_set_role_writes_safe_project_role_configuration(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "payments"
+            project.mkdir(parents=True)
+            self.assertEqual(self.run_cli(workspace, "add-project", str(project)).returncode, 0)
+            result = self.run_cli(workspace, "set-role", str(project), "api", "--rule", "rules/no-secrets.md", "--cli", "git")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            roles = json.loads((project / "agents" / "roles.yaml").read_text())
+            self.assertEqual(roles["api"], {"rules": ["rules/no-secrets.md"], "clis": ["git"]})
+            unsafe = self.run_cli(workspace, "set-role", str(project), "../escape")
+            self.assertEqual(json.loads(unsafe.stdout)["code"], "ROLE_INVALID")
+
+    def test_role_setup_refuses_a_reviewer_missing_worker_rules(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "payments"
+            project.mkdir(parents=True)
+            self.assertEqual(self.run_cli(workspace, "add-project", str(project)).returncode, 0)
+            self.assertEqual(self.run_cli(workspace, "set-role", str(project), "reviewer").returncode, 0)
+            result = self.run_cli(workspace, "set-role", str(project), "worker", "--rule", "rules/no-secrets.md")
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)["code"], "REVIEWER_RULES_MISSING")
+
+    def test_retry_refuses_non_retryable_status_without_starting_a_run(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "payments"
+            project.mkdir(parents=True)
+            self.assertEqual(self.run_cli(workspace, "add-project", str(project)).returncode, 0)
+            state = project / ".thesystem" / "orchestrator" / "state.json"
+            state.parent.mkdir(parents=True)
+            state.write_text(json.dumps({"version": 2, "tasks": {"one": {"id": "one", "approval": "approved"}}, "runs": {"run1": {"id": "run1", "task_id": "one", "status": "passed"}}}))
+            result = self.run_cli(workspace, "retry", "--project", str(project), "--task", "one")
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)["code"], "RETRY_NOT_ALLOWED")
+
+    def test_evidence_reads_immutable_record_and_learning_delegates_to_native_reviewer(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "payments"
+            project.mkdir(parents=True)
+            self.assertEqual(self.run_cli(workspace, "add-project", str(project)).returncode, 0)
+            evidence = project / ".thesystem" / "orchestrator" / "runs" / "abc.json"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text(json.dumps({"id": "abc", "status": "changes-requested"}))
+            result = self.run_cli(workspace, "evidence", "--project", str(project), "--run", "abc")
+            self.assertEqual(json.loads(result.stdout)["run"]["status"], "changes-requested")
+            with mock.patch.dict(os.environ, {"THESYSTEM_WORKSPACE": str(workspace)}), \
+                 mock.patch("company_cli.subprocess.run", return_value=subprocess.CompletedProcess([], 0, '{"counts": {"memory": 0}}', "")) as run, \
+                 mock.patch("company_cli.emit"):
+                self.assertEqual(company_cli.main(["learning", "inventory"]), 0)
+            command = run.call_args.args[0]
+            self.assertIn("inventory", command)
+            self.assertTrue(command[1].endswith("review_memory_requests.py"))
+
     def test_herdr_launch_never_places_copilot_token_in_arguments(self):
         with tempfile.TemporaryDirectory() as td:
             workspace = Path(td)
@@ -21,7 +117,6 @@ class CompanyCliTests(unittest.TestCase):
             (workspace / ".thesystem" / "runtime").write_text("copilot\n")
             marker = "disposable-test-token-not-real"
             responses = [
-                subprocess.CompletedProcess([], 0, marker + "\n", ""),
                 subprocess.CompletedProcess([], 0, json.dumps({"result": {
                     "root_pane": {"pane_id": "p1"},
                     "workspace": {"workspace_id": "w1"},
@@ -30,10 +125,36 @@ class CompanyCliTests(unittest.TestCase):
             ]
             with mock.patch.dict(os.environ, {"COPILOT_GITHUB_TOKEN": "", "GH_TOKEN": "", "GITHUB_TOKEN": ""}), \
                  mock.patch("company_cli.subprocess.run", side_effect=responses) as run, \
-                 mock.patch("shutil.which", return_value="/usr/bin/herdr"), \
+                 mock.patch("company_cli.shutil.which", side_effect=lambda name: "/usr/bin/herdr" if name == "herdr" else None), \
                  mock.patch("company_cli.emit"):
                 self.assertEqual(company_cli.launch_master(workspace, json_mode=True), 0)
-            self.assertEqual(run.call_count, 3)
+            self.assertEqual(run.call_count, 2)
+            for call in run.call_args_list:
+                self.assertNotIn(marker, " ".join(call.args[0]))
+
+    def test_copilot_herdr_prepares_host_pane_without_token_in_argv(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td)
+            (workspace / ".thesystem").mkdir()
+            (workspace / ".thesystem" / "runtime").write_text("copilot\n")
+            marker = "disposable-provider-marker"
+            replies = [
+                subprocess.CompletedProcess([], 0, json.dumps({"result": {
+                    "root_pane": {"pane_id": "w1:p1"},
+                    "workspace": {"workspace_id": "w1"},
+                }}), ""),
+                subprocess.CompletedProcess([], 0, "", ""),  # gh auth status
+                subprocess.CompletedProcess([], 0, "", ""),  # host pane preparation
+                subprocess.CompletedProcess([], 0, "", ""),  # agent start
+            ]
+            with mock.patch.dict(os.environ, {"COPILOT_GITHUB_TOKEN": marker}), \
+                 mock.patch("company_cli.subprocess.run", side_effect=replies) as run, \
+                 mock.patch("company_cli.shutil.which", side_effect=lambda name: "/usr/bin/gh" if name == "gh" else "/usr/bin/herdr" if name == "herdr" else None), \
+                 mock.patch("company_cli.emit"):
+                self.assertEqual(company_cli.launch_master(workspace, json_mode=True), 0)
+            self.assertEqual(run.call_count, 4)
+            self.assertEqual(run.call_args_list[2].args[0][:4], ["herdr", "pane", "run", "w1:p1"])
+            self.assertIn("gh auth token", run.call_args_list[2].args[0][4])
             for call in run.call_args_list:
                 self.assertNotIn(marker, " ".join(call.args[0]))
 
