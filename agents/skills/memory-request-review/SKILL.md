@@ -5,10 +5,11 @@ description: "Use when reviewing pending Hermes memory or skill writes across de
 
 # Assisted memory-request review
 
-Use this skill at the start of a new conversation to review native pending
-writes for `memory` and `skills` in the `default`, `implementer`, and `reviewer`
-profiles. It does not create or maintain another queue: Hermes remains the only
-source of pending writes and the only mechanism that can apply a decision.
+Use this skill at the start of a new conversation to review pending writes for
+`memory` and `skills` in the company `master` profile (and legacy compatible
+profiles when present). In Copilot-only mode the same proposal, evaluation, and
+explicit-decision flow is used without importing Hermes. It does not create or
+maintain another queue.
 
 ## Authority limits
 
@@ -123,7 +124,7 @@ Run the isolated tests before declaring the delivery verified:
 ```
 
 A real Jev test requires at least one approved criterion, an eligible request,
-and `TYPESAFE_API_KEY` in the environment or the ignored checkout-root `.env`
+and `SYSTEM_ONE_API` in the environment or the ignored checkout-root `.env`
 (see `.env.example`); the environment takes priority. If any are missing,
 report that blocker; never simulate an evaluation. Test native integration with
 a temporary `HERMES_HOME`, never by approving or rejecting real pending writes

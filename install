@@ -11,25 +11,55 @@ say() { printf '[theSystem] %s\n' "$*"; }
 die() { printf '[theSystem] error: %s\n' "$*" >&2; exit 1; }
 usage() {
   printf '%s\n' \
-    'Usage: install [--workspace PATH] [--company NAME] [--non-interactive] [--experimental]' '' \
+    'Usage: install [--workspace PATH] [--company NAME] [--runtime hermes|copilot] [--blank=yes] [--non-interactive] [--experimental]' '' \
     'Installs distribution files (not a git checkout), then configures the' \
     'dedicated Hermes profile master. The default profile is not modified.' \
     'Experimental rules and skills are excluded unless --experimental is passed.'
 }
 
-workspace=''; company=''; non_interactive=0; experimental=0
+workspace=''; company=''; runtime=hermes; blank=0; non_interactive=0; experimental=0
+lifecycle=install
+rollback_id=''
+replace_managed=0
+
 while (($#)); do
   case "$1" in
     --workspace) (($# >= 2)) || die '--workspace needs a path'; workspace=$2; shift 2 ;;
     --company) (($# >= 2)) || die '--company needs a name'; company=$2; shift 2 ;;
+    --runtime) (($# >= 2)) || die '--runtime needs hermes or copilot'; runtime=$2; shift 2 ;;
+    --blank=yes) blank=1; shift ;;
     --non-interactive) non_interactive=1; shift ;;
     --experimental) experimental=1; shift ;;
+    --upgrade) lifecycle=upgrade; shift ;;
+    --rollback) lifecycle=rollback; shift ;;
+    --uninstall) lifecycle=uninstall; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
 
+[[ "$runtime" == hermes || "$runtime" == copilot ]] || die '--runtime must be hermes or copilot'
+(( blank )) && runtime=none
+
 require_command() { command -v "$1" >/dev/null 2>&1 || die "required command is not available: $1"; }
+
+ensure_python() {
+  if command -v python3 >/dev/null 2>&1; then return; fi
+  local privilege=()
+  if [[ "$(id -u)" != 0 ]]; then
+    require_command sudo
+    privilege=(sudo)
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    "${privilege[@]}" apt-get update
+    "${privilege[@]}" apt-get install -y python3
+  elif command -v pacman >/dev/null 2>&1; then
+    "${privilege[@]}" pacman -Sy --needed --noconfirm python
+  else
+    die 'Python 3 is required; no supported package manager (apt-get/pacman) found'
+  fi
+  require_command python3
+}
 
 ensure_hermes() {
   if command -v hermes >/dev/null 2>&1; then
@@ -53,6 +83,28 @@ ensure_uv() {
   fi
   require_command uv
   uv --version >/dev/null 2>&1 || die 'uv failed verification'
+}
+
+ensure_copilot() {
+  if ! command -v copilot >/dev/null 2>&1; then
+    require_command curl
+    say 'Copilot CLI not found; running the official GitHub installer' >&2
+    curl --fail --location --silent --show-error https://gh.io/copilot-install | bash
+    export PATH="$HOME/.local/bin:$HOME/.local/share/npm/bin:$PATH"
+  fi
+  require_command copilot
+  copilot --version >/dev/null 2>&1 || die 'Copilot CLI failed verification'
+}
+
+ensure_herdr() {
+  if ! command -v herdr >/dev/null 2>&1; then
+    require_command curl
+    say 'Herdr not found; running the official Herdr installer' >&2
+    curl --fail --location --silent --show-error "${THESYSTEM_HERDR_INSTALL_URL:-https://herdr.dev/install.sh}" | sh
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+  fi
+  require_command herdr
+  herdr --version >/dev/null 2>&1 || die 'Herdr failed verification'
 }
 
 ask_workspace() {
@@ -110,7 +162,7 @@ download_distribution() {
 
 # Only these paths are distribution inputs. In particular, runtime state, .env,
 # .scratch, tests, and the source checkout's generated .agents are never copied.
-allowed_distribution_paths=(AGENTS.md CONTEXT.md README.md orchestrator bootstrap install company_cli.py agents .githooks docs)
+allowed_distribution_paths=(AGENTS.md CONTEXT.md MANUAL.md README.md orchestrator the_system_orchestrator.py installer_lifecycle.py bootstrap install company_cli.py agents .githooks docs)
 
 safe_source_path() {
   local source=$1 path=$2 resolved source_real
@@ -154,18 +206,78 @@ copy_additive() {
     if (( ! experimental )) && is_experimental_content "$item"; then continue; fi
     if [[ -L "$item" ]]; then
       safe_source_path "$source" "$name"
-      [[ -e "$target/$name" || -L "$target/$name" ]] && continue
-      cp -a "$item" "$target/$name"
+      if (( replace_managed )) || [[ ! -e "$target/$name" && ! -L "$target/$name" ]]; then
+        rm -rf "$target/$name"; cp -a "$item" "$target/$name"
+      fi
     elif [[ -d "$item" ]]; then
       copy_additive "$item" "$target/$name"
-    elif [[ -e "$target/$name" || -L "$target/$name" ]]; then
-      continue
-    else cp -a "$item" "$target/$name"; fi
+    elif (( replace_managed )) || [[ ! -e "$target/$name" && ! -L "$target/$name" ]]; then
+      cp -a "$item" "$target/$name"
+    fi
   done
 }
 
+backup_distribution() {
+  local target=$1 backup_dir="$target/.thesystem/backups" id archive item
+  id=$(date -u +%Y%m%dT%H%M%SZ)
+  mkdir -p "$backup_dir"
+  archive="$backup_dir/$id.tar.gz"
+  local existing=()
+  for item in "${allowed_distribution_paths[@]}"; do
+    [[ -e "$target/$item" || -L "$target/$item" ]] && existing+=("$item")
+  done
+  ((${#existing[@]})) || return 0
+  tar -czf "$archive" -C "$target" "${existing[@]}"
+  [[ -f "$target/.thesystem/managed.json" ]] && cp "$target/.thesystem/managed.json" "$backup_dir/$id.managed.json"
+  printf '%s\n' "$id"
+}
+
+remove_distribution() {
+  local target=$1
+  [[ -f "$target/installer_lifecycle.py" ]] || die 'safe ownership cleanup is unavailable; preserving distribution'
+  python3 "$target/installer_lifecycle.py" clean "$target" || die 'safe ownership cleanup failed; no destructive fallback'
+}
+
+upgrade_distribution() {
+  local source=$1 target=$2 snapshot
+  [[ -d "$target" ]] || die "cannot upgrade missing workspace: $target"
+  snapshot=$(backup_distribution "$target") || die 'could not create upgrade backup'
+  replace_managed=1
+  provision_distribution "$source" "$target"
+  python3 "$source/installer_lifecycle.py" snapshot "$source" "$target"
+  printf '%s\n' "$snapshot" > "$target/.thesystem/active-backup"
+  say "Upgraded distribution at $(cd "$target" && pwd -P); rollback snapshot: $snapshot"
+}
+
+rollback_distribution() {
+  local target=$1 archive id
+  [[ -d "$target/.thesystem/backups" ]] || die "no rollback snapshots found in $target"
+  id=${rollback_id:-$(find "$target/.thesystem/backups" -maxdepth 1 -name '*.tar.gz' -printf '%f\n' | sort | tail -n 1)}
+  id=${id%.tar.gz}; archive="$target/.thesystem/backups/$id.tar.gz"
+  [[ -f "$archive" && -f "$target/.thesystem/backups/$id.managed.json" ]] || die "rollback snapshot or ownership manifest not found: $id"
+  remove_distribution "$target"
+  tar -xzf "$archive" -C "$target"
+  cp "$target/.thesystem/backups/$id.managed.json" "$target/.thesystem/managed.json"
+  say "Rolled back distribution at $(cd "$target" && pwd -P) to $id"
+}
+
+uninstall_distribution() {
+  local target=$1
+  [[ -d "$target" ]] || die "workspace not found: $target"
+  remove_distribution "$target"
+  if [[ -n "$company" && -f "$HOME/.local/bin/$company" ]] && python3 - "$HOME/.local/bin/$company" "$target" <<'PYLAUNCHER'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+if s.startswith("#!/usr/bin/env bash\n") and "export THESYSTEM_WORKSPACE="+sys.argv[2] in s and "/company_cli.py" in s:
+    Path(sys.argv[1]).unlink()
+PYLAUNCHER
+  then :; fi
+  say "Removed theSystem software from $target; projects, source repositories, work records, and credentials were preserved"
+}
+
 provision_distribution() {
-  local source=$1 target=$2 source_real target_abs
+  local source=$1 target=$2 source_real target_abs item
   [[ ! -L "$target" ]] || die "refusing to provision through symlink workspace: $target"
   mkdir -p "$target"
   source_real=$(cd "$source" && pwd -P)
@@ -176,7 +288,7 @@ provision_distribution() {
     [[ -e "$source_real/$item" || -L "$source_real/$item" ]] || continue
     if [[ -d "$source_real/$item" && ! -L "$source_real/$item" ]]; then
       copy_additive "$source_real/$item" "$target_abs/$item"
-    elif [[ ! -e "$target_abs/$item" && ! -L "$target_abs/$item" ]]; then
+    elif (( replace_managed )) || [[ ! -e "$target_abs/$item" && ! -L "$target_abs/$item" ]]; then
       cp -a "$source_real/$item" "$target_abs/$item"
     fi
   done
@@ -291,20 +403,34 @@ enable_required_toolsets() {
 }
 
 provision_memory_review() {
-  local root=$1 env_dir req runtime
+  local root=$1 env_dir req runtime runtime_paths path_script
   env_dir="$root/.agents/memory-review"
   req="$root/agents/skills/memory-request-review/requirements.txt"
   runtime=$(resolve_hermes_python)
   if [[ ! -x "$env_dir/bin/python" ]]; then uv venv --python "$runtime" "$env_dir"; fi
   uv pip install --python "$env_dir/bin/python" --requirements "$req"
-  "$env_dir/bin/python" - "$runtime" <<'PY'
+  path_script=$(mktemp)
+  printf '%s\n' 'import json,sys; print(json.dumps([p for p in sys.path if "site-packages" in p]))' > "$path_script"
+  runtime_paths=$(run_hermes_python_file "$path_script") || die 'Hermes runtime dependency paths unavailable'
+  rm -f "$path_script"
+  "$env_dir/bin/python" - "$runtime" "$runtime_paths" <<'PY'
 import json, subprocess, sys, sysconfig
 from pathlib import Path
+import ast
 runtime=subprocess.run([sys.argv[1],'-I','-c','import json,site,sys; print(json.dumps([list(sys.version_info[:2]),site.getsitepackages()]))'],check=True,capture_output=True,text=True)
 version, paths=json.loads(runtime.stdout)
+paths.extend(json.loads(sys.argv[2]))
 if version != list(sys.version_info[:2]): raise SystemExit('review environment Python differs from Hermes')
+command=subprocess.run(['hermes','--print-runtime-command'],check=True,capture_output=True,text=True)
+bootstrap=json.loads(command.stdout)[3]
+roots=[]
+for node in ast.walk(ast.parse(bootstrap)):
+    if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='insert' and isinstance(node.func.value,ast.Attribute) and node.func.value.attr=='path' and len(node.args)>=2 and isinstance(node.args[1],ast.Constant) and isinstance(node.args[1].value,str):
+        candidate=Path(node.args[1].value)
+        if candidate.is_absolute() and (candidate/'hermes_cli').is_dir(): roots.append(str(candidate))
+if len(roots)!=1: raise SystemExit('Hermes runtime did not publish one source root')
 target=Path(sysconfig.get_path('purelib'))/'hermes-runtime.pth'
-target.write_text('import site; '+'; '.join(f'site.addsitedir({p!r})' for p in paths)+'\n')
+target.write_text('import site; '+'; '.join(f'site.addsitedir({p!r})' for p in [*paths,*roots])+'\n')
 PY
   uv pip check --python "$env_dir/bin/python"
   "$env_dir/bin/python" -c 'from typesafe_sdk import Noul, TypeSafeClient; from tools import write_approval; from hermes_cli.write_approval_commands import _apply_one; from importlib.metadata import version; print("typesafe-sdk " + version("typesafe-sdk"))'
@@ -395,24 +521,42 @@ main() {
     [[ -z "$existing_company" || "$existing_company" == "$HOME/.local/bin/$company" ]] \
       || die "company command already exists; refusing to overwrite: $company"
   fi
-  ensure_hermes
-  ensure_uv
+  if [[ "$lifecycle" == rollback || "$lifecycle" == uninstall ]]; then
+    ask_workspace
+    [[ "$workspace" = /* ]] || workspace="$PWD/$workspace"
+    if [[ "$lifecycle" == rollback ]]; then rollback_distribution "$workspace"; else uninstall_distribution "$workspace"; fi
+    return
+  fi
+  ensure_python
+  if [[ "$runtime" == hermes ]]; then
+    ensure_hermes
+    ensure_uv
+  elif [[ "$runtime" == copilot ]]; then
+    ensure_copilot
+  fi
   ask_workspace
   ask_company
   [[ "$workspace" = /* ]] || workspace="$PWD/$workspace"
   local source
   if source=$(find_local_distribution); then :; else source=$(download_distribution); fi
-  provision_distribution "$source" "$workspace"
-  link_project_skills "$workspace"
-  configure_master_profile
-  check_required_files "$workspace"
-  enable_required_toolsets "$workspace"
-  provision_memory_review "$workspace"
-  trust_and_verify_skills "$workspace"
-  install_system_config "$workspace"
-  pin_global_skills "$workspace"
+  if [[ "$lifecycle" == upgrade ]]; then upgrade_distribution "$source" "$workspace"; else provision_distribution "$source" "$workspace"; python3 "$source/installer_lifecycle.py" snapshot "$source" "$workspace"; fi
+  if [[ "$runtime" != none ]]; then ensure_herdr; fi
+  if [[ "$runtime" == hermes ]]; then
+    link_project_skills "$workspace"
+    configure_master_profile
+    check_required_files "$workspace"
+    enable_required_toolsets "$workspace"
+    provision_memory_review "$workspace"
+    trust_and_verify_skills "$workspace"
+    install_system_config "$workspace"
+    pin_global_skills "$workspace"
+  elif [[ "$runtime" == copilot ]]; then
+    link_project_skills "$workspace"
+  fi
+  mkdir -p "$workspace/.thesystem"
+  printf "%s\n" "$runtime" > "$workspace/.thesystem/runtime"
   install_company_cli "$workspace"
-  say "Ready. Profile: master; workspace: $(cd "$workspace" && pwd -P)"
+  say "Ready. Runtime: $runtime; workspace: $(cd "$workspace" && pwd -P)"
 }
 
 if [[ -z "${BASH_SOURCE[0]:-}" || "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi

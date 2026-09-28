@@ -5,12 +5,38 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+
+import company_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "company_cli.py"
 
 
 class CompanyCliTests(unittest.TestCase):
+    def test_herdr_launch_never_places_copilot_token_in_arguments(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td)
+            (workspace / ".thesystem").mkdir()
+            (workspace / ".thesystem" / "runtime").write_text("copilot\n")
+            marker = "disposable-test-token-not-real"
+            responses = [
+                subprocess.CompletedProcess([], 0, marker + "\n", ""),
+                subprocess.CompletedProcess([], 0, json.dumps({"result": {
+                    "root_pane": {"pane_id": "p1"},
+                    "workspace": {"workspace_id": "w1"},
+                }}) + "\n", ""),
+                subprocess.CompletedProcess([], 0, "", ""),
+            ]
+            with mock.patch.dict(os.environ, {"COPILOT_GITHUB_TOKEN": "", "GH_TOKEN": "", "GITHUB_TOKEN": ""}), \
+                 mock.patch("company_cli.subprocess.run", side_effect=responses) as run, \
+                 mock.patch("shutil.which", return_value="/usr/bin/herdr"), \
+                 mock.patch("company_cli.emit"):
+                self.assertEqual(company_cli.launch_master(workspace, json_mode=True), 0)
+            self.assertEqual(run.call_count, 3)
+            for call in run.call_args_list:
+                self.assertNotIn(marker, " ".join(call.args[0]))
+
     def run_cli(self, workspace: Path | None, *args: str, cwd: Path | None = None):
         env = dict(os.environ)
         if workspace is None:

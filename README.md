@@ -8,9 +8,9 @@ curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install 
 
 # Infrastructure
 
-- **[Hermes Harness](hermes-agent.nousresearch.com)**
+- **[Hermes Harness](https://hermes-agent.nousresearch.com/docs)**
 - **[llm-wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)**
-- **[OpenTelemetry](opentelemetry.io)**
+- **[OpenTelemetry](https://opentelemetry.io)**
 
 # The Four Problems
 
@@ -27,3 +27,7 @@ self-improvement mechanism. However, the protocol agents follow to do this must 
 charge of agents. I've noticed agents are not good (by default) when trying to generalize their 
 reflections from mistakes, effectivelly bloating their own memory with ticket-specific learnings. 
 Until a clear protocol is designed and battle-tested, the feedback loop must remain in charge of humans. 
+
+## Local MVP status
+
+The intended workflow and availability labels are in [the user manual](MANUAL.md). [MVP evidence](docs/MVP-EVIDENCE.md) records verified local runs and remaining blockers. The MVP is stopped incomplete; neither app deployment nor full product acceptance is claimed.

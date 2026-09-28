@@ -77,7 +77,7 @@ elif 'skills' in args:
             archive = root / "theSystem.tar.gz"
             distribution_paths = (
                 "AGENTS.md", "CONTEXT.md", "README.md", "orchestrator", "bootstrap",
-                "install", "company_cli.py", "agents", ".githooks", "docs",
+                "install", "company_cli.py", "installer_lifecycle.py", "the_system_orchestrator.py", "agents", ".githooks", "docs",
             )
             with tarfile.open(archive, "w:gz") as bundle:
                 for name in distribution_paths:

@@ -21,7 +21,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-PROFILES = ("default", "implementer", "reviewer")
+# master is the installed company profile. Legacy profiles remain readable so
+# upgrades do not strand pending requests created by an older distribution.
+PROFILES = ("default", "master", "implementer", "reviewer")
 SUBSYSTEMS = ("memory", "skills")
 
 
@@ -82,6 +84,7 @@ class Evaluation:
     results: dict[str, float]
     error: str = ""
     retention_categories: tuple[str, ...] = ()
+    concerns: tuple[str, ...] = ()
 
 
 def canonical_json(value: Any) -> str:
@@ -93,6 +96,9 @@ def sha256_text(text: str) -> str:
 
 
 def _profile_homes(root: Path) -> Iterable[tuple[str, Path]]:
+    if (root / "profiles" / "master").exists() and not os.environ.get("MEMORY_REVIEW_INCLUDE_LEGACY"):
+        yield "master", root / "profiles" / "master"
+        return
     yield "default", root
     for profile in PROFILES[1:]:
         home = root / "profiles" / profile
@@ -204,6 +210,8 @@ def _criterion_instructions(criterion: Criterion) -> dict[str, Any]:
 
 
 def evaluate_with_jev(request: PendingRequest, criteria: tuple[Criterion, ...], model: str | None = None) -> Evaluation:
+    if not os.environ.get("SYSTEM_ONE_API"):
+        return Evaluation("EVALUATION UNAVAILABLE", "", {}, "SYSTEM_ONE_API is not configured")
     try:
         from typesafe_sdk import Noul, TypeSafeClient
     except ImportError as exc:
@@ -217,6 +225,71 @@ def evaluate_with_jev(request: PendingRequest, criteria: tuple[Criterion, ...], 
         return Evaluation("EVALUATED", effective_model, results)
     except Exception as exc:  # provider failure must remain visible and non-authorizing
         return Evaluation("EVALUATION ERROR", model or "", {}, f"{type(exc).__name__}: {exc}")
+
+
+def evaluate_with_headless(
+    request: PendingRequest, criteria: tuple[Criterion, ...], runtime: str,
+) -> Evaluation:
+    """Fresh CLI evaluation: reasons only, never invented calibrated probabilities."""
+    import shutil
+    executable = shutil.which(runtime)
+    if not executable:
+        return Evaluation("EVALUATION UNAVAILABLE", runtime, {}, f"{runtime} CLI unavailable")
+    payload = {"proposal": request.payload, "criteria": [_criterion_instructions(c) | {"id": c.criterion_id} for c in criteria]}
+    prompt = ("Review only the following literal proposal and advisory questions. "
+              "Do not consult files, memory, tools, or other context. Return only a JSON object "
+              "with a concerns array. Each concern must have criterion_id and reason. "
+              "List only problems supported by the proposal; if none use an empty array. "
+              "Do not invent numerical scores.\n" + canonical_json(payload))
+    if runtime == "copilot":
+        command = [executable, "-p", prompt, "--silent", "--allow-all-tools", "--disable-builtin-mcps",
+                   "--no-custom-instructions", "--no-auto-update", "--no-remote", "--no-remote-export", "--no-ask-user"]
+    else:
+        command = [executable, "-p", "master", "chat", "--oneshot", "--ignore-rules", "--query-file", "-",
+                   "--run-budget", "55", "--max-turns", "3", "-Q"]
+        if os.environ.get("HERMES_EVALUATOR_PROVIDER"):
+            command.extend(["--provider", os.environ["HERMES_EVALUATOR_PROVIDER"]])
+        if os.environ.get("HERMES_EVALUATOR_MODEL"):
+            command.extend(["--model", os.environ["HERMES_EVALUATOR_MODEL"]])
+    try:
+        # No personal profile is imported into Copilot operation. Each call is
+        # a new CLI process; no resume or session reuse is permitted.
+        env = os.environ.copy()
+        temporary = None
+        if runtime == "copilot":
+            import tempfile
+            temporary = tempfile.TemporaryDirectory(prefix="thesystem-eval-")
+            env["COPILOT_HOME"] = temporary.name
+            if not any(env.get(k) for k in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")):
+                auth = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=15)
+                if auth.returncode or not auth.stdout.splitlines():
+                    return Evaluation("EVALUATION UNAVAILABLE", runtime, {}, "Copilot authentication unavailable")
+                env["COPILOT_GITHUB_TOKEN"] = auth.stdout.splitlines()[-1].strip()
+        try:
+            process = subprocess.run(command, input=prompt if runtime == "hermes" else None,
+                                     capture_output=True, text=True, timeout=65, check=False, env=env)
+        finally:
+            if temporary: temporary.cleanup()
+        if process.returncode:
+            return Evaluation("EVALUATION UNAVAILABLE", runtime, {}, (process.stderr or process.stdout)[-600:])
+        output = process.stdout.strip()
+        if output.startswith("```"):
+            output = re.sub(r"^```(?:json)?\s*|\s*```$", "", output).strip()
+        try: result = json.loads(output)
+        except json.JSONDecodeError:
+            start, end = output.find("{"), output.rfind("}")
+            result = json.loads(output[start:end+1]) if start >= 0 and end > start else None
+        concerns = result.get("concerns") if isinstance(result, dict) else None
+        ids = {c.criterion_id for c in criteria}
+        if not isinstance(concerns, list) or any(
+            not isinstance(row, dict) or row.get("criterion_id") not in ids or
+            not isinstance(row.get("reason"), str) or not row["reason"].strip() for row in concerns
+        ):
+            return Evaluation("EVALUATION UNAVAILABLE", runtime, {}, "headless evaluator returned unusable concerns")
+        return Evaluation("CONCERNS", runtime, {}, concerns=tuple(
+            f"{row['criterion_id']}: {row['reason']}" for row in concerns))
+    except Exception as exc:
+        return Evaluation("EVALUATION UNAVAILABLE", runtime, {}, f"{type(exc).__name__}: {exc}")
 
 
 def evaluate_request(
@@ -289,7 +362,14 @@ def evaluate_one(
     cached = reusable_results(request, catalog, model, state.get("results", {})) if model else {}
     if len(cached) == len(catalog.criteria):
         return Evaluation("EVALUATED", model, cached)
+    # Remote System One is preferred when explicitly configured. Any failure
+    # falls back to a fresh evaluator for the selected agent lane.
     evaluation = evaluate_with_jev(request, catalog.criteria, model)
+    if evaluation.status != "EVALUATED":
+        runtime = os.environ.get("MEMORY_REVIEW_RUNTIME", "hermes").lower()
+        if runtime not in {"hermes", "copilot"}:
+            runtime = "hermes"
+        evaluation = evaluate_with_headless(request, catalog.criteria, runtime)
     _store_evaluation(state, request, catalog, evaluation)
     return evaluation
 
@@ -397,7 +477,8 @@ def _verdict_note(evaluation: Evaluation) -> str:
     if evaluation.status == "NO CRITERIA":
         return "no criteria in the catalog: Jev not called"
     if evaluation.error:
-        return "Jev failed: " + evaluation.error
+        label = "headless evaluator" if evaluation.status == "EVALUATION UNAVAILABLE" else "Jev"
+        return f"{label} failed: " + evaluation.error
     return ""
 
 
@@ -465,6 +546,9 @@ def render_panel(
         question_blocks.extend(_wrap(question, inner))
         question_blocks.append("·  no score" if probability is None
                                else f"{_bar(probability)}  {probability:.2f}")
+    if evaluation.status == "CONCERNS":
+        question_blocks.append("Evaluator: " + evaluation.model + " (reasons, no calibrated score)")
+        question_blocks.extend(evaluation.concerns or ("No concerns returned.",))
     if note and evaluation.status != "RETAINED LOCALLY":
         if question_blocks:
             question_blocks.append("")
