@@ -1,12 +1,7 @@
-role:
-  base:
-    - "rules/api-contract-tests-use-producer-evidence.md"
-    - "rules/comments-state-why-not-what.md"
-  implementer:
-    - 
+roles:
+  worker:
+    - base
+    - worker
   reviewer:
-    -
-  frontend:
-    -
-  backend:
-    -
+    - base
+    - reviewer
