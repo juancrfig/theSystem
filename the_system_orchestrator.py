@@ -5,14 +5,156 @@ small adapters and are always invoked in a fresh Docker container.  A task's
 ``command`` is an agent prompt, never a host shell command.
 """
 from __future__ import annotations
-import argparse, hashlib, json, os, signal, subprocess, sys, time, uuid, shutil, fcntl, re
+import argparse, hashlib, json, os, signal, subprocess, sys, time, uuid, shutil, fcntl, re, secrets, threading, socketserver, tempfile
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 TERMINAL={"passed","changes-requested","execution-failed","review-failed","cancelled","timeout","aborted"}
 ACTIVE={"starting","running","reviewing"}
 RUNTIMES={"hermes","copilot"}
 class OrchestratorError(Exception):
     def __init__(self,code,message): super().__init__(message); self.code=code
+
+class _NoCredentialRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+_provider_opener=build_opener(_NoCredentialRedirect())
+
+class HostCredentialBroker:
+    """Host-owned provider credential and short-lived, model-scoped agent capability."""
+    def __init__(self, upstream_url, provider_key, model, lifetime=3600, max_requests=100):
+        parsed=urlsplit(upstream_url)
+        if parsed.scheme not in ("http","https") or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise OrchestratorError("CREDENTIAL_BROKER_INVALID","broker upstream must be an absolute HTTP(S) URL")
+        if parsed.scheme == "http" and parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+            raise OrchestratorError("CREDENTIAL_BROKER_INVALID","remote broker upstream must use HTTPS")
+        if not provider_key or not model or not re.fullmatch(r"[A-Za-z0-9._/-]+",model):
+            raise OrchestratorError("CREDENTIAL_BROKER_INVALID","provider key and model are required")
+        self.upstream_url=upstream_url.rstrip("/"); self.provider_key=provider_key; self.model=model
+        self.capability=secrets.token_urlsafe(32); self.expires_at=time.monotonic()+lifetime
+        self.max_requests=max(1,int(max_requests)); self.request_count=0; self.request_lock=threading.Lock()
+        self.server=None; self.thread=None; self.socket_path=None
+
+    @classmethod
+    def from_environment(cls,runtime,env=None,lifetime=3600):
+        env=os.environ if env is None else env
+        upstream=env.get("THESYSTEM_BROKER_UPSTREAM_URL")
+        key=env.get("THESYSTEM_BROKER_PROVIDER_KEY")
+        if bool(upstream) != bool(key):
+            raise OrchestratorError("CREDENTIAL_BROKER_INVALID","custom broker upstream and provider key must be configured together")
+        if not (upstream and key):
+            if env.get("OPENROUTER_API_KEY"):
+                upstream="https://openrouter.ai/api/v1"; key=env["OPENROUTER_API_KEY"]
+            elif env.get("OPENAI_API_KEY"):
+                upstream="https://api.openai.com/v1"; key=env["OPENAI_API_KEY"]
+        if not (upstream and key):
+            raise OrchestratorError("CREDENTIAL_BROKER_REQUIRED","contained %s requires THESYSTEM_BROKER_UPSTREAM_URL and a host-held broker/provider key" % runtime)
+        default_model="gpt-4.1-mini" if upstream == "https://api.openai.com/v1" else "openai/gpt-4.1-mini"
+        model=env.get("THESYSTEM_BROKER_MODEL") or env.get("COPILOT_MODEL") or default_model
+        return cls(upstream,key,model,lifetime=lifetime)
+
+    def serve(self, socket_path):
+        socket_path=Path(socket_path)
+        if self.server: raise RuntimeError("broker is already running")
+        if socket_path.exists(): raise OrchestratorError("CREDENTIAL_BROKER_INVALID","broker socket path already exists")
+        socket_path.parent.mkdir(parents=True,exist_ok=True)
+        broker=self
+        class UnixHTTPServer(socketserver.ThreadingMixIn,socketserver.UnixStreamServer):
+            daemon_threads=True
+        class Handler(BaseHTTPRequestHandler):
+            server_version="theSystemCredentialBroker"
+            def log_message(self,*args): pass
+            def do_POST(self): broker._proxy(self)
+            def do_GET(self): broker._proxy(self)
+        try:
+            self.server=UnixHTTPServer(str(socket_path),Handler)
+            os.chmod(socket_path,0o600)
+        except OSError as error:
+            raise OrchestratorError("CREDENTIAL_BROKER_UNAVAILABLE","cannot bind the host credential broker: "+str(error)) from error
+        self.socket_path=socket_path
+        self.thread=threading.Thread(target=self.server.serve_forever,name="thesystem-credential-broker",daemon=True)
+        self.thread.start()
+        return self
+
+    def close(self):
+        if self.server:
+            self.server.shutdown(); self.server.server_close(); self.thread.join(timeout=2)
+        if self.socket_path: self.socket_path.unlink(missing_ok=True)
+        self.server=None; self.thread=None; self.socket_path=None
+
+    def _reject(self, handler, code):
+        handler.send_response(code); handler.send_header("Content-Length","0"); handler.end_headers()
+
+    def _proxy(self, handler):
+        authorization=handler.headers.get("Authorization","")
+        if not secrets.compare_digest(authorization,"Bearer "+self.capability): return self._reject(handler,401)
+        with self.request_lock:
+            if time.monotonic()>self.expires_at or self.request_count>=self.max_requests: return self._reject(handler,403)
+            self.request_count+=1
+        if handler.command not in ("GET","POST") or handler.path not in ("/v1/models","/v1/chat/completions","/v1/responses"):
+            return self._reject(handler,404)
+        try:
+            length=int(handler.headers.get("Content-Length","0"))
+            if length<0 or length>10*1024*1024: return self._reject(handler,413)
+            body=handler.rfile.read(length) if length else None
+            if handler.command=="POST":
+                try: requested_model=json.loads(body or b"{}") ["model"]
+                except (KeyError,TypeError,json.JSONDecodeError): return self._reject(handler,400)
+                if requested_model != self.model: return self._reject(handler,403)
+            headers={k:v for k,v in handler.headers.items() if k.lower() in ("content-type","accept")}
+            headers["Authorization"]="Bearer "+self.provider_key
+            request=Request(self.upstream_url+handler.path[3:],data=body,headers=headers,method=handler.command)
+            try: response=_provider_opener.open(request,timeout=120)
+            except HTTPError as error: response=error
+            payload=response.read()
+            handler.send_response(response.status)
+            content_type=response.headers.get("Content-Type")
+            if content_type: handler.send_header("Content-Type",content_type)
+            handler.send_header("Content-Length",str(len(payload))); handler.end_headers(); handler.wfile.write(payload)
+        except (OSError,ValueError,URLError):
+            self._reject(handler,502)
+
+SOCKET_RELAY = r'''#!/usr/bin/env python3
+"""Container-local HTTP to Unix-socket relay; it never receives a provider key."""
+import http.client, socket, sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+socket_path, capability, port_file = sys.argv[1:]
+class UnixConnection(http.client.HTTPConnection):
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(socket_path)
+class Relay(BaseHTTPRequestHandler):
+    def log_message(self, *args): pass
+    def do_GET(self): self.forward()
+    def do_POST(self): self.forward()
+    def forward(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length) if length else None
+        headers = {key:value for key,value in self.headers.items()
+                   if key.lower() in ("content-type", "accept")}
+        headers["Authorization"] = "Bearer " + capability
+        try:
+            upstream = UnixConnection("localhost")
+            upstream.request(self.command, self.path, body=body, headers=headers)
+            response = upstream.getresponse(); payload = response.read()
+            self.send_response(response.status)
+            for key,value in response.getheaders():
+                if key.lower() not in ("connection", "content-length", "date", "server"):
+                    self.send_header(key,value)
+            self.send_header("Content-Length",str(len(payload))); self.end_headers()
+            self.wfile.write(payload)
+        except (OSError, ValueError, http.client.HTTPException):
+            self.send_response(502); self.send_header("Content-Length","0"); self.end_headers()
+server = ThreadingHTTPServer(("127.0.0.1",18080),Relay)
+with open(port_file,"w") as output:
+    output.write(str(server.server_port))
+server.serve_forever()
+'''
 
 def now(): return time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
 def read(p,default):
@@ -116,6 +258,12 @@ class Orchestrator:
         inspected=subprocess.run(["docker","image","inspect",image],capture_output=True,text=True)
         if inspected.returncode:
             raise OrchestratorError("AGENT_IMAGE_UNAVAILABLE","selected agent image is not available locally")
+        # Fail before allocating a branch or a run. Native Copilot authentication
+        # is not a fallback: a real token must never enter the container.
+        HostCredentialBroker.from_environment(t["runtime"],lifetime=int(timeout)+30)
+        review_runtime=os.environ.get("THESYSTEM_REVIEW_RUNTIME",t["runtime"])
+        if review_runtime not in RUNTIMES: raise OrchestratorError("REVIEW_RUNTIME_INVALID",review_runtime)
+        HostCredentialBroker.from_environment(review_runtime,lifetime=int(timeout)+30)
         clone=Path(t["source_clone"]); base=git(clone,"rev-parse","HEAD"); branch=f"thesystem/{task_id.replace('/','-')}/{uuid.uuid4().hex[:8]}"; git(clone,"branch",branch,base)
         rid=uuid.uuid4().hex; r={"id":rid,"task_id":task_id,"status":"starting","runtime":t["runtime"],"ticket":t["ticket"],"source_clone":t["source_clone"],"models":{"worker":"openai/gpt-4.1-mini" if t["runtime"]=="hermes" else "copilot/default"},"base_commit":base,"branch":branch,"started_at":now(),"started_epoch":time.time(),"timeout_seconds":int(timeout),"evidence":[],"worker":{"prompt":t["prompt"],"roles":t["roles"]}}
         self.state["runs"][rid]=r; self.save()
@@ -136,38 +284,55 @@ class Orchestrator:
     def _docker(self,image,work,cmd,timeout,prompt,readonly=False,layer=None,runtime="copilot",container_name=None):
         if not shutil.which("docker"): raise OrchestratorError("DOCKER_UNAVAILABLE","docker is required")
         if not image: raise OrchestratorError("AGENT_IMAGE_REQUIRED","configure an image with the selected CLI")
-        args=["docker","run","--rm",*(["--name",container_name] if container_name else []),"--network","bridge","--init","--cap-drop=ALL","--security-opt","no-new-privileges","--pids-limit","256","--memory","2g","--cpus","2","--user",f"{os.getuid()}:{os.getgid()}","-v",f"{work}:/workspace"+(':ro' if readonly else ''),"-v",f"{prompt}:/run/prompt:ro","-w","/workspace"]
+        broker=HostCredentialBroker.from_environment(runtime,lifetime=max(1,int(timeout))+30)
+        args=["docker","run","--rm",*(["--name",container_name] if container_name else []),"--network","none","--init","--cap-drop=ALL","--security-opt","no-new-privileges","--pids-limit","256","--memory","2g","--cpus","2","--user",f"{os.getuid()}:{os.getgid()}","-v",f"{work}:/workspace"+(':ro' if readonly else ''),"-v",f"{prompt}:/run/prompt:ro","-w","/workspace"]
         if layer: args += ["-v",f"{layer}:/review"]
         env=os.environ.copy()
-        if runtime=="copilot":
-            token=env.get("COPILOT_GITHUB_TOKEN")
-            if not token:
-                result=subprocess.run(["gh","auth","token"],capture_output=True,text=True)
-                if result.returncode: raise OrchestratorError("COPILOT_AUTH_REQUIRED","no GitHub Copilot credentials")
-                token=result.stdout.splitlines()[-1]
-            env["COPILOT_GITHUB_TOKEN"]=token
-            args += ["-e","COPILOT_GITHUB_TOKEN"]
-        elif runtime=="hermes":
-            for key in ("OPENROUTER_API_KEY","OPENAI_API_KEY","ANTHROPIC_API_KEY"):
-                if key in env: args += ["-e",key]
-            args += ["-e","HERMES_HOME=/home/agent/.hermes"]
-        args += [image,*cmd]
+        for name in ("COPILOT_GITHUB_TOKEN","GH_TOKEN","GITHUB_TOKEN","OPENROUTER_API_KEY","OPENAI_API_KEY","ANTHROPIC_API_KEY","CLAUDE_CODE_OAUTH_TOKEN","COPILOT_PROVIDER_API_KEY","COPILOT_PROVIDER_BEARER_TOKEN","THESYSTEM_BROKER_PROVIDER_KEY"):
+            env.pop(name,None)
+        # AF_UNIX path length is bounded independently of an arbitrary project
+        # depth. Mount only this per-run directory into the container.
+        agent_home=Path(tempfile.mkdtemp(prefix="tsb-")); agent_home.chmod(0o700)
+        socket_path=agent_home/"broker.sock"; relay_path=agent_home/"socket-relay.py"
+        relay_path.write_text(SOCKET_RELAY); relay_path.chmod(0o500)
         try:
-            result=subprocess.run(args,text=True,capture_output=True,timeout=timeout,env=env)
-            # Agent output is durable evidence; never persist known provider secrets
-            # if an agent or failing CLI happens to print its environment.
-            secrets=[env.get(k) for k in ("COPILOT_GITHUB_TOKEN","GH_TOKEN","GITHUB_TOKEN","OPENROUTER_API_KEY","OPENAI_API_KEY","ANTHROPIC_API_KEY") if env.get(k)]
-            for secret in secrets:
+            broker.serve(socket_path)
+            try:
+                args += ["-v",f"{agent_home}:/run/thesystem","-v",f"{relay_path}:/run/thesystem-relay.py:ro","-e","THESYSTEM_BROKER_CAPABILITY="+broker.capability]
+                if runtime=="copilot":
+                    args += ["-v",f"{agent_home}:/run/copilot-home","-e","COPILOT_HOME=/run/copilot-home","-e","COPILOT_PROVIDER_TYPE=openai","-e","COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:18080/v1","-e","COPILOT_PROVIDER_API_KEY="+broker.capability,"-e","COPILOT_MODEL="+broker.model]
+                elif runtime=="hermes":
+                    (agent_home/"config.yaml").write_text("model:\n  default: %s\n  provider: custom\n  base_url: http://127.0.0.1:18080/v1\n  api_key: ${THESYSTEM_BROKER_CAPABILITY}\n" % broker.model)
+                    # Hermes initializes a disposable home at startup; only
+                    # the opaque capability is stored there, never a real key.
+                    args += ["-v",f"{agent_home}:/home/agent/.hermes","-e","HERMES_HOME=/home/agent/.hermes"]
+                else: raise OrchestratorError("RUNTIME_INVALID",runtime)
+                wrapper="""python3 /run/thesystem-relay.py /run/thesystem/broker.sock \"$THESYSTEM_BROKER_CAPABILITY\" /run/thesystem/relay.port &
+relay_pid=$!
+cleanup() { kill \"$relay_pid\" 2>/dev/null || true; wait \"$relay_pid\" 2>/dev/null || true; }
+trap cleanup EXIT HUP INT TERM
+for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 0.1; done
+[ -s /run/thesystem/relay.port ] || exit 125
+\"$@\"
+"""
+                args += [image,"sh","-ceu",wrapper,"thesystem-agent",*cmd]
+                result=subprocess.run(args,text=True,capture_output=True,timeout=timeout,env=env)
+            finally:
+                broker.close()
+            # Defense in depth: agent stdout/stderr are durable evidence.
+            for secret in (broker.provider_key,broker.capability):
                 result.stdout=result.stdout.replace(secret,"[REDACTED]")
                 result.stderr=result.stderr.replace(secret,"[REDACTED]")
             return result
         except subprocess.TimeoutExpired:
             if container_name: subprocess.run(["docker","stop","--time","1",container_name],capture_output=True,timeout=10)
             return None
+        finally:
+            shutil.rmtree(agent_home,ignore_errors=True)
     def _agent_command(self,runtime,review=False,prompt=""):
         if runtime=="copilot":
             return ["copilot","-p",(prompt+"\nInspect application files in /workspace read-only. This is a git worktree whose .git pointer targets host metadata not accessible in the container; do not try to resolve it. Run tests only in /review. End your response with exactly VERDICT: PASS or VERDICT: FAIL and a reason. Do not change /workspace." if review else prompt+"\nImplement in /workspace. This is an intentionally empty initial clone; the .git worktree pointer targets host metadata not mounted in the container. Do not attempt to resolve that pointer; create the requested files. The host orchestrator owns commits. Do not access paths outside /workspace."),"--allow-all-tools","--disallow-temp-dir","--disable-builtin-mcps",*(["--allow-all-paths"] if review else []),"--no-auto-update","--no-remote","--no-remote-export","--no-ask-user"]
-        return ["hermes","chat","--oneshot","--yolo","--ignore-user-config","--ignore-rules","--provider","openrouter","--model","openai/gpt-4.1-mini","--query-file","/run/prompt","--in","/workspace","--run-budget","600","--max-turns","40"]
+        return ["hermes","chat","--oneshot","--yolo","--ignore-rules","--provider","custom","--query-file","/run/prompt","--in","/workspace","--run-budget","600","--max-turns","40"]
     def _worker(self,r,t):
         clone=Path(t["source_clone"]); work=self.root/"worktrees"/r["id"]; work.parent.mkdir(parents=True,exist_ok=True); git(clone,"worktree","add",str(work),r["branch"])
         previous=[x for x in self.state["runs"].values() if x["task_id"]==r["task_id"] and x["id"]!=r["id"] and x.get("worker_result",{}).get("commit") not in (None,x["base_commit"]) and x["status"] in ("changes-requested","review-failed")]

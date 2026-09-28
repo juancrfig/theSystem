@@ -8,9 +8,12 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 
 # Orchestrator is imported lazily so registration remains usable in a minimal
 # installed distribution that predates the optional execution module.
@@ -53,7 +56,10 @@ def workspace_path() -> Path:
 
 
 def usage() -> str:
-    return "Usage: COMPANY [--help|--json] [add-project PATH|orchestrator ACTION ...]"
+    return ("Usage: COMPANY [--help|--json] "
+            "[add-project PATH|add-source-clone PROJECT CLONE|set-role PROJECT ROLE [OPTIONS]|"
+            "retry --project PATH --task ID|evidence --project PATH --run ID|"
+            "learning inventory|show|decide ...|orchestrator ACTION ...]")
 
 
 def run_orchestrator(args: list[str]) -> int:
@@ -66,6 +72,22 @@ def run_orchestrator(args: list[str]) -> int:
         action = args[0] if args else ""
         if action not in {"create-task", "approve", "start", "status", "cancel", "integrate"}:
             return fail("UNKNOWN_COMMAND", f"unknown orchestrator command: {action}", EXIT_USAGE)
+        if action == "create-task":
+            project_raw = _option_value(args, "--project")
+            clone_raw = _option_value(args, "--source-clone")
+            if not clone_raw:
+                return fail("SOURCE_CLONE_REQUIRED", "create-task requires --source-clone PATH", EXIT_USAGE)
+            try:
+                workspace = workspace_path()
+                project = _registered_project(project_raw or "", workspace)
+                clone = Path(clone_raw).expanduser().resolve(strict=True)
+                sources = _registry_entries(workspace / ".thesystem" / "source-clones.json", workspace)
+                if {"project": str(project), "path": str(clone)} not in sources:
+                    return fail("SOURCE_CLONE_NOT_REGISTERED", "register the source clone for this project before creating a task", EXIT_USAGE)
+            except ProjectError as exc:
+                return fail(exc.code, str(exc), EXIT_USAGE)
+            except (OSError, ValueError) as exc:
+                return fail("SOURCE_CLONE_REGISTRY_INVALID", str(exc), EXIT_USAGE)
         import contextlib
         from io import StringIO
         from the_system_orchestrator import main as orchestrator_main
@@ -141,7 +163,7 @@ def _check_project(project: Path, workspace: Path) -> None:
             raise ProjectError("PROJECT_INFRASTRUCTURE_INVALID", f"project infrastructure path is not a real directory: {name}")
 
 
-def _write_registry(registry: Path, entries: list[dict]) -> None:
+def _write_registry(registry: Path, entries: list[dict] | dict) -> None:
     payload = (json.dumps(entries, indent=2, sort_keys=True) + "\n").encode("utf-8")
     fd, temporary = tempfile.mkstemp(prefix="projects.", suffix=".tmp", dir=registry.parent)
     try:
@@ -232,21 +254,199 @@ def add_project(raw: str, workspace: Path) -> int:
     return 0
 
 
+def _registered_project(raw: str, workspace: Path) -> Path:
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    project = candidate.resolve(strict=True)
+    entries = _registry_entries(workspace / ".thesystem" / "projects.json", workspace)
+    if str(project) not in {entry["path"] for entry in entries}:
+        raise ProjectError("PROJECT_NOT_REGISTERED", "project must be registered before this operation")
+    return project
+
+
+def add_source_clone(raw_project: str, raw_clone: str, workspace: Path) -> int:
+    """Register an existing Git clone beneath one registered project."""
+    try:
+        project = _registered_project(raw_project, workspace)
+        candidate = Path(raw_clone).expanduser()
+        if not candidate.is_absolute():
+            candidate = Path.cwd() / candidate
+        clone = candidate.resolve(strict=True)
+        if not clone.is_dir() or _lstat(clone / ".git") is None:
+            return fail("SOURCE_CLONE_INVALID", "source clone must be an existing Git working tree")
+        if not _inside(clone, project) or clone == project:
+            return fail("SOURCE_CLONE_OUTSIDE_PROJECT", "source clone must be strictly inside its registered project")
+        registry_dir = workspace / ".thesystem"
+        registry = registry_dir / "source-clones.json"
+        with open(registry_dir / "projects.lock", "a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            entries = _registry_entries(registry, workspace) if _lstat(registry) else []
+            project_paths = {item["path"] for item in _registry_entries(workspace / ".thesystem" / "projects.json", workspace)}
+            for entry in entries:
+                registered_project = entry.get("project")
+                registered_clone = Path(entry["path"])
+                if (not isinstance(registered_project, str) or
+                        registered_project not in project_paths or
+                        not _inside(registered_clone, Path(registered_project)) or registered_clone == Path(registered_project)):
+                    raise ValueError("source clone registry contains an invalid entry")
+            record = {"project": str(project), "path": str(clone)}
+            already = record in entries
+            if not already:
+                entries.append(record)
+                _write_registry(registry, entries)
+            fcntl.flock(lock, fcntl.LOCK_UN)
+    except ProjectError as exc:
+        return fail(exc.code, str(exc), EXIT_USAGE if exc.code == "PROJECT_NOT_REGISTERED" else EXIT_ERROR)
+    except (OSError, ValueError) as exc:
+        return fail("SOURCE_CLONE_REGISTRY_INVALID", str(exc))
+    emit({"status": "ok", "command": "add-source-clone", "project": str(project),
+          "source_clone": str(clone), "idempotent": already})
+    return 0
+
+
+def _safe_role_value(value: str, kind: str) -> str:
+    if not value or "\x00" in value:
+        raise ProjectError("ROLE_INVALID", f"{kind} must not be empty")
+    if kind in {"rules", "skills", "tools", "utils"}:
+        path = Path(value)
+        if path.is_absolute() or ".." in path.parts:
+            raise ProjectError("ROLE_INVALID", f"{kind} entries must be relative paths inside project guidance")
+    return value
+
+
+def set_role(raw_project: str, role: str, options: list[str], workspace: Path) -> int:
+    try:
+        project = _registered_project(raw_project, workspace)
+        if not NAME_RE.fullmatch(role):
+            raise ProjectError("ROLE_INVALID", "role must use letters and numbers and start with a letter")
+        flags = {"--rule": "rules", "--skill": "skills", "--tool": "tools", "--util": "utils",
+                 "--cli": "clis", "--mcp": "mcp_servers"}
+        values: dict[str, list[str]] = {}
+        index = 0
+        while index < len(options):
+            flag = options[index]
+            if flag not in flags or index + 1 == len(options) or options[index + 1].startswith("--"):
+                return fail("ROLE_USAGE", "set-role options are --rule, --skill, --tool, --util, --cli, or --mcp followed by a value", EXIT_USAGE)
+            kind = flags[flag]
+            values.setdefault(kind, []).append(_safe_role_value(options[index + 1], kind))
+            index += 2
+        target = project / "agents" / "roles.yaml"
+        if _lstat(target) is not None and (target.is_symlink() or not target.is_file()):
+            return fail("ROLE_CONFIG_INVALID", "project roles.yaml is not a regular file")
+        if target.exists():
+            try:
+                document = json.loads(target.read_text(encoding="utf-8"))
+            except (UnicodeError, json.JSONDecodeError):
+                return fail("ROLE_CONFIG_UNSUPPORTED", "existing roles.yaml is not JSON-compatible YAML; preserve it and edit it manually")
+            if not isinstance(document, dict):
+                return fail("ROLE_CONFIG_INVALID", "project roles.yaml must contain an object")
+        else:
+            document = {}
+        document[role] = values
+        worker = document.get("worker", {})
+        reviewer = document.get("reviewer", {})
+        worker_rules = worker.get("rules", []) if isinstance(worker, dict) else None
+        reviewer_rules = reviewer.get("rules", []) if isinstance(reviewer, dict) else None
+        if (not isinstance(worker_rules, list) or not isinstance(reviewer_rules, list) or
+                not set(worker_rules).issubset(reviewer_rules)):
+            return fail("REVIEWER_RULES_MISSING", "reviewer roles must include every worker rule", EXIT_USAGE)
+        _write_registry(target, document)
+    except ProjectError as exc:
+        return fail(exc.code, str(exc), EXIT_USAGE)
+    except (OSError, ValueError) as exc:
+        return fail("ROLE_SETUP_FAILED", str(exc))
+    emit({"status": "ok", "command": "set-role", "project": str(project), "role": role, "role_config": str(target)})
+    return 0
+
+
+def _option_value(args: list[str], option: str) -> str | None:
+    try:
+        position = args.index(option)
+    except ValueError:
+        return None
+    return args[position + 1] if position + 1 < len(args) else None
+
+
+def retry_task(args: list[str], workspace: Path) -> int:
+    project_raw, task_id = _option_value(args, "--project"), _option_value(args, "--task")
+    if not project_raw or not task_id or len(args) != 4:
+        return fail("RETRY_USAGE", "retry requires --project PATH --task ID", EXIT_USAGE)
+    try:
+        project = _registered_project(project_raw, workspace)
+        from the_system_orchestrator import Orchestrator
+        orchestrator = Orchestrator(project)
+        task = orchestrator.task(task_id)
+        runs = [run for run in orchestrator.state["runs"].values() if run.get("task_id") == task_id]
+        latest = max(runs, key=lambda run: run.get("finished_at", run.get("started_at", ""))) if runs else None
+        retryable = {"changes-requested", "execution-failed", "review-failed", "cancelled", "timeout", "aborted"}
+        if not latest or latest.get("status") not in retryable:
+            return fail("RETRY_NOT_ALLOWED", "retry requires a prior failed, cancelled, timed-out, or aborted run", EXIT_USAGE)
+        if task.get("approval") != "approved":
+            return fail("TASK_NOT_APPROVED", "retry requires an approved task", EXIT_USAGE)
+    except ProjectError as exc:
+        return fail(exc.code, str(exc), EXIT_USAGE)
+    except Exception as exc:
+        code = getattr(exc, "code", "RETRY_UNAVAILABLE")
+        return fail(code, str(exc), EXIT_USAGE if code == "TASK_NOT_FOUND" else EXIT_ERROR)
+    return run_orchestrator(["start", "--project", str(project), "--task", task_id])
+
+
+def show_evidence(args: list[str], workspace: Path) -> int:
+    project_raw, run_id = _option_value(args, "--project"), _option_value(args, "--run")
+    if not project_raw or not run_id or len(args) != 4 or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", run_id):
+        return fail("EVIDENCE_USAGE", "evidence requires --project PATH --run ID", EXIT_USAGE)
+    try:
+        project = _registered_project(project_raw, workspace)
+        target = project / ".thesystem" / "orchestrator" / "runs" / f"{run_id}.json"
+        if _lstat(target) is None:
+            return fail("EVIDENCE_NOT_FOUND", "no immutable evidence exists for that run", EXIT_USAGE)
+        if target.is_symlink() or not target.is_file():
+            return fail("EVIDENCE_INVALID", "run evidence is not a regular file")
+        record = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(record, dict) or record.get("id") != run_id:
+            return fail("EVIDENCE_INVALID", "run evidence does not match the requested run")
+    except ProjectError as exc:
+        return fail(exc.code, str(exc), EXIT_USAGE)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return fail("EVIDENCE_INVALID", f"cannot read run evidence: {exc}")
+    emit({"status": "ok", "command": "evidence", "project": str(project), "run": record})
+    return 0
+
+
+def learning(args: list[str]) -> int:
+    if not args or args[0] not in {"inventory", "show", "decide"}:
+        return fail("LEARNING_USAGE", "learning requires inventory, show, or decide", EXIT_USAGE)
+    if args[0] == "decide" and "--human-decision" not in args:
+        return fail("HUMAN_DECISION_REQUIRED", "learning decide requires --human-decision; moving on leaves the request pending", EXIT_USAGE)
+    script = Path(__file__).resolve().parent / "agents" / "skills" / "memory-request-review" / "scripts" / "review_memory_requests.py"
+    if not script.is_file():
+        return fail("MEMORY_REVIEW_UNAVAILABLE", "native memory-review script is not installed")
+    try:
+        result = subprocess.run([sys.executable, str(script), *args], text=True, capture_output=True, timeout=90)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return fail("MEMORY_REVIEW_UNAVAILABLE", str(exc))
+    if result.returncode:
+        return fail("MEMORY_REVIEW_FAILED", (result.stderr or result.stdout).strip() or "native memory review failed")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        payload = {"display": result.stdout.rstrip()}
+    emit({"status": "ok", "command": "learning", "action": args[0], "result": payload})
+    return 0
+
+
 def launch_master(workspace: Path, direct: bool = False, runtime: str | None = None, json_mode: bool = False) -> int:
     selected = runtime or ((workspace / ".thesystem" / "runtime").read_text().strip() if (workspace / ".thesystem" / "runtime").exists() else "hermes")
     if selected not in ("hermes", "copilot"):
         return fail("RUNTIME_NOT_CONFIGURED", "no chat runtime configured")
     env = dict(os.environ, THESYSTEM_WORKSPACE=str(workspace))
-    if selected == "copilot" and not any(env.get(k) for k in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")):
-        auth = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=15)
-        if auth.returncode or not auth.stdout.splitlines():
-            return fail("COPILOT_AUTH_REQUIRED", "GitHub Copilot authentication unavailable")
-        env["COPILOT_GITHUB_TOKEN"] = auth.stdout.splitlines()[-1].strip()
+
     if direct:
         command = ["hermes", "-p", "master"] if selected == "hermes" else ["copilot"]
         try: return subprocess.call(command, cwd=str(workspace), env=env)
         except OSError as exc: return fail("RUNTIME_NOT_AVAILABLE", str(exc))
-    if __import__("shutil").which("herdr") is None:
+    if shutil.which("herdr") is None:
         return fail("HERDR_NOT_AVAILABLE", "Herdr is required for normal launch")
     args=["herdr","workspace","create","--cwd",str(workspace),"--label",workspace.name,"--no-focus"]
     # Herdr's --env option embeds the value in command-line arguments visible
@@ -259,7 +459,26 @@ def launch_master(workspace: Path, direct: bool = False, runtime: str | None = N
         pane=result["root_pane"]["pane_id"]; workspace_id=result["workspace"]["workspace_id"]
     except (ValueError,IndexError,KeyError,TypeError):
         return fail("HERDR_RESPONSE_INVALID", "Herdr returned no workspace or pane ID")
-    launch=["herdr","agent","start",selected,"--kind",selected,"--pane",pane,"--timeout","15000"]
+    if selected == "copilot":
+        # The Herdr server does not inherit this CLI's environment. When gh is
+        # authenticated, resolve its real executable rather than a shell shim
+        # that may print status text into `gh auth token` stdout. Expansion
+        # happens in the host pane, never in process arguments or Docker.
+        gh = shutil.which("gh")
+        if gh and shutil.which("mise"):
+            resolved = subprocess.run(["mise", "which", "gh"], capture_output=True, text=True, timeout=10)
+            candidate = resolved.stdout.strip()
+            if resolved.returncode == 0 and Path(candidate).is_file() and os.access(candidate, os.X_OK):
+                gh = candidate
+        if gh:
+            authenticated = subprocess.run([gh, "auth", "status"], capture_output=True, text=True, timeout=15)
+            if authenticated.returncode == 0:
+                shell_command = f'set +x; export COPILOT_GITHUB_TOKEN="$({shlex.quote(gh)} auth token)"'
+                prepared = subprocess.run(["herdr", "pane", "run", pane, shell_command], capture_output=True, text=True, timeout=15, env=env)
+                if prepared.returncode:
+                    subprocess.run(["herdr", "workspace", "close", workspace_id], capture_output=True, text=True, timeout=10)
+                    return fail("COPILOT_AUTH_PREPARATION_FAILED", "Herdr could not prepare host-side authentication")
+    launch=["herdr","agent","start",f"{selected}-{uuid.uuid4().hex[:8]}","--kind",selected,"--pane",pane,"--timeout","15000"]
     if selected=="hermes": launch.extend(["--","-p","master"])
     started=subprocess.run(launch,capture_output=True,text=True,timeout=25,env=env)
     status="started" if started.returncode==0 else "awaiting-interaction"
@@ -295,6 +514,24 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             return fail("WORKSPACE_NOT_BOUND", str(exc))
         return add_project(args[1], workspace)
+    if args and args[0] in {"add-source-clone", "set-role", "retry", "evidence", "learning"}:
+        try:
+            workspace = workspace_path()
+        except ValueError as exc:
+            return fail("WORKSPACE_NOT_BOUND", str(exc))
+        if args[0] == "add-source-clone":
+            if len(args) != 3:
+                return fail("SOURCE_CLONE_USAGE", "add-source-clone requires PROJECT CLONE", EXIT_USAGE)
+            return add_source_clone(args[1], args[2], workspace)
+        if args[0] == "set-role":
+            if len(args) < 3:
+                return fail("ROLE_USAGE", "set-role requires PROJECT ROLE [OPTIONS]", EXIT_USAGE)
+            return set_role(args[1], args[2], args[3:], workspace)
+        if args[0] == "retry":
+            return retry_task(args[1:], workspace)
+        if args[0] == "evidence":
+            return show_evidence(args[1:], workspace)
+        return learning(args[1:])
     if args and args not in (["launch"],["--direct"]):
         return fail("UNKNOWN_COMMAND", f"unknown command: {args[0]}", EXIT_USAGE)
     try:
