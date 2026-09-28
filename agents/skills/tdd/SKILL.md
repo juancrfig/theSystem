@@ -3,6 +3,8 @@ name: tdd
 description: Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions "red-green-refactor", or wants integration tests.
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # Test-Driven Development
 
 TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle: consult them before and during the loop, not after.

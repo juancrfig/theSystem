@@ -12,6 +12,8 @@ metadata:
     related_skills: [docx, xlsx, pdf]
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # Powerpoint Skill
 
 Create, inspect, and edit PowerPoint (.pptx) presentations using the

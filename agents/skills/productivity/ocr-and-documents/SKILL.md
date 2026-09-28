@@ -11,6 +11,8 @@ metadata:
     related_skills: [pdf, docx, powerpoint]
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # PDF & Document Extraction
 
 For DOCX: see the `docx` skill (create/edit) or use `python-docx` for structured reads.

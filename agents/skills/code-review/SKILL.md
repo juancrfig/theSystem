@@ -44,9 +44,8 @@ Read, in full, the repository instructions that apply to every changed path: roo
 
 1. Workspace-wide `agents/rules/*.md`.
 2. The changed project's `agents/rules/*.md`.
-3. The changed clone or module's explicitly scoped rule directory.
 
-More-specific documented rules override broader rules. Do not load legacy or sibling rule trees merely because they exist. A documented rule breach is a standards finding; cite the file and rule. If no standards source is found, say so instead of treating personal style as a hard requirement.
+More-specific documented rules override broader rules. Do not invent a third tier or load legacy/sibling rule trees merely because they exist. A documented rule breach is a standards finding; cite the file and rule. If no standards source is found, say so instead of treating personal style as a hard requirement.
 
 Also inspect the change for clearly evidenced maintainability risks (for example duplicated logic, unclear names, data clumps, or unnecessary abstraction). Label these as **judgement calls**, never hard violations, and suppress them where documented conventions endorse the pattern. Do not report items already enforced by a passing formatter, linter, or type checker unless the diff shows that enforcement is absent or bypassed.
 
@@ -60,7 +59,7 @@ For source-code changes, perform an explicit security pass over changed trust bo
 
 Run relevant project checks when the environment permits. When a check fails, distinguish a regression from a pre-existing failure by running the same check against the fixed-point revision in an isolated checkout or worktree where feasible. Do not stash/pop or otherwise alter the review worktree to establish a baseline. Call a failure new or pre-existing only when the baseline and changed revision were checked under comparable commands and conditions; otherwise mark its origin inconclusive.
 
-If review is followed by an authorized code change, run the clone's required `./preflight` before modifying code. Distinguish static review, local test/runtime evidence, browser/device evidence, and live-provider evidence. Report checks that were unavailable, skipped, or failed with the reason and relevant command/result; do not silently treat missing tools or unrun checks as passing.
+If review is followed by an authorized code change, run the repository's documented verification commands before modifying code. Distinguish static review, local test/runtime evidence, browser/device evidence, and live-provider evidence. Report checks that were unavailable, skipped, or failed with the reason and relevant command/result; do not silently treat missing tools or unrun checks as passing.
 
 ## 5. Report
 

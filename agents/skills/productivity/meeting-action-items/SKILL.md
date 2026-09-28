@@ -11,6 +11,8 @@ metadata:
     related_skills: [llm-wiki, teams-meeting-pipeline, to-tasks, to-spec]
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # Meeting Action Items
 
 Convert an existing transcript or notes set into accountable follow-through. `teams-meeting-pipeline` can retrieve Teams artifacts; this skill begins once notes/transcript content is available, from any source.

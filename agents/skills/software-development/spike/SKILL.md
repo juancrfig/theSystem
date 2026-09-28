@@ -11,6 +11,8 @@ metadata:
     related_skills: [sketch, subagent-driven-development]
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # Spike
 
 Use this skill when the user wants to **feel out an idea** before committing to a real build — validating feasibility, comparing approaches, or surfacing unknowns that no amount of research will answer. Spikes are disposable by design. Throw them away once they've paid their debt.

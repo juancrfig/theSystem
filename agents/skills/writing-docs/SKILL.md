@@ -3,6 +3,8 @@ name: writing-docs
 description: Decide whether a fact deserves documentation and where it goes. Use before creating or editing a wiki page, an ADR, a decisions-ledger line, a rule, a project CONTEXT.md, or an agent context file (AGENTS.md at any layer).
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # Writing docs
 
 ## Write only what the code cannot say

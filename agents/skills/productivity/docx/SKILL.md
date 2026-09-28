@@ -12,6 +12,8 @@ metadata:
     related_skills: [pdf, xlsx, powerpoint]
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # Docx Skill
 
 Create, read, edit, and template Microsoft Word `.docx` files with

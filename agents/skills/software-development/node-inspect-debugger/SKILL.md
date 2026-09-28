@@ -11,6 +11,8 @@ metadata:
     related_skills: [systematic-debugging, python-debugpy]
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # Node.js Inspect Debugger
 
 ## Overview

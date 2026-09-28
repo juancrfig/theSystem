@@ -12,6 +12,8 @@ metadata:
     related_skills: [docx, xlsx, powerpoint, ocr-and-documents]
 ---
 
+Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+
 # PDF Skill
 
 Create PDFs from structured specs, build and fill AcroForm forms (with layout linting and visual overlays), extract text/tables/metadata, merge/split/rotate/watermark/stamp pages, export page images, manage metadata and attachments, and encrypt/decrypt — using pypdf, reportlab, and pdfplumber. Scanned (image-only) PDFs contain no text layer: OCR is explicitly out of scope here — when a page is image-only, stop and use the `ocr-and-documents` skill instead of pretending to extract text.
