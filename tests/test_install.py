@@ -15,6 +15,7 @@ class InstallerIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="thesystem-experimental-") as td:
             workspace = Path(td) / "workspace"
             rule = workspace / "agents/rules/second-order-thinking-checks.md"
+            skill = workspace / "agents/skills/manual-authoring"
             def provision(*flags):
                 result = subprocess.run(
                     ["bash", "-c", 'script=$1; source_root=$2; target=$3; shift 3; source "$script"; provision_distribution "$source_root" "$target"',
@@ -24,9 +25,11 @@ class InstallerIntegrationTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
             provision()
             self.assertFalse(rule.exists())
+            self.assertFalse(skill.exists())
             self.assertTrue((workspace / "agents/rules/comments-state-why-not-what.md").exists())
             provision("--experimental")
             self.assertEqual(rule.read_text(), (ROOT / "agents/rules/second-order-thinking-checks.md").read_text())
+            self.assertEqual((skill / "SKILL.md").read_text(), (ROOT / "agents/skills/manual-authoring/SKILL.md").read_text())
             rule.write_text("user customization\n")
             provision()
             provision("--experimental")

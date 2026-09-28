@@ -3,6 +3,7 @@ Each project can contain several **source clones**
 
 # Start here
 
+- [MANUAL.md](MANUAL.md) - the human-owned user manual and highest authority for intended functionality: the contract between what the human wants and what AI must build. Read its review status and availability labels; report discrepancies rather than changing the contract to match implementation. Changes to intended behavior require human approval and a corresponding manual update.
 - CONTEXT.md - the workspace glossary: terms of the agent system itself, used in every project
 - <project>/CONTEXT.md - the project's domain glossary; use its terms in code, tests, docs, and conversations with the user about that project
 - agents/ - Agents global configurations
