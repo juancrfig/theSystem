@@ -1,5 +1,105 @@
 # MVP execution evidence (resumed, incomplete)
 
+## Resume rebaseline 2026-09-28 08:44 -05:00
+
+Current repository baseline at resume:
+
+- Git: `master` at `0bb5551`, clean against `origin/master`.
+- Verification: `python3 -m unittest discover -s tests -q` → `Ran 54 tests ... OK (skipped=1)`.
+
+Highest-risk blocker executed first in this resumed window: **remote-distribution install verification** (objective #3).
+
+1. **Ubuntu LTS host remote-distribution install (real download path) — PASS**
+   - Invocation: Python-driven isolated install with `HOME=/home/tmp/.hermes/cache/scratch/remote-dist-host2/home`, downloading `https://raw.githubusercontent.com/juancrfig/theSystem/master/install`, running `--workspace ... --company remoteco --runtime copilot --non-interactive` with `PATH=/usr/bin:/bin` (no local checkout install path used).
+   - Result: installer exit 0; distribution downloaded from `https://codeload.github.com/juancrfig/theSystem/tar.gz/refs/heads/master`; company launcher created; `MANUAL.md` shipped; runtime file set to `copilot`; `remoteco --json --help` exit 0; `copilot --version` exit 0; `herdr --version` exit 0.
+   - Artifact id: `HOST_UBUNTU_REMOTE_DISTRIBUTION_VERIFIED`.
+
+2. **Supported-target clean-container reruns (for parity hardening) — BLOCKED in this environment**
+   - Ubuntu 24.04/22.04 container probes and Arch container probes repeatedly terminated while provisioning prerequisites or running install (`signal 9` / exit 137 in this host's Docker runtime context).
+   - This is an execution-environment blocker for additional clean-container evidence in this resumed window, not a claim that install logic is complete across all remaining acceptance requirements.
+
+3. **Hermes normal install + Hermes-in-Herdr (local checkout path after installer fix) — PASS on host Ubuntu LTS**
+   - Triggering run: remote Hermes install attempt in isolated host home failed at canonical-config application with `ModuleNotFoundError: No module named 'yaml'` (`canonical configuration contains no settings`).
+   - Implementation fix: installer/bootstrap canonical-config parsing no longer depends on PyYAML in Hermes runtime; canonical declarations are now read from `agents/.harness/canonical_config.tsv` with JSON values.
+   - Verification: local install invocation `install --workspace /home/tmp/.hermes/cache/scratch/local-hermes-install-afterfix/workspace --company hermecofix --runtime hermes --non-interactive` exited 0, then `hermecofix --json launch` returned `{"runtime":"hermes","status":"started",...}` and Herdr reported workspace `wZ` Hermes agent idle with `interactive_ready: true`.
+   - Artifact id: `LOCAL_HERMES_INSTALL_AFTER_FIX_VERIFIED`.
+
+Remote distribution is now evidenced beyond local-checkout install on a supported Ubuntu LTS target host, and Hermes-in-Herdr is now verified on host Ubuntu after the canonical-config parser fix. Full MVP readiness remains blocked by the remaining items listed below (interactive account/Herdr coverage on both supported targets, interrupted-install recovery, installed end-to-end retry, native pending-write apply, approved wiki apply path, and habit acceptance completion).
+
+## Continuation slice 2026-09-28 09:40 -05:00
+
+### Verified in this slice
+
+1. **Interrupted-install recovery (objective #4) — PASS**
+   - Invocation: started installer in isolated host home/workspace, terminated mid-run (`SIGTERM`), then reran full install with same target.
+   - Result: first run exited `-15`; rerun exited 0; installed command returned JSON help successfully.
+   - Artifact id: `INTERRUPTED_INSTALL_RECOVERY_VERIFIED`.
+
+2. **Installed end-to-end retry (objective #5) — PASS**
+   - Invocation: in installed workspace, created project/clone/task, approved once, waited terminal status, executed `retry`, waited second terminal status.
+   - Result: first run `82920dba79644e41840f9f2b3817052c` terminal `execution-failed`; retry run `2204953a811842d4a402b4459f746139` terminal `execution-failed`; retry guard and new-run dispatch path proved in installed context.
+   - Artifact id: `INSTALLED_RETRY_E2E_VERIFIED`.
+
+3. **Native pending-write apply for learning review (objective #6) — PASS**
+   - Invocation: staged real pending memory write in isolated master profile home; ran `learning inventory`, `learning show`, then `learning decide --human-decision --decision approve ... --expected-record-sha256 ...`.
+   - Result: decision success true; pending counts dropped to zero; MEMORY.md contains approved line.
+   - Artifact id: `NATIVE_PENDING_APPLY_VERIFIED`.
+
+### Implemented + verified defect fixes discovered while unblocking habits
+
+- **Installer/Bootstrap canonical-config parser hardening**: removed implicit PyYAML dependency from installer-time canonical parsing, moved machine-readable canonical declarations to `agents/.harness/canonical_config.tsv`, and updated `install` + `bootstrap` to parse `<dot.key>\t<json-value>` deterministically.
+- **Copilot container environment hardening**: worker/reviewer copilot runs now set `HOME=/run/copilot-home` and `XDG_CACHE_HOME=/run/copilot-home/.cache`; cache extraction no longer tries `/.cache` (verified by installed run evidence transition).
+- **Copilot invocation compatibility**: added explicit `--reasoning-effort none` to avoid model-specific reasoning-effort rejection.
+- **Broker header pass-through**: broker/relay now forward non-sensitive headers instead of only `content-type`/`accept`; auth header remains host-owned replacement.
+- Verification: repository tests now `56` pass (`python3 -m unittest discover -s tests -q`), targeted orchestrator suite passes.
+
+### Current blocker surfaced by real installed orchestration runs
+
+- **Habit acceptance objective #8 remains blocked** in the installed Copilot lane due provider-side `400 Bad Request` when the containerized worker calls the real Copilot upstream through host credential broker.
+  - Before env hardening, failures were `EACCES` on `/.cache` (run IDs: `79cb83ebe41d481f8688fd241593de9b`, `e7b480289f45479c9a838a7c847c8101`, `3790458989984b2ca3dee3e275299a24`).
+  - After env + reasoning + header fixes, cache/reasoning errors are gone but worker still fails with upstream `400` (`b13aefe31e7645bda1e9da2985f254de`, `a5d9ed6ee41f497a991d7d8623ae7ef2`, `e05696efd907469ab3e6200f36c86563`).
+  - This is now the highest-impact unresolved blocker for completing the habit app through full orchestrator path.
+
+### Continuation slice 2026-09-28 10:35 -05:00
+
+Broker/Copilot compatibility diagnosis + fix path:
+
+- Built a tight reproducer using contained Copilot runs plus captured broker payloads.
+- Verified real Copilot upstream accepts direct brokered OpenAI-compatible calls with model `gpt-4o-mini-2024-07-18` (HTTP 200).
+- Identified `400 Bad Request` source as Copilot CLI default tool-schema payload against this upstream lane.
+- Implemented containment-compatible Copilot invocation change to restrict available tools to `bash` (reduces tool schema payload), plus raised broker request budget for long runs (`max_requests` default 2000; container invocation scales with timeout) so long worker sessions no longer fail with broker-issued `403` from request exhaustion.
+- Post-fix installed-worker smoke run `d8bf29e1bdc84b50b351dc93d6c48f49` reached worker commit (`delivery_status` showed changed file) and no longer showed cache/reasoning/400 failures. Terminal status remained `changes-requested` (review failure), which is expected for this smoke.
+
+Habit replan execution (new task lanes):
+
+- Task `habit-final` runs: `f5b856fb09614578bf50cb56adf8364e` and `2789d294f7ba40f991b613608674ecdc` reached `changes-requested`; reviewer rejected because tests were absent/invalid. Third run `0e47e5b8ce10495fa6e0760cb7631f14` was cancelled after prolonged worker activity.
+- Task `habit-final2` runs: `41f7d07c31124518923e1445ad9fb5bb` and `f08284e74df544b0b2278436f5336841` hit broker `403` before request-budget fix (now addressed); third run `342faef98fcc4da0becfb5dafb9a5b98` cancelled.
+- Task `habit-final3` run `dc372445dee444cd900c86780a797c10` showed prolonged worker loop attempting `npm install` under `--network none`; cancelled.
+
+Current true blocker for objective #8:
+
+- The contained Copilot worker repeatedly diverges into dependency-install loops incompatible with `--network none`, causing long-running/cancelled attempts instead of producing a passing reviewed delivery. Security constraints remain intact; acceptance remains **blocked** until a bounded task/prompt/runtime combination yields a passing reviewed run and integrated habit app.
+
+### User-approved temporary network lane (2026-09-28)
+
+User approved a bounded relaxation for the habit acceptance lane: allow container network egress for that lane only.
+
+- Implementation: orchestrator container network is now configurable by env var `THESYSTEM_CONTAINER_NETWORK` (`none` default, `bridge` allowed), with validation guard; targeted test coverage added.
+- Installed habit execution rerun with `THESYSTEM_CONTAINER_NETWORK=bridge`:
+  - Run `5b4ce98e07994b4cb3cd5247e2a2911f` stayed running and exceeded polling window; no terminal verdict produced in time.
+  - New bounded attempt `ee0fe509a6c341ee9db3326ddb64f1df` ended `timeout` (worker timed out at 180s).
+  - Fresh network-enabled task `habit-final4` run `5b4ce98e07994b4cb3cd5247e2a2911f` eventually timed out from the wrapper poller and was later cancelled for control recovery.
+  - New strict no-install task `habit-final5` run `ee0fe509a6c341ee9db3326ddb64f1df` reached terminal `timeout` with no reviewed pass.
+- Outcome: network relaxation removed earlier broker/provider rejection modes but did **not** yet produce a passing reviewed/integrated habit acceptance run.
+
+Additional diagnosis during this lane:
+
+- Repro proved real brokered Copilot upstream requests return HTTP 200 when payload is valid and complete (including Content-Length).
+- A provider 400 path was narrowed to request-shaping/tool-schema combinations; mitigated by restricting available tools to `bash` in Copilot worker invocation.
+- Long-run provider 403s were traced to broker request cap exhaustion and mitigated by increasing/scaling broker `max_requests` with timeout.
+
+Remaining blocker is execution quality/termination, not credential containment or installer/runtime wiring.
+
 ## Checkpoint commit 2026-09-28 07:20 -05:00
 
 Juanes requested a commit-and-push handoff: "Commit and push the current progress. Update the docs, plan, everything so I can continue working here." This records the live state at publication, not a completion claim. Full verification at commit time: `python3 -m unittest discover -s tests -q` ran 54 tests, all OK; `bash -n install`; `python3 -m py_compile company_cli.py the_system_orchestrator.py`; `git diff --check`, all passed.
