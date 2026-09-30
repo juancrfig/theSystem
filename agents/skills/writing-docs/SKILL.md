@@ -54,4 +54,4 @@ one-line test. A new ADR must name what was rejected in its own text.
 
 ## Agent context files
 
-Context files are not a tier on the ladder. See [context-files.md](context-files.md).
+Context files are not a tier on the ladder. Before creating, editing, or reviewing an `AGENTS.md` or `CONTEXT.md`, read [context-files.md](context-files.md), including its guidance on separating navigation from procedures and avoiding redundant pointers.
