@@ -529,7 +529,31 @@ install_company_cli() {
     "export THESYSTEM_WORKSPACE=$(printf '%q' "$(cd "$root" && pwd -P)")" \
     "exec $(printf '%q' "$(command -v python3)") $(printf '%q' "$source_path") \"\$@\"" >"$launcher"
   if [[ -e "$target" || -L "$target" ]]; then
-    cmp -s "$launcher" "$target" || { rm -f "$launcher"; die "company command already exists; refusing to overwrite: $company"; }
+    if [[ "$lifecycle" == upgrade ]]; then
+      rm -f "$launcher"
+      if [[ -f "$target" ]] && python3 - "$target" "$root" <<'PYLAUNCHER'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+root=str(Path(sys.argv[2]).resolve())
+if "export THESYSTEM_WORKSPACE="+root not in s or "/company_cli.py" not in s:
+    raise SystemExit(1)
+PYLAUNCHER
+      then
+        say "Preserving company command $company at $target during upgrade"
+        return
+      fi
+      die "company command does not belong to this workspace; refusing to overwrite: $company"
+    fi
+    if ! python3 - "$launcher" "$target" <<'PYLAUNCHER'
+from pathlib import Path
+import sys
+raise SystemExit(0 if Path(sys.argv[1]).read_bytes()==Path(sys.argv[2]).read_bytes() else 1)
+PYLAUNCHER
+    then
+      rm -f "$launcher"
+      die "company command already exists; refusing to overwrite: $company"
+    fi
     rm -f "$launcher"
     say "Company command $company already installed at $target"
     return
