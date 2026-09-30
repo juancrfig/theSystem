@@ -9,8 +9,11 @@ skill: do not split code into pass-throughs that only move the complexity. Many
 explanatory comments in one place are a red flag that the code is unclear, not a
 sign that it is well documented.
 
-A comment is still right for what no code can say: a rejected alternative, an
-external constraint, or something that looks arbitrary but is deliberate.
+A comment is still right for intent the code cannot express: a required policy,
+external constraint, rejected alternative, or deliberate choice that would
+otherwise look arbitrary. State that constraint or intent, not the implementation
+step used to satisfy it. For example, document that every rule must carry required
+fields; do not narrate that the checker reads staged files.
 
 Prevents: Comments that compensate for unclear code duplicate it. The two drift
 apart on the next change, readers can no longer tell which one is true, and the
