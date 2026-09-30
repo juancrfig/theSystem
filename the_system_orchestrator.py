@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from typing import Any
 
 TERMINAL={"passed","changes-requested","execution-failed","review-failed","cancelled","timeout","aborted","infra_blocked","isolation_violated"}
 ACTIVE={"starting","running","reviewing"}
@@ -43,6 +44,13 @@ class HostCredentialBroker:
     @classmethod
     def from_environment(cls,runtime,env=None,lifetime=3600,max_requests=2000):
         env=os.environ if env is None else env
+        if runtime == "hermes":
+            # Hermes OAuth credentials are provider-specific and may require refresh/signing.
+            # Never downgrade profile auth to a manually supplied static key.
+            raise OrchestratorError(
+                "CREDENTIAL_BROKER_UNSUPPORTED_AUTH",
+                "Hermes profile credential reuse is unavailable: no selected main-profile provider adapter is configured",
+            )
         upstream=env.get("THESYSTEM_BROKER_UPSTREAM_URL")
         key=env.get("THESYSTEM_BROKER_PROVIDER_KEY")
         if bool(upstream) != bool(key):
@@ -165,6 +173,13 @@ def read(p,default):
 def atomic(p,v):
     p.parent.mkdir(parents=True,exist_ok=True); t=p.with_suffix(p.suffix+".tmp"); t.write_text(json.dumps(v,indent=2,sort_keys=True)+"\n"); os.replace(t,p)
 def digest(v): return hashlib.sha256(json.dumps(v,sort_keys=True).encode()).hexdigest()
+def strip_transient_streams(value:Any)->Any:
+    """Remove raw process/agent output from every durable JSON representation."""
+    if isinstance(value,dict):
+        return {key:strip_transient_streams(item) for key,item in value.items() if key not in {"stdout","stderr","streams"}}
+    if isinstance(value,list):
+        return [strip_transient_streams(item) for item in value]
+    return value
 def git(c,*a):
     p=subprocess.run(["git",*a],cwd=c,text=True,capture_output=True)
     if p.returncode: raise OrchestratorError("GIT_FAILED",p.stderr.strip() or "git failed")
@@ -210,7 +225,7 @@ class Orchestrator:
                 if new is None or (old.get("status")=="done" and new.get("status")!="done"): self.state["tasks"][tid]=old
                 elif old.get("approval")=="approved" and new.get("approval")=="proposed" and all(new.get(k)==old.get(k) for k in ("source_clone","prompt","runtime","acceptance","roles")):
                     self.state["tasks"][tid]=old
-            atomic(self.state_path,self.state)
+            atomic(self.state_path,strip_transient_streams(self.state))
             fcntl.flock(lock,fcntl.LOCK_UN)
     def task(self,i):
         if i not in self.state["tasks"]: raise OrchestratorError("TASK_NOT_FOUND",i)
@@ -542,6 +557,29 @@ class Orchestrator:
             raise OrchestratorError("AGENT_IMAGE_UNAVAILABLE","selected agent image is not available locally")
         # Fail before allocating a branch or a run. Native Copilot authentication
         # is not a fallback: a real token must never enter the container.
+        if not shutil.which("git"):
+            raise OrchestratorError("GIT_UNAVAILABLE","git is required for contained execution")
+        clone=Path(t["source_clone"])
+        try:
+            if not clone.is_dir() or not (clone/".git").exists():
+                raise OrchestratorError("SOURCE_CLONE_INVALID","source clone is not a valid Git worktree")
+            git(clone,"rev-parse","--show-toplevel")
+            contract,_=self._validate_task_contract(t)
+            run_directory=self._task_directory(t)/"runs"
+            prompt_root=run_directory.parent/"prompts"
+            probe_dir=prompt_root/("preflight-"+uuid.uuid4().hex)
+            try:
+                probe_dir.mkdir(parents=True,exist_ok=False)
+                for prompt_name in ("worker.txt","review.txt"):
+                    (probe_dir/prompt_name).write_text("preflight")
+            except OSError as error:
+                raise OrchestratorError("PREFLIGHT_FAILED","worker/reviewer prompt storage is unavailable: "+str(error)) from error
+            finally:
+                shutil.rmtree(probe_dir,ignore_errors=True)
+        except OrchestratorError:
+            raise
+        except (OSError, subprocess.SubprocessError) as error:
+            raise OrchestratorError("PREFLIGHT_FAILED",str(error)) from error
         HostCredentialBroker.from_environment(t["runtime"],lifetime=int(timeout)+30)
         review_runtime=os.environ.get("THESYSTEM_REVIEW_RUNTIME",t["runtime"])
         if review_runtime not in RUNTIMES: raise OrchestratorError("REVIEW_RUNTIME_INVALID",review_runtime)
@@ -655,7 +693,7 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
                 result=subprocess.run(args,text=True,capture_output=True,timeout=timeout,env=env)
             finally:
                 broker.close()
-            # Defense in depth: agent stdout/stderr are durable evidence.
+            # Redact credentials from transient process output before returning it.
             for secret in (broker.provider_key,broker.capability):
                 result.stdout=result.stdout.replace(secret,"[REDACTED]")
                 result.stderr=result.stderr.replace(secret,"[REDACTED]")
@@ -681,10 +719,9 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
             p=self._docker(image,work,self._agent_command(t["runtime"],prompt=prompt),max(1,int(r["started_epoch"]+r["timeout_seconds"]-time.time())),pf,runtime=t["runtime"],container_name="thesystem-"+r["id"]+"-worker",bundle=r.get("worker",{}).get("bundle",{}).get("path"))
             if p is None: return {"returncode":-1,"timed_out":True,"contained":True}
             changed=git(work,"status","--porcelain")
-            streams=self._stream(r,"worker",p)
             if p.returncode==0 and changed:
                 git(work,"add","-A"); git(work,"-c","user.email=theSystem@localhost","-c","user.name=theSystem","commit","-m",f"worker delivery {r['id']}")
-            return {"returncode":p.returncode,"stdout":p.stdout[-8000:],"stderr":p.stderr[-4000:],"timed_out":False,"contained":True,"streams":streams,"delivery_status":changed,"commit":git(work,"rev-parse","HEAD")}
+            return {"returncode":p.returncode,"stdout":p.stdout[-8000:],"stderr":p.stderr[-4000:],"timed_out":False,"contained":True,"delivery_status":changed,"commit":git(work,"rev-parse","HEAD")}
         finally: self._remove_worktree(clone,work); pf.unlink(missing_ok=True)
     def _review(self,r,t):
         clone=Path(t["source_clone"]); work=self.root/"review"/r["id"]; work.parent.mkdir(parents=True,exist_ok=True); git(clone,"worktree","add",str(work),r["branch"])
@@ -701,35 +738,26 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
             test_args=["docker","run","--rm","--network","none","--cap-drop=ALL","--security-opt","no-new-privileges","--user",f"{os.getuid()}:{os.getgid()}","-v",f"{layer}:/workspace","-w","/workspace",image,*(test_cmd or ["false"])]
             before_test=subprocess.run(test_args,capture_output=True,text=True,timeout=120)
             p=self._docker(image,layer,self._agent_command(review_runtime,True,pf.read_text()),max(1,min(900,int(r["started_epoch"]+r["timeout_seconds"]-time.time()))),pf,readonly=False,layer=None,runtime=review_runtime,container_name="thesystem-"+r["id"]+"-review",bundle=r.get("reviewer",{}).get("bundle",{}).get("path"))
-            streams=self._stream(r,"review",p) if p is not None else {}
             unchanged=before_layer_hash==_tree_digest(work)
             if p is None: return {"review_runtime":review_runtime,"passed":False,"returncode":-1,"timed_out":True,"worker_tree_unchanged":unchanged}
             test=subprocess.run(test_args,capture_output=True,text=True,timeout=120)
             verdicts=re.findall(r"(?im)^VERDICT: (PASS|FAIL)\b",p.stdout)
             diff=git(work,"diff","--stat",r["base_commit"])
-            return {"review_runtime":review_runtime,"model":"openai/gpt-4.1-mini" if review_runtime=="hermes" else "copilot/default","streams":streams,"passed":p.returncode==0 and before_test.returncode==0 and test.returncode==0 and unchanged and bool(diff) and verdicts[-1:]==["PASS"],"returncode":p.returncode,"stdout":p.stdout[-8000:],"stderr":p.stderr[-4000:],"diff_stat":diff,"independent":True,"worker_tree_unchanged":unchanged,"verdict":verdicts[-1] if verdicts else None,"pre_review_test_result":{"returncode":before_test.returncode,"stdout":before_test.stdout[-2000:],"stderr":before_test.stderr[-2000:]},"test_result":{"returncode":test.returncode,"stdout":test.stdout[-2000:],"stderr":test.stderr[-2000:]},"review_layer_changed":sorted(str(x.relative_to(layer)) for x in layer.rglob('*') if x.is_file() and (not (work/x.relative_to(layer)).exists() or x.read_bytes()!=(work/x.relative_to(layer)).read_bytes()))}
+            return {"review_runtime":review_runtime,"model":"openai/gpt-4.1-mini" if review_runtime=="hermes" else "copilot/default","passed":p.returncode==0 and before_test.returncode==0 and test.returncode==0 and unchanged and bool(diff) and verdicts[-1:]==["PASS"],"returncode":p.returncode,"stdout":p.stdout[-8000:],"stderr":p.stderr[-4000:],"diff_stat":diff,"independent":True,"worker_tree_unchanged":unchanged,"verdict":verdicts[-1] if verdicts else None,"pre_review_test_result":{"returncode":before_test.returncode,"stdout":before_test.stdout[-2000:],"stderr":before_test.stderr[-2000:]},"test_result":{"returncode":test.returncode,"stdout":test.stdout[-2000:],"stderr":test.stderr[-2000:]},"review_layer_changed":sorted(str(x.relative_to(layer)) for x in layer.rglob('*') if x.is_file() and (not (work/x.relative_to(layer)).exists() or x.read_bytes()!=(work/x.relative_to(layer)).read_bytes()))}
         finally: self._remove_worktree(clone,work); pf.unlink(missing_ok=True); shutil.rmtree(layer,ignore_errors=True)
     def _remove_worktree(self,clone,work): subprocess.run(["git","worktree","remove","--force",str(work)],cwd=clone,capture_output=True,text=True)
-    def _stream(self,r,stage,process):
-        directory=self._task_directory(self.task(r["task_id"]))/"runs"/r["id"]
-        directory.mkdir(parents=True,exist_ok=True)
-        records={}
-        for kind in ("stdout","stderr"):
-            content=getattr(process,kind)
-            target=directory/(stage+"."+kind+".log")
-            if not target.exists(): target.write_text(content)
-            records[kind]={"path":str(target),"sha256":hashlib.sha256(content.encode()).hexdigest(),"bytes":len(content.encode())}
-        return records
+
     def _write_evidence(self,r):
         self.evidence.mkdir(parents=True,exist_ok=True); p=self.evidence/(r["id"]+".json")
+        # run.json is the durable run summary consumed by the main agent.
+        # Persist it only once the run reaches a terminal state.
+        if r.get("status") not in TERMINAL:
+            return
         if not p.exists():
-            q=dict(r); q["evidence_digest"]=digest(q); atomic(p,q)
+            q=strip_transient_streams(dict(r))
+            q["evidence_digest"]=digest(q); atomic(p,q)
             t=self.task(r["task_id"]); target=self._task_directory(t)/"runs"/r["id"]/"run.json"
             if not target.exists(): atomic(target,q)
-            report=target.parent/"report.md"
-            if not report.exists():
-                with report.open("x") as f:
-                    f.write(f"# Run {r['id']}\n\nStatus: {r['status']}\nTicket: {r.get('ticket','')}\nClone: {r.get('source_clone','')}\nBase: {r.get('base_commit','')}\nHead: {r.get('worker_result',{}).get('commit','')}\nWorker: {r.get('runtime','')}\nReviewer: {r.get('review_result',{}).get('review_runtime','not run')}\nVerdict: {r.get('review_result',{}).get('verdict','not run')}\nStarted: {r.get('started_at','')}\nFinished: {r.get('finished_at','')}\n")
             r["evidence_path"]=str(p); r["evidence_digest"]=q["evidence_digest"]
     @staticmethod
     def _pid_info(pid):

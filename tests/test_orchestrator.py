@@ -118,6 +118,23 @@ raise SystemExit(p.returncode)
                     o._docker("test-image",root,["copilot"],10,prompt,runtime="copilot")
             self.assertEqual(failure.exception.code,"CONTAINER_NETWORK_INVALID")
 
+    def test_hermes_profile_auth_reuse_fails_closed_without_adapter(self):
+        synthetic = {
+            "THESYSTEM_BROKER_UPSTREAM_URL": "https://synthetic.invalid/v1",
+            "THESYSTEM_BROKER_PROVIDER_KEY": "SYNTHETIC_STATIC_KEY",
+            "OPENAI_API_KEY": "SYNTHETIC_ENV_KEY",
+            "OPENROUTER_API_KEY": "SYNTHETIC_ROUTER_KEY",
+        }
+        with self.assertRaises(OrchestratorError) as failure:
+            HostCredentialBroker.from_environment("hermes", synthetic)
+        self.assertEqual(failure.exception.code, "CREDENTIAL_BROKER_UNSUPPORTED_AUTH")
+        self.assertNotIn("SYNTHETIC", str(failure.exception))
+
+    def test_hermes_profile_auth_reuse_fails_closed_when_profile_is_missing(self):
+        with self.assertRaises(OrchestratorError) as failure:
+            HostCredentialBroker.from_environment("hermes", {})
+        self.assertEqual(failure.exception.code, "CREDENTIAL_BROKER_UNSUPPORTED_AUTH")
+
     def test_broker_configuration_fails_closed_before_branch_allocation(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
@@ -318,6 +335,63 @@ raise SystemExit(p.returncode)
             branches = subprocess.run(["git", "-C", str(repo), "branch", "--list", "thesystem/*"], capture_output=True, text=True, check=True)
             self.assertEqual(branches.stdout.strip(), "")
 
+    def test_preflight_checks_both_prompt_destinations_before_allocating_run(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("prompt-paths",repo,"Build something",runtime="hermes")
+            o.task("prompt-paths")["approval"]="approved"
+            o.task("prompt-paths")["approval_digest"]=__import__("the_system_orchestrator").digest({k:o.task("prompt-paths")[k] for k in ("source_clone","prompt","runtime","acceptance","roles")})
+            o.save()
+            env={"THESYSTEM_HERMES_IMAGE":"thesystem-hermes:local","THESYSTEM_BROKER_UPSTREAM_URL":"http://127.0.0.1:9/v1","THESYSTEM_BROKER_PROVIDER_KEY":"DISPOSABLE","THESYSTEM_BROKER_MODEL":"model-a"}
+            with patch.dict(os.environ,env),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"),patch("the_system_orchestrator.subprocess.run",side_effect=[subprocess.CompletedProcess([],0,"{}",""),subprocess.CompletedProcess([],0,str(repo),""),subprocess.CompletedProcess([],0,str(repo),""),subprocess.CompletedProcess([],0,"basehash","")]),patch("pathlib.Path.write_text",side_effect=OSError("read-only prompt store")):
+                with self.assertRaises(OrchestratorError) as failure: o.start("prompt-paths")
+            self.assertEqual(failure.exception.code,"PREFLIGHT_FAILED")
+            self.assertEqual(o.state["runs"],{})
+            self.assertFalse(subprocess.run(["git","-C",str(repo),"branch","--list","thesystem/*"],capture_output=True,text=True,check=True).stdout.strip())
+
+    def test_run_record_is_created_only_for_terminal_states(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("terminal-record",repo,"Build something",runtime="hermes")
+            run={"id":"in-progress","task_id":"terminal-record","status":"reviewing","ticket":"local","source_clone":str(repo),"base_commit":"abc","runtime":"hermes"}
+            o._write_evidence(run)
+            run_dir=o._task_directory(o.task("terminal-record"))/"runs"/run["id"]
+            self.assertFalse((run_dir/"run.json").exists())
+            self.assertFalse((o.evidence/(run["id"]+".json")).exists())
+            run["status"]="passed"
+            run["worker_result"]={"commit":"def"}
+            run["review_result"]={"review_runtime":"hermes","verdict":"PASS"}
+            run["started_at"]="start"
+            run["finished_at"]="finish"
+            o._write_evidence(run)
+            self.assertEqual(json.loads((run_dir/"run.json").read_text())["status"],"passed")
+            self.assertEqual(json.loads((o.evidence/(run["id"]+".json")).read_text())["worker_result"]["commit"],"def")
+
+    def test_run_record_does_not_persist_raw_agent_streams(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("no-streams",repo,"Build something",runtime="hermes")
+            run={"id":"no-streams-run","task_id":"no-streams","status":"passed","ticket":"local","source_clone":str(repo),"base_commit":"abc","runtime":"hermes","worker_result":{"returncode":0,"stdout":"secret raw agent text","stderr":"trace"},"review_result":{"verdict":"PASS","stdout":"review transcript","stderr":"review trace","test_result":{"returncode":0,"stdout":"test output secret","stderr":"test trace"}}}
+            o._write_evidence(run)
+            record=json.loads((o._task_directory(o.task("no-streams"))/"runs"/run["id"]/"run.json").read_text())
+            self.assertNotIn("stdout",record["worker_result"])
+            self.assertNotIn("stderr",record["worker_result"])
+            self.assertNotIn("stdout",record["review_result"])
+            self.assertNotIn("stderr",record["review_result"])
+            self.assertNotIn("stdout",record["review_result"]["test_result"])
+            self.assertNotIn("stderr",record["review_result"]["test_result"])
+            run_files=[p.name for p in (o._task_directory(o.task("no-streams"))/"runs"/run["id"]).iterdir()]
+            self.assertEqual(run_files,["run.json"])
+            o.state["runs"][run["id"]]=run
+            o.save()
+            state_text=o.state_path.read_text()
+            self.assertNotIn("secret raw agent text",state_text)
+            self.assertNotIn("review transcript",state_text)
+            self.assertNotIn("test output secret",state_text)
+            self.assertNotIn('"stdout"',state_text)
+            self.assertNotIn('"stderr"',state_text)
+
     def test_stale_writer_cannot_revoke_approval_or_change_terminal_verdict(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
@@ -396,10 +470,10 @@ raise SystemExit(p.returncode)
         from the_system_orchestrator import atomic
         with tempfile.TemporaryDirectory() as td:
             root=Path(td);repo=self.repo(root);o=Orchestrator(root)
-            o.create_task("recovery",repo,"Build one file",runtime="copilot")
+            o.create_task("recovery",repo,"Build one file",runtime="hermes")
             with __import__("unittest.mock",fromlist=["patch"]).patch.object(o,"start",return_value={}):
                 o.approve("recovery")
-            run={"id":"recovered","task_id":"recovery","status":"reviewing","detached":True,"pid":999999999,"base_commit":"base","branch":"branch","runtime":"copilot","started_at":"start"}
+            run={"id":"recovered","task_id":"recovery","status":"reviewing","detached":True,"pid":999999999,"base_commit":"base","branch":"branch","runtime":"hermes","started_at":"start"}
             o.state["runs"]["recovered"]=run;o.save()
             terminal=dict(run,status="changes-requested",finished_at="end",review_result={"verdict":"FAIL"})
             atomic(o.evidence/"recovered.json",terminal)
