@@ -2,9 +2,6 @@
 
 Use theSystem's verified workspace operations. Keep control of your projects, configuration, and learning decisions.
 
-> [!IMPORTANT]
-> **Evidence-backed user manual.** This manual documents only implemented functionality supported by evidence that it works in the stated context. It provides usage instructions and known limitations without implying verification beyond that evidence. Planned behavior, requirements, acceptance criteria, unfinished work, and pending decisions belong in [GitHub](https://github.com/juancrfig/theSystem/issues), the agreed ticketing system for theSystem global workspace. Approved GitHub requirements define intended behavior; documenting a limitation does not make a bug acceptable.
-
 [Verified capabilities](#verified-capabilities) · [Get started](#get-started) · [Projects](#register-a-project) · [Source clones](#register-a-source-clone) · [Roles](#configure-project-roles) · [Evidence](#inspect-an-existing-run-record) · [Learning](#review-pending-hermes-memory-writes)
 
 ## Verified capabilities
