@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Break a plan, spec, or conversation into a set of **tickets**: tracer-bullet vertical slices, each declaring the tickets that **block** it.
 
-Create local tickets under the project's documented `.scratch/` location unless the user explicitly names an external tracker. Do not publish or modify external tickets without that explicit request.
+For global workspace work and development of theSystem, publish approved planning/ticket records to the official GitHub tracker defined in the root `AGENTS.md`; do not create local or scratch ticket artifacts. That documented policy selects GitHub without requiring the user to name it again. For company/product projects, follow their documented tracker and use local drafts only where that policy permits them; do not publish to another external tracker without explicit authorization.
 
 ## Process
 

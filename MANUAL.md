@@ -20,7 +20,7 @@ Build software with AI agents. Keep control of the requirements, permissions, an
 “Implemented” describes repository capability, not a fresh deployment certification.
 
 > [!WARNING]
-> **The execution contract is not fully certified.** Local contained Hermes and Copilot runs, independent reviews, and two browser-tested apps are documented in [MVP evidence](docs/MVP-EVIDENCE.md). The third app and several installation/learning guarantees remain incomplete; the workflow below remains the intended contract, not a blanket availability claim.
+> **The execution contract is not fully certified.** Local contained Hermes and Copilot runs, independent reviews, and two browser-tested apps are documented in [MVP evidence on GitHub](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757). The third app and several installation/learning guarantees remain incomplete; the workflow below remains the intended contract, not a blanket availability claim.
 
 ## Get started
 
@@ -75,7 +75,7 @@ company
 
 **Intended success:** Herdr opens the selected agent in the command's bound workspace, regardless of your current directory. The command lives in `~/.local/bin`, which must be on your shell's `PATH`. If Herdr reports an interaction is pending, the agent is not yet ready.
 
-Herdr manages the session display, not task execution or approval. Remote access stays off by default. Direct/no-Herdr and headless operation remain available. In blank mode, non-chat company operations work without an agent runtime; chat requires an explicitly selected installed runtime or reports none configured. Copilot launch in Herdr has a local isolated proof after the credential-safety correction; installed normal launch on both supported targets and Hermes-in-Herdr are not yet certified. Direct and headless paths have limited local probes in [MVP evidence](docs/MVP-EVIDENCE.md).
+Herdr manages the session display, not task execution or approval. Remote access stays off by default. Direct/no-Herdr and headless operation remain available. In blank mode, non-chat company operations work without an agent runtime; chat requires an explicitly selected installed runtime or reports none configured. Copilot launch in Herdr has a local isolated proof after the credential-safety correction; installed normal launch on both supported targets and Hermes-in-Herdr are not yet certified. Direct and headless paths have limited local probes in [MVP evidence on GitHub](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757).
 
 If you skipped the company command, open Hermes with `master` from the installed workspace instead. Describe your goal to the main agent. **Conversation alone does not approve execution or learning.**
 

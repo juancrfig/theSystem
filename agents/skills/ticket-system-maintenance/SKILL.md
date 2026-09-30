@@ -9,6 +9,8 @@ The agent working on **theSystem** owns its ticket system end to end. Create, re
 
 This skill applies to theSystem's own GitHub repository and Project. It does not silently move a product project to GitHub: follow that project's documented tracker unless the user explicitly authorizes a migration.
 
+The root `AGENTS.md` makes GitHub the sole tracker for global workspace/theSystem work. Keep its plans, specifications, acceptance criteria, status, handoffs, and ticket-specific evidence on GitHub, not in repository documents or scratch ticket trees. Repository documentation may link to the canonical records. Company/product execution trees are unaffected.
+
 ## Operating rules
 
 1. Inventory the repository, current tracker issues, labels, Project items, dependencies, and working-tree changes before mutating anything.
@@ -48,4 +50,5 @@ This skill applies to theSystem's own GitHub repository and Project. It does not
 - Read back every issue and Project item; save a source-to-remote manifest outside the repository.
 - Re-scan the repository and remote issue bodies for removed sensitive or local-only material.
 - Delete local ticket artifacts only after the manifest and read-back checks succeed.
+- If the user explicitly requires removal after issue content is verified but Project access is unavailable, remove the local artifacts, preserve the external audit, and record Project organization as a separate unresolved GitHub blocker. Do not retain a local tracker merely because Project permissions are missing.
 - Report exact issue IDs, URLs, Project URL, manifest path, scans, tests, and any remaining blockers.

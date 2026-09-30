@@ -30,4 +30,4 @@ Until a clear protocol is designed and battle-tested, the feedback loop must rem
 
 ## Local MVP status
 
-The intended workflow and availability labels are in [the user manual](MANUAL.md). [MVP evidence](docs/MVP-EVIDENCE.md) records verified local runs and remaining blockers. The MVP is stopped incomplete; neither app deployment nor full product acceptance is claimed.
+The intended workflow and availability labels are in [the user manual](MANUAL.md). [MVP evidence on GitHub](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757) records historical verified runs and remaining blockers. Current work is tracked in [GitHub Issues](https://github.com/juancrfig/theSystem/issues), not local ticket documents. Neither app deployment nor full product acceptance is claimed.

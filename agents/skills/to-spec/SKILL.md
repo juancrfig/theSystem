@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
 
-Write the specification to the location the user requested. By default, publish to the local issue tracker used by this workspace (same policy as `to-tasks`) and label it `ready-for-agent`; do not publish to an external issue tracker unless the user explicitly requested that external action.
+Follow the tracker policy in the root `AGENTS.md` and the relevant project's guidance (same policy as `to-tasks`). Global workspace and theSystem development specifications belong in GitHub Issues or comments, never local files or a scratch tracker. Company/product projects retain their documented tracker. Use `needs-triage` until scope, criteria, dependencies, and prerequisites are verified; writing a specification does not authorize execution.
 
 ## Process
 
@@ -18,7 +18,7 @@ Write the specification to the location the user requested. By default, publish 
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then publish it to the local issue tracker and label it `ready-for-agent` (matching `to-tasks`) - no need for additional triage.
+3. Write the spec using the template below, then publish it to the scope's documented tracker. For global workspace/theSystem work, update the canonical GitHub issue rather than creating a duplicate or local file; read back the exact record and verify its content. Apply `ready-for-agent` only after readiness is verified, otherwise use `needs-triage`.
 
 <spec-template>
 
