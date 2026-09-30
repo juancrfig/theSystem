@@ -49,6 +49,19 @@ class InstallerIntegrationTests(unittest.TestCase):
             self.assertIn("Usage: COMPANY", help_result.stdout)
             managed = json.loads((workspace / ".thesystem/managed.json").read_text())["entries"]
             self.assertIn("thesystem/setup/managed_files.py", managed)
+            self.assertIn("thesystem/setup/provisioning.py", managed)
+            self.assertIn("thesystem/setup/provisioning_cli.py", managed)
+            # Exercise the actual installed adapter, with no checkout imports.
+            declaration_fixture = root / "settings.tsv"
+            declaration_fixture.write_text('fixture.setting\t{"value": 1}\n')
+            parsed = subprocess.run(
+                ["python3", str(workspace / "thesystem/setup/provisioning_cli.py"),
+                 "config-entries", str(declaration_fixture)],
+                cwd=root, env=env, text=True, capture_output=True,
+            )
+            self.assertEqual(parsed.returncode, 0, parsed.stderr)
+            self.assertEqual(parsed.stdout, 'fixture.setting\t{"value":1}\n')
+            self.assertFalse(list((workspace / "thesystem").rglob("__pycache__")))
 
             # New declared inputs propagate without changing the installer.
             declaration = source / "thesystem/setup/distribution.py"

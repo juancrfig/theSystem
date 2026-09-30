@@ -51,6 +51,7 @@ else:
         source_file.write_text((ROOT / "bootstrap").read_text().split("\nsteps=(", 1)[0])
         self.script = (
             f"source {shlex.quote(str(source_file))}\n"
+            f"provisioning_cli={shlex.quote(str(ROOT / 'thesystem/setup/provisioning_cli.py'))}\n"
             f"canonical_config={shlex.quote(str(self.canonical_config))}\n"
             f"canonical_profiles={shlex.quote(str(self.canonical_profiles))}\n"
             "apply_canonical_config\nprintf 'READY %s\\n' \"$step_detail\"\n"

@@ -36,6 +36,7 @@ class RequiredToolsetsBootstrapTests(unittest.TestCase):
         source_file.write_text((ROOT / "bootstrap").read_text().split("\nsteps=(", 1)[0])
         self.script = (
             f"source {shlex.quote(str(source_file))}\n"
+            f"provisioning_cli={shlex.quote(str(ROOT / 'thesystem/setup/provisioning_cli.py'))}\n"
             f"required_toolsets={shlex.quote(str(self.manifest))}\n"
             f"default_hermes_home={shlex.quote(str(self.hermes_home))}\n"
             "enable_required_toolsets\nprintf 'READY\\n'\n"

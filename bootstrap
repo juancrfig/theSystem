@@ -21,6 +21,7 @@ EOF_USAGE
 }
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+provisioning_cli="$repo_root/thesystem/setup/provisioning_cli.py"
 canonical_config="$repo_root/agents/.harness/canonical_config.tsv"
 canonical_profiles="$repo_root/agents/.harness/canonical_profiles.txt"
 project_skills_link="$repo_root/.agents/skills"
@@ -43,9 +44,8 @@ require_command() {
   fi
 }
 
-set_config() {
-  local profile=$1 key=$2 value=$3
-  HERMES_HOME="$default_hermes_home" hermes -p "$profile" config set --force "$key" "$value" >/dev/null
+provisioning() {
+  python3 -B "$provisioning_cli" "$@"
 }
 
 profile_exists() {
@@ -110,33 +110,7 @@ PY
 }
 
 canonical_entries() {
-  python3 - "$canonical_config" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-source = Path(sys.argv[1])
-text = source.read_text(encoding='utf-8')
-if not text.strip():
-    raise SystemExit(f"{source} is empty")
-
-for line_no, raw in enumerate(text.splitlines(), start=1):
-    line = raw.strip()
-    if not line or line.startswith('#'):
-        continue
-    if '\t' not in raw:
-        raise SystemExit(f"{source}:{line_no}: expected <key>\\t<json-value>")
-    key, value = raw.split('\t', 1)
-    key = key.strip()
-    value = value.strip()
-    if not key:
-        raise SystemExit(f"{source}:{line_no}: empty key")
-    for segment in key.split('.'):
-        if not segment or any(ch.isspace() for ch in segment):
-            raise SystemExit(f"{source}:{line_no}: invalid key segment in {key!r}")
-    parsed = json.loads(value)
-    print(f"{key}\t{json.dumps(parsed, separators=(',', ':'))}")
-PY
+  provisioning config-entries "$canonical_config"
 }
 
 canonical_profiles_list() {
@@ -176,17 +150,10 @@ check_prerequisites() {
 }
 
 enable_required_toolsets() {
-  local toolset previous='' names=()
-  while IFS= read -r toolset || [[ -n "$toolset" ]]; do
-    [[ -z "$toolset" || "$toolset" == \#* ]] && continue
-    [[ "$toolset" =~ ^[a-z][a-z0-9_]*$ ]] || { printf 'Invalid required toolset name: %s\n' "$toolset" >&2; exit 1; }
-    for previous in "${names[@]}"; do
-      [[ "$previous" != "$toolset" ]] || { printf 'Duplicate toolset name: %s\n' "$toolset" >&2; exit 1; }
-    done
-    names+=("$toolset")
-  done < "$required_toolsets"
-  ((${#names[@]})) || { printf 'Required toolset manifest is empty: %s\n' "$required_toolsets" >&2; exit 1; }
-  HERMES_HOME="$default_hermes_home" hermes tools enable --platform cli "${names[@]}"
+  local names_raw name names=()
+  names_raw=$(provisioning toolset-names "$required_toolsets")
+  while IFS= read -r name; do names+=("$name"); done <<<"$names_raw"
+  provisioning enable-toolsets "$required_toolsets" "$default_hermes_home"
   step_detail="${#names[@]} required toolsets"
 }
 
@@ -230,7 +197,7 @@ configure_git_hooks() {
 # settings here. New canonical keys are applied automatically on the next run;
 # credentials and unrelated device settings remain untouched.
 apply_canonical_config() {
-  local profile key value setting profile_count=0 canonical_setting_count=0
+  local profile key value profile_count=0 canonical_setting_count=0
   local profiles_raw settings_raw
   local -a profiles settings
 
@@ -258,10 +225,7 @@ apply_canonical_config() {
   fi
   for profile in "${profiles[@]}"; do
     ensure_profile_exists "$profile"
-    for setting in "${settings[@]}"; do
-      IFS=$'\t' read -r key value <<<"$setting"
-      set_config "$profile" "$key" "$value"
-    done
+    provisioning apply-config "$canonical_config" "$default_hermes_home" --profile "$profile"
   done
   step_detail="$canonical_setting_count settings x $profile_count profiles"
 }
@@ -269,21 +233,7 @@ apply_canonical_config() {
 # Also expose the skills through Hermes's project-local convention. This gives
 # them project precedence when Hermes is started inside this checkout.
 link_project_skills() {
-  mkdir -p "$(dirname "$project_skills_link")"
-  if [[ -e "$project_skills_link" && ! -L "$project_skills_link" ]]; then
-    printf 'Refusing to replace non-symlink project skill directory: %s\n' "$project_skills_link" >&2
-    exit 1
-  fi
-  if [[ -L "$project_skills_link" ]]; then
-    local existing_target
-    existing_target=$(readlink "$project_skills_link")
-    if [[ "$existing_target" != '../agents/skills' ]]; then
-      printf 'Refusing to replace project skill link %s -> %s\n' "$project_skills_link" "$existing_target" >&2
-      exit 1
-    fi
-  else
-    ln -s ../agents/skills "$project_skills_link"
-  fi
+  provisioning link-skills "$repo_root" --link "$project_skills_link"
 }
 
 trust_repository() {

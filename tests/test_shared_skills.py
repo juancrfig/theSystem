@@ -1,6 +1,7 @@
 """Regression tests for theSystem's Hermes project-wide skill wiring."""
 
 import shlex
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -32,6 +33,9 @@ class SharedSkillsTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             (checkout / "install").write_text((ROOT / "install").read_text())
+            # Include the current uncommitted distribution package, not only HEAD.
+            shutil.copytree(ROOT / "thesystem", checkout / "thesystem", dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__"))
 
             link = checkout / ".agents" / "skills"
             install_functions = temp / "install-functions"

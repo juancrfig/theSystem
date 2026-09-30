@@ -308,11 +308,14 @@ link_project_skills() {
   local root=${1:-${repo_root:-}} link=${project_skills_link:-}
   [[ -n "$root" ]] || die 'project root is required for skill linking'
   [[ -n "$link" ]] || link="$root/.agents/skills"
-  mkdir -p "$(dirname "$link")"
-  if [[ -e "$link" && ! -L "$link" ]]; then die "refusing to replace non-symlink project skills path $link"; fi
-  if [[ -L "$link" ]]; then
-    [[ "$(readlink "$link")" == '../agents/skills' ]] || die "refusing to replace project skill link $link"
-  else ln -s ../agents/skills "$link"; fi
+  provisioning "$root" link-skills "$root" --link "$link"
+}
+
+# The shared package is loaded only after prerequisites and distribution exist.
+# This keeps the standalone curl-pipe entry point usable on machines without Python.
+provisioning() {
+  local root=$1; shift
+  python3 -B "$root/thesystem/setup/provisioning_cli.py" "$@"
 }
 
 profile_exists() {
@@ -369,35 +372,6 @@ raise SystemExit(result.returncode)
 PY
 }
 
-canonical_entries() {
-  local script; script=$(mktemp)
-  cat >"$script" <<'PY'
-import json, sys
-from pathlib import Path
-path=Path(sys.argv[1])
-text=path.read_text(encoding='utf-8')
-if not text.strip():
-    raise SystemExit(f'{path} is empty')
-for line_no, raw in enumerate(text.splitlines(), start=1):
-    line=raw.strip()
-    if not line or line.startswith('#'):
-        continue
-    if '\t' not in raw:
-        raise SystemExit(f'{path}:{line_no}: expected <key>\\t<json-value>')
-    key, value = raw.split('\t', 1)
-    key=key.strip(); value=value.strip()
-    if not key:
-        raise SystemExit(f'{path}:{line_no}: empty key')
-    for segment in key.split('.'):
-        if not segment or any(c.isspace() for c in segment):
-            raise SystemExit(f'{path}:{line_no}: invalid key segment in {key!r}')
-    parsed=json.loads(value)
-    print(key+'\t'+json.dumps(parsed,separators=(',',':')))
-PY
-  python3 "$script" "$1"
-  rm -f "$script"
-}
-
 check_required_files() {
   local root=$1
   for f in agents/.harness/canonical_config.tsv agents/.harness/required_toolsets.txt agents/skills/memory-request-review/requirements.txt; do
@@ -407,15 +381,8 @@ check_required_files() {
 }
 
 enable_required_toolsets() {
-  local root=$1 line previous; local -a names=()
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ -z "$line" || "$line" == \#* ]] && continue
-    [[ "$line" =~ ^[a-z][a-z0-9_]*$ ]] || die "invalid required toolset name: $line"
-    for previous in "${names[@]}"; do [[ "$previous" != "$line" ]] || die "duplicate toolset name: $line"; done
-    names+=("$line")
-  done < "$root/agents/.harness/required_toolsets.txt"
-  ((${#names[@]})) || die 'required toolset manifest is empty'
-  master_hermes tools enable --platform cli "${names[@]}"
+  local root=$1
+  provisioning "$root" enable-toolsets "$root/agents/.harness/required_toolsets.txt" "$HERMES_HOME_ROOT" --profile "$PROFILE"
 }
 
 provision_memory_review() {
@@ -471,12 +438,8 @@ PY
 }
 
 install_system_config() {
-  local root=$1 entries key value
-  entries=$(mktemp)
-  canonical_entries "$root/agents/.harness/canonical_config.tsv" >"$entries" || { rm -f "$entries"; die 'unable to parse canonical configuration'; }
-  [[ -s "$entries" ]] || { rm -f "$entries"; die 'canonical configuration contains no settings'; }
-  while IFS=$'\t' read -r key value; do master_hermes config set --force "$key" "$value" >/dev/null; done <"$entries"
-  rm -f "$entries"
+  local root=$1
+  provisioning "$root" apply-config "$root/agents/.harness/canonical_config.tsv" "$HERMES_HOME_ROOT" --profile "$PROFILE"
 }
 
 pin_global_skills() {
