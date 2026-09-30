@@ -11,13 +11,39 @@ needs it, and never restate a line from a broader layer.
 
 ## What earns a line
 
-- **Scope identity**: what this folder holds, in one or two sentences.
+- **Scope identity**: non-obvious facts about what this folder holds, in one or two sentences.
 - **Pointers**: where the wiki, rules, skills, and utils for this scope live.
-- **Scope-wide obligations**: a step every task here must take, stated once, with a pointer to
-  the file that explains it.
+- **Scope-wide obligations**: genuinely cross-cutting steps every task here must take, not
+  instructions for operating on a particular destination document.
 
 Anything needed by only some tasks goes into a skill, a rule, or the wiki, and the context file
 points there at most.
+
+## Keep navigation separate from procedures
+
+Keep broad context files focused on where work lives. Move schemas, templates, detailed directory
+trees, and authoring instructions to the narrowest owning scope or skill; they should not be loaded
+for unrelated tasks. Keep shared details in one reference and have each consuming skill explicitly
+instruct the agent to read it when needed. Loading a skill does not imply loading every linked file.
+
+Do not replace every removed detail with a pointer. Add a context-file pointer only when it serves
+scope-wide discovery that the existing navigation or skill workflow does not already provide.
+
+For example, a workspace `AGENTS.md` needs to identify `<project>/tickets/` as the home of work
+records, but not enumerate `ticket.md`, `spec.md`, task front matter, run records, or learning-review
+files. The detailed tree belongs in a shared authoring reference, loaded by the specification and
+task skills. A root pointer to that reference is redundant when those skills already require it.
+Likewise, a role-entry example belongs with agent configuration, not workspace-wide navigation.
+
+Do not add a sentence such as "This file is limited to workspace navigation." The document's
+content makes that clear, and this skill owns the convention. A `MANUAL.md` entry identifies the
+human-owned functional contract; review status, availability labels, and discrepancy handling
+belong in the manual. A glossary entry identifies the glossary without telling readers to use its
+terms. A configuration-directory entry need not repeat its nested `AGENTS.md` or instruct readers
+when to load it. Keep only pointers that add discovery, not instructions inferable from the index.
+
+When reviewing a context-file refactor, check that locations remain discoverable, every consumer
+loads the relocated guidance, links resolve, and the move does not change workflow or permissions.
 
 ## CONTEXT.md
 

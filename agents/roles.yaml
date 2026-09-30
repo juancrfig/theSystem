@@ -1,0 +1,21 @@
+{
+  "base": {
+    "rules": [
+      "rules/api-contract-tests-use-producer-evidence.md",
+      "rules/comments-state-why-not-what.md",
+      "rules/install-reconciles-canonical-declarations.md",
+      "rules/overlays-escape-clipping-ancestors.md",
+      "rules/second-order-thinking-checks.md"
+    ]
+  },
+  "worker": {},
+  "reviewer": {
+    "rules": [
+      "rules/api-contract-tests-use-producer-evidence.md",
+      "rules/comments-state-why-not-what.md",
+      "rules/install-reconciles-canonical-declarations.md",
+      "rules/overlays-escape-clipping-ancestors.md",
+      "rules/second-order-thinking-checks.md"
+    ]
+  }
+}

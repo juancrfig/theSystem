@@ -12,9 +12,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-TERMINAL={"passed","changes-requested","execution-failed","review-failed","cancelled","timeout","aborted"}
+TERMINAL={"passed","changes-requested","execution-failed","review-failed","cancelled","timeout","aborted","infra_blocked","isolation_violated"}
 ACTIVE={"starting","running","reviewing"}
 RUNTIMES={"hermes","copilot"}
+ROLE_SECTIONS=("rules","skills","tools","utils","clis","mcp_servers")
 class OrchestratorError(Exception):
     def __init__(self,code,message): super().__init__(message); self.code=code
 
@@ -169,13 +170,24 @@ def git(c,*a):
     if p.returncode: raise OrchestratorError("GIT_FAILED",p.stderr.strip() or "git failed")
     return p.stdout.strip()
 
+def _tree_digest(root):
+    root=Path(root)
+    entries=[]
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        if ".git" in path.relative_to(root).parts: continue
+        relative=path.relative_to(root).as_posix()
+        entries.append(relative+":"+hashlib.sha256(path.read_bytes()).hexdigest())
+    return hashlib.sha256("\n".join(entries).encode()).hexdigest()
+
 def _slug(value):
     return isinstance(value,str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}",value)
 
 class Orchestrator:
-    def __init__(self,project):
+    def __init__(self,project,global_agents=None):
         self.project=Path(project).expanduser().resolve()
         if not self.project.is_dir(): raise OrchestratorError("PROJECT_NOT_FOUND",str(self.project))
+        self.global_agents=(Path(global_agents).expanduser().resolve() if global_agents else Path(__file__).resolve().parent/"agents")
+        if not self.global_agents.is_dir(): raise OrchestratorError("ROLE_CONFIG_INVALID","global agents directory is missing")
         self.root=self.project/".thesystem"/"orchestrator"; self.state_path=self.root/"state.json"; self.evidence=self.root/"runs"
         self.state=read(self.state_path,{"version":2,"tasks":{},"runs":{}})
         self.reconcile()
@@ -184,7 +196,7 @@ class Orchestrator:
         with open(self.root/"state.lock","a+") as lock:
             fcntl.flock(lock,fcntl.LOCK_EX)
             current=read(self.state_path,{"version":2,"tasks":{},"runs":{}})
-            rank={"starting":0,"running":1,"reviewing":2,"passed":3,"changes-requested":3,"execution-failed":3,"review-failed":3,"cancelled":3,"timeout":3,"aborted":3}
+            rank={"starting":0,"running":1,"reviewing":2,"passed":3,"changes-requested":3,"execution-failed":3,"review-failed":3,"cancelled":3,"timeout":3,"aborted":3,"infra_blocked":3,"isolation_violated":3}
             for rid,old in current["runs"].items():
                 new=self.state["runs"].get(rid)
                 if old.get("status") in TERMINAL:
@@ -233,6 +245,114 @@ class Orchestrator:
             else:
                 lines.append(text)
         return [x for x in lines if x]
+    def _load_roles_file(self,path):
+        if not path.exists(): return {}
+        if path.is_symlink() or not path.is_file(): raise OrchestratorError("ROLE_CONFIG_INVALID",f"roles file is not a regular file: {path}")
+        try: payload=json.loads(path.read_text())
+        except json.JSONDecodeError as error:
+            raise OrchestratorError("ROLE_CONFIG_INVALID",f"roles file must be JSON-compatible YAML object: {path}: {error.msg}") from error
+        if not isinstance(payload,dict): raise OrchestratorError("ROLE_CONFIG_INVALID",f"roles file must contain an object: {path}")
+        normalized={}
+        for role,spec in payload.items():
+            if not isinstance(role,str) or not role.strip() or not isinstance(spec,dict):
+                raise OrchestratorError("ROLE_CONFIG_INVALID",f"invalid role declaration in {path}: {role!r}")
+            role_spec={}
+            for section,entries in spec.items():
+                if section not in ROLE_SECTIONS:
+                    raise OrchestratorError("ROLE_CONFIG_INVALID",f"unknown role section {section!r} in {path}")
+                if not isinstance(entries,list) or any((not isinstance(entry,str) or not entry.strip()) for entry in entries):
+                    raise OrchestratorError("ROLE_CONFIG_INVALID",f"role section {role}.{section} in {path} must be a list of non-empty strings")
+                role_spec[section]=[entry.strip() for entry in entries]
+            normalized[role]=role_spec
+        return normalized
+    def _effective_roles(self):
+        global_roles=self._load_roles_file(self.global_agents/"roles.yaml")
+        project_roles=self._load_roles_file(self.project/"agents"/"roles.yaml")
+        merged={name:{section:list(entries) for section,entries in spec.items()} for name,spec in global_roles.items()}
+        for role,spec in project_roles.items():
+            current=merged.setdefault(role,{})
+            for section,entries in spec.items(): current[section]=list(entries)
+        return merged
+    def _review_roles(self,worker_roles):
+        review=[]
+        replaced=False
+        for role in worker_roles:
+            if role=="worker": review.append("reviewer"); replaced=True
+            elif role!="reviewer": review.append(role)
+        if not replaced and "reviewer" not in review: review.append("reviewer")
+        return review
+    def _role_entries(self,roles,section,effective):
+        items=[]
+        for role in roles:
+            spec=effective.get(role)
+            if spec is None: raise OrchestratorError("ROLE_INVALID",f"unknown role: {role}")
+            items.extend(spec.get(section,[]))
+        return items
+    def _resolve_entry_source(self,section,entry):
+        path=Path(entry)
+        if path.is_absolute() or ".." in path.parts: raise OrchestratorError("ROLE_INVALID",f"{section} entry must stay inside agents/: {entry}")
+        project_root=self.project/"agents"
+        global_root=self.global_agents
+        if section=="skills" and path.parts and path.parts[0]=="skills" and len(path.parts)>=2:
+            skill_root=Path("skills")/path.parts[1]
+            candidate=project_root/skill_root
+            if candidate.exists():
+                source=candidate
+                remainder=Path(*path.parts[2:]) if len(path.parts)>2 else Path()
+                if remainder and not (source/remainder).exists():
+                    raise OrchestratorError("ROLE_INVALID",f"skill entry not found in project tier: {entry}")
+                return source,skill_root
+            candidate=global_root/skill_root
+            if candidate.exists():
+                source=candidate
+                remainder=Path(*path.parts[2:]) if len(path.parts)>2 else Path()
+                if remainder and not (source/remainder).exists():
+                    raise OrchestratorError("ROLE_INVALID",f"skill entry not found in global tier: {entry}")
+                return source,skill_root
+            raise OrchestratorError("ROLE_INVALID",f"skill entry not found: {entry}")
+        for tier in (project_root,global_root):
+            source=tier/path
+            if source.exists(): return source,path
+        raise OrchestratorError("ROLE_INVALID",f"{section} entry not found: {entry}")
+    def _copy_into_bundle(self,source,target):
+        if source.is_symlink(): raise OrchestratorError("ROLE_INVALID",f"symlink entries are not allowed in bundle source: {source}")
+        target.parent.mkdir(parents=True,exist_ok=True)
+        if source.is_dir():
+            shutil.copytree(source,target,dirs_exist_ok=True)
+        elif source.is_file():
+            shutil.copy2(source,target)
+        else:
+            raise OrchestratorError("ROLE_INVALID",f"bundle source must be a file or directory: {source}")
+    def _bundle_manifest(self,bundle_root):
+        entries=[]
+        for file in sorted(p for p in bundle_root.rglob("*") if p.is_file()):
+            relative=file.relative_to(bundle_root).as_posix()
+            entries.append({"path":relative,"sha256":hashlib.sha256(file.read_bytes()).hexdigest()})
+        return {"entries":entries,"digest":digest(entries)}
+    def _build_bundle(self,run_id,agent,roles,effective):
+        bundle_root=self.root/"bundles"/run_id/agent
+        if bundle_root.exists(): shutil.rmtree(bundle_root)
+        bundle_root.mkdir(parents=True,exist_ok=True)
+        selected={section:self._role_entries(roles,section,effective) for section in ROLE_SECTIONS}
+        for section in ("rules","skills","tools","utils"):
+            copied=set()
+            for entry in selected[section]:
+                source,relative=self._resolve_entry_source(section,entry)
+                key=relative.as_posix()
+                if key in copied: continue
+                self._copy_into_bundle(source,bundle_root/relative)
+                copied.add(key)
+        manifest=self._bundle_manifest(bundle_root)
+        manifest["roles"]=list(roles)
+        manifest["clis"]=selected["clis"]
+        manifest["mcp_servers"]=selected["mcp_servers"]
+        (bundle_root/"manifest.json").write_text(json.dumps(manifest,indent=2,sort_keys=True)+"\n")
+        return {"path":str(bundle_root),"manifest":manifest}
+    def _ensure_reviewer_covers_worker(self,worker_manifest,review_manifest):
+        worker_rules={entry["path"] for entry in worker_manifest["manifest"]["entries"] if entry["path"].startswith("rules/")}
+        reviewer_rules={entry["path"] for entry in review_manifest["manifest"]["entries"] if entry["path"].startswith("rules/")}
+        missing=sorted(worker_rules-reviewer_rules)
+        if missing: raise OrchestratorError("REVIEWER_RULES_MISSING",f"reviewer bundle is missing worker rule: {missing[0]}")
     def create_task(self,task_id,source_clone,command,runtime="hermes",ticket="local",acceptance=None,dependencies=None,roles=None):
         if not _slug(task_id) or not _slug(ticket): raise OrchestratorError("IDENTIFIER_INVALID","task and ticket must be safe slugs")
         if task_id in self.state["tasks"]: raise OrchestratorError("TASK_EXISTS",task_id)
@@ -426,8 +546,15 @@ class Orchestrator:
         review_runtime=os.environ.get("THESYSTEM_REVIEW_RUNTIME",t["runtime"])
         if review_runtime not in RUNTIMES: raise OrchestratorError("REVIEW_RUNTIME_INVALID",review_runtime)
         HostCredentialBroker.from_environment(review_runtime,lifetime=int(timeout)+30)
+        rid=uuid.uuid4().hex
+        effective_roles=self._effective_roles()
+        worker_roles=list(t.get("roles") or [])
+        reviewer_roles=self._review_roles(worker_roles)
+        worker_bundle=self._build_bundle(rid,"worker",worker_roles,effective_roles)
+        reviewer_bundle=self._build_bundle(rid,"reviewer",reviewer_roles,effective_roles)
+        self._ensure_reviewer_covers_worker(worker_bundle,reviewer_bundle)
         clone=Path(t["source_clone"]); base=git(clone,"rev-parse","HEAD"); branch=f"thesystem/{task_id.replace('/','-')}/{uuid.uuid4().hex[:8]}"; git(clone,"branch",branch,base)
-        rid=uuid.uuid4().hex; r={"id":rid,"task_id":task_id,"status":"starting","runtime":t["runtime"],"ticket":t["ticket"],"source_clone":t["source_clone"],"models":{"worker":"openai/gpt-4.1-mini" if t["runtime"]=="hermes" else "copilot/default"},"base_commit":base,"branch":branch,"started_at":now(),"started_epoch":time.time(),"timeout_seconds":int(timeout),"evidence":[],"worker":{"prompt":t["prompt"],"roles":t["roles"]}}
+        r={"id":rid,"task_id":task_id,"status":"starting","runtime":t["runtime"],"ticket":t["ticket"],"source_clone":t["source_clone"],"models":{"worker":"openai/gpt-4.1-mini" if t["runtime"]=="hermes" else "copilot/default"},"base_commit":base,"branch":branch,"started_at":now(),"started_epoch":time.time(),"timeout_seconds":int(timeout),"evidence":[],"worker":{"prompt":t["prompt"],"roles":worker_roles,"bundle":worker_bundle},"reviewer":{"roles":reviewer_roles,"bundle":reviewer_bundle}}
         self.state["runs"][rid]=r; self.save()
         if detach:
             p=subprocess.Popen([sys.executable,__file__,"_run","--project",str(self.project),"--run",rid],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -435,15 +562,58 @@ class Orchestrator:
         self._execute(r,t); self.save(); return r
     def _execute(self,r,t):
         try:
-            r["status"]="running"; self.save(); result=self._worker(r,t); r["worker_result"]=result
+            r["status"]="running"; self.save(); probes=self._run_isolation_probes(r,t); r["isolation_probes"]=probes
+            failed_probe=next((probe for probe in probes if not probe.get("ok")),None)
+            if failed_probe:
+                r["status"]="infra_blocked"
+                r["error"]={"code":"ISOLATION_PROBE_FAILED","message":failed_probe.get("message") or failed_probe.get("name","isolation probe failed")}
+                return
+            result=self._worker(r,t); r["worker_result"]=result
             if result.get("timed_out"): r["status"]="timeout"
             elif result.get("returncode")!=0 or result.get("commit")==r["base_commit"]: r["status"]="execution-failed"
             else:
-                r["status"]="reviewing"; self.save(); review=self._review(r,t); r["review_result"]=review; r["status"]="passed" if review["passed"] else ("timeout" if review.get("timed_out") else "review-failed" if review.get("returncode",1)!=0 else "changes-requested")
+                clone=Path(t["source_clone"])
+                before_review_tree=git(clone,"rev-parse",r["branch"]+"^{tree}")
+                r["status"]="reviewing"; self.save(); review=self._review(r,t); r["review_result"]=review
+                after_review_tree=git(clone,"rev-parse",r["branch"]+"^{tree}")
+                r["worker_tree_hash"]={"before_review":before_review_tree,"after_review":after_review_tree}
+                if before_review_tree!=after_review_tree:
+                    r["status"]="isolation_violated"
+                    r["error"]={"code":"ISOLATION_VIOLATED","message":"implementer tree changed during review"}
+                else:
+                    r["status"]="passed" if review["passed"] else ("timeout" if review.get("timed_out") else "review-failed" if review.get("returncode",1)!=0 else "changes-requested")
         except Exception as e: r.update(status="review-failed" if r["status"]=="reviewing" else "execution-failed",error={"code":type(e).__name__,"message":str(e)})
         r["finished_at"]=now()
         self._write_evidence(r); self.save(); self.dispatch_ready()
-    def _docker(self,image,work,cmd,timeout,prompt,readonly=False,layer=None,runtime="copilot",container_name=None):
+    def _run_isolation_probe(self,image,work,bundle,name):
+        args=["docker","run","--rm","--network","none","--cap-drop=ALL","--security-opt","no-new-privileges","--user",f"{os.getuid()}:{os.getgid()}","-v",f"{work}:/workspace"]
+        if bundle: args += ["-v",f"{bundle}:/bundle:ro"]
+        marker=".theSystem-isolation-probe"
+        script="set -eu; printf ok > /workspace/%s; rm -f /workspace/%s; if sh -ceu 'printf blocked > /tmp/%s' 2>/dev/null; then rm -f /tmp/%s; echo outside-write-allowed; exit 41; fi" % (marker,marker,marker,marker)
+        if bundle:
+            script += "; if sh -ceu 'printf blocked > /bundle/%s' 2>/dev/null; then rm -f /bundle/%s; echo bundle-write-allowed; exit 42; fi" % (marker,marker)
+        probe=subprocess.run([*args,image,"sh","-ceu",script],capture_output=True,text=True,timeout=30)
+        return {"name":name,"ok":probe.returncode==0,"returncode":probe.returncode,"stdout":probe.stdout[-1000:],"stderr":probe.stderr[-1000:],"message":"" if probe.returncode==0 else "isolation probe failed"}
+    def _run_isolation_probes(self,r,t):
+        clone=Path(t["source_clone"])
+        worker_image=os.environ.get("THESYSTEM_"+t["runtime"].upper()+"_IMAGE") or os.environ.get("THESYSTEM_AGENT_IMAGE")
+        review_runtime=os.environ.get("THESYSTEM_REVIEW_RUNTIME",t["runtime"])
+        if review_runtime not in RUNTIMES: raise OrchestratorError("REVIEW_RUNTIME_INVALID",review_runtime)
+        reviewer_image=os.environ.get("THESYSTEM_"+review_runtime.upper()+"_IMAGE") or os.environ.get("THESYSTEM_REVIEW_IMAGE") or os.environ.get("THESYSTEM_AGENT_IMAGE")
+        worker_probe_work=self.root/"probe-workspaces"/(r["id"]+"-worker")
+        reviewer_probe_work=self.root/"probe-workspaces"/(r["id"]+"-reviewer")
+        for path in (worker_probe_work,reviewer_probe_work):
+            if path.exists(): shutil.rmtree(path)
+            shutil.copytree(clone,path,ignore=shutil.ignore_patterns('.git'))
+        probes=[]
+        try:
+            probes.append(self._run_isolation_probe(worker_image,worker_probe_work,r.get("worker",{}).get("bundle",{}).get("path"),"worker-worktree-and-bundle"))
+            probes.append(self._run_isolation_probe(reviewer_image,reviewer_probe_work,r.get("reviewer",{}).get("bundle",{}).get("path"),"reviewer-worktree-and-bundle"))
+            return probes
+        finally:
+            shutil.rmtree(worker_probe_work,ignore_errors=True)
+            shutil.rmtree(reviewer_probe_work,ignore_errors=True)
+    def _docker(self,image,work,cmd,timeout,prompt,readonly=False,layer=None,runtime="copilot",container_name=None,bundle=None):
         if not shutil.which("docker"): raise OrchestratorError("DOCKER_UNAVAILABLE","docker is required")
         if not image: raise OrchestratorError("AGENT_IMAGE_REQUIRED","configure an image with the selected CLI")
         broker=HostCredentialBroker.from_environment(runtime,lifetime=max(1,int(timeout))+30,max_requests=max(2000,int(timeout)*10))
@@ -451,6 +621,7 @@ class Orchestrator:
         if network_mode not in {"none","bridge"}:
             raise OrchestratorError("CONTAINER_NETWORK_INVALID","THESYSTEM_CONTAINER_NETWORK must be none or bridge")
         args=["docker","run","--rm",*(["--name",container_name] if container_name else []),"--network",network_mode,"--init","--cap-drop=ALL","--security-opt","no-new-privileges","--pids-limit","256","--memory","2g","--cpus","2","--user",f"{os.getuid()}:{os.getgid()}","-v",f"{work}:/workspace"+(':ro' if readonly else ''),"-v",f"{prompt}:/run/prompt:ro","-w","/workspace"]
+        if bundle: args += ["-v",f"{bundle}:/bundle:ro","-e","THESYSTEM_BUNDLE=/bundle"]
         if layer: args += ["-v",f"{layer}:/review"]
         env=os.environ.copy()
         for name in ("COPILOT_GITHUB_TOKEN","GH_TOKEN","GITHUB_TOKEN","OPENROUTER_API_KEY","OPENAI_API_KEY","ANTHROPIC_API_KEY","CLAUDE_CODE_OAUTH_TOKEN","COPILOT_PROVIDER_API_KEY","COPILOT_PROVIDER_BEARER_TOKEN","THESYSTEM_BROKER_PROVIDER_KEY"):
@@ -496,7 +667,7 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
             shutil.rmtree(agent_home,ignore_errors=True)
     def _agent_command(self,runtime,review=False,prompt=""):
         if runtime=="copilot":
-            return ["copilot","-p",(prompt+"\nInspect application files in /workspace read-only. This is a git worktree whose .git pointer targets host metadata not accessible in the container; do not try to resolve it. Run tests only in /review. End your response with exactly VERDICT: PASS or VERDICT: FAIL and a reason. Do not change /workspace." if review else prompt+"\nImplement in /workspace. This is an intentionally empty initial clone; the .git worktree pointer targets host metadata not mounted in the container. Do not attempt to resolve that pointer; create the requested files. The host orchestrator owns commits. Do not access paths outside /workspace."),"--allow-all-tools","--disallow-temp-dir","--disable-builtin-mcps","--available-tools","bash","--reasoning-effort","none",*(["--allow-all-paths"] if review else []),"--no-auto-update","--no-remote","--no-remote-export","--no-ask-user"]
+            return ["copilot","-p",(prompt+"\nInspect and test in /workspace. This is a disposable review copy of the implementer result; you may modify files for validation as needed. End your response with exactly VERDICT: PASS or VERDICT: FAIL and a reason. Do not access paths outside /workspace." if review else prompt+"\nImplement in /workspace. This is an intentionally empty initial clone; the .git worktree pointer targets host metadata not mounted in the container. Do not attempt to resolve that pointer; create the requested files. The host orchestrator owns commits. Do not access paths outside /workspace."),"--allow-all-tools","--disallow-temp-dir","--disable-builtin-mcps","--available-tools","bash","--reasoning-effort","none",*(["--allow-all-paths"] if review else []),"--no-auto-update","--no-remote","--no-remote-export","--no-ask-user"]
         return ["hermes","chat","--oneshot","--yolo","--ignore-rules","--provider","custom","--query-file","/run/prompt","--in","/workspace","--run-budget","600","--max-turns","40"]
     def _worker(self,r,t):
         clone=Path(t["source_clone"]); work=self.root/"worktrees"/r["id"]; work.parent.mkdir(parents=True,exist_ok=True); git(clone,"worktree","add",str(work),r["branch"])
@@ -504,10 +675,10 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
         if previous:
             seed=previous[-1]; git(work,"-c","user.email=theSystem@localhost","-c","user.name=theSystem","cherry-pick",seed["worker_result"]["commit"]); r["seeded_from_run"]=seed["id"]; self.save()
         image=os.environ.get("THESYSTEM_"+t["runtime"].upper()+"_IMAGE") or os.environ.get("THESYSTEM_AGENT_IMAGE")
-        prompt=t["prompt"]+"\nAcceptance criteria:\n"+"\n".join(self._acceptance_lines(t))+"\nYou are the worker. Edit only /workspace; do not push or publish."
+        prompt=t["prompt"]+"\nAcceptance criteria:\n"+"\n".join(self._acceptance_lines(t))+"\nYou are the worker. Edit only /workspace; do not push or publish. Use /bundle as read-only role context when needed."
         pf=self.root/"prompts"/(r["id"]+"-worker.txt"); pf.parent.mkdir(parents=True,exist_ok=True); pf.write_text(prompt)
         try:
-            p=self._docker(image,work,self._agent_command(t["runtime"],prompt=prompt),max(1,int(r["started_epoch"]+r["timeout_seconds"]-time.time())),pf,runtime=t["runtime"],container_name="thesystem-"+r["id"]+"-worker")
+            p=self._docker(image,work,self._agent_command(t["runtime"],prompt=prompt),max(1,int(r["started_epoch"]+r["timeout_seconds"]-time.time())),pf,runtime=t["runtime"],container_name="thesystem-"+r["id"]+"-worker",bundle=r.get("worker",{}).get("bundle",{}).get("path"))
             if p is None: return {"returncode":-1,"timed_out":True,"contained":True}
             changed=git(work,"status","--porcelain")
             streams=self._stream(r,"worker",p)
@@ -520,16 +691,18 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
         review_runtime=os.environ.get("THESYSTEM_REVIEW_RUNTIME",t["runtime"])
         if review_runtime not in RUNTIMES: raise OrchestratorError("REVIEW_RUNTIME_INVALID",review_runtime)
         image=os.environ.get("THESYSTEM_"+review_runtime.upper()+"_IMAGE") or os.environ.get("THESYSTEM_REVIEW_IMAGE") or os.environ.get("THESYSTEM_AGENT_IMAGE")
-        pf=self.root/"prompts"/(r["id"]+"-review.txt"); pf.write_text("Independent review. Criteria:\n"+"\n".join(self._acceptance_lines(t))+"\nInspect /workspace and use /review for writable tests. End exactly VERDICT: PASS or VERDICT: FAIL with reasons.")
-        layer=self.root/"layers"/r["id"]; shutil.copytree(work,layer,ignore=shutil.ignore_patterns('.git'))
-        before=git(work,"status","--porcelain"); commit=git(work,"rev-parse","HEAD")
+        pf=self.root/"prompts"/(r["id"]+"-review.txt"); pf.parent.mkdir(parents=True,exist_ok=True); pf.write_text("Independent review. Criteria:\n"+"\n".join(self._acceptance_lines(t))+"\n/workspace is a disposable review copy. You may run tests/builds and make temporary edits there. End exactly VERDICT: PASS or VERDICT: FAIL with reasons.")
+        layer=self.root/"layers"/r["id"]
+        if layer.exists(): shutil.rmtree(layer)
+        shutil.copytree(work,layer,ignore=shutil.ignore_patterns('.git'))
+        before_layer_hash=_tree_digest(layer)
         try:
             test_cmd=["python3","-m","unittest","discover","-s","tests","-q"] if (layer/"tests").exists() else (["npm","test"] if (layer/"package.json").exists() else None)
-            test_args=["docker","run","--rm","--network","none","--cap-drop=ALL","--security-opt","no-new-privileges","--user",f"{os.getuid()}:{os.getgid()}","-v",f"{layer}:/review","-v",f"{work}:/workspace:ro","-w","/review",image,*(test_cmd or ["false"])]
+            test_args=["docker","run","--rm","--network","none","--cap-drop=ALL","--security-opt","no-new-privileges","--user",f"{os.getuid()}:{os.getgid()}","-v",f"{layer}:/workspace","-w","/workspace",image,*(test_cmd or ["false"])]
             before_test=subprocess.run(test_args,capture_output=True,text=True,timeout=120)
-            p=self._docker(image,work,self._agent_command(review_runtime,True,pf.read_text()),max(1,min(900,int(r["started_epoch"]+r["timeout_seconds"]-time.time()))),pf,readonly=True,layer=layer,runtime=review_runtime,container_name="thesystem-"+r["id"]+"-review")
+            p=self._docker(image,layer,self._agent_command(review_runtime,True,pf.read_text()),max(1,min(900,int(r["started_epoch"]+r["timeout_seconds"]-time.time()))),pf,readonly=False,layer=None,runtime=review_runtime,container_name="thesystem-"+r["id"]+"-review",bundle=r.get("reviewer",{}).get("bundle",{}).get("path"))
             streams=self._stream(r,"review",p) if p is not None else {}
-            after=git(work,"status","--porcelain"); unchanged=before==after and commit==git(work,"rev-parse","HEAD")
+            unchanged=before_layer_hash==_tree_digest(work)
             if p is None: return {"review_runtime":review_runtime,"passed":False,"returncode":-1,"timed_out":True,"worker_tree_unchanged":unchanged}
             test=subprocess.run(test_args,capture_output=True,text=True,timeout=120)
             verdicts=re.findall(r"(?im)^VERDICT: (PASS|FAIL)\b",p.stdout)

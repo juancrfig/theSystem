@@ -379,7 +379,7 @@ def retry_task(args: list[str], workspace: Path) -> int:
         task = orchestrator.task(task_id)
         runs = [run for run in orchestrator.state["runs"].values() if run.get("task_id") == task_id]
         latest = max(runs, key=lambda run: run.get("finished_at", run.get("started_at", ""))) if runs else None
-        retryable = {"changes-requested", "execution-failed", "review-failed", "cancelled", "timeout", "aborted"}
+        retryable = {"changes-requested", "execution-failed", "review-failed", "cancelled", "timeout", "aborted", "infra_blocked", "isolation_violated"}
         if not latest or latest.get("status") not in retryable:
             return fail("RETRY_NOT_ALLOWED", "retry requires a prior failed, cancelled, timed-out, or aborted run", EXIT_USAGE)
         if task.get("approval") != "approved":

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import http.client
 import os
 from pathlib import Path
@@ -47,6 +48,33 @@ raise SystemExit(p.returncode)
 
     def write_contract(self, task_file: Path, contract: dict, body: str):
         task_file.write_text("---\n" + json.dumps(contract, indent=2, sort_keys=True) + "\n---\n" + body)
+
+    def fixture_agents(self, root: Path) -> tuple[Path, Path]:
+        global_agents = root / "global-agents"
+        project_agents = root / "project" / "agents"
+        (global_agents / "rules").mkdir(parents=True)
+        (global_agents / "skills" / "kit").mkdir(parents=True)
+        (project_agents / "rules").mkdir(parents=True)
+        (project_agents / "skills" / "kit").mkdir(parents=True)
+        (global_agents / "rules" / "base.md").write_text("global-base\n")
+        (global_agents / "rules" / "worker.md").write_text("global-worker\n")
+        (global_agents / "rules" / "reviewer.md").write_text("global-reviewer\n")
+        (global_agents / "skills" / "kit" / "SKILL.md").write_text("global skill\n")
+        (global_agents / "skills" / "kit" / "guide.md").write_text("global guide\n")
+        (project_agents / "rules" / "worker.md").write_text("project-worker-override\n")
+        (project_agents / "skills" / "kit" / "SKILL.md").write_text("project skill override\n")
+        (project_agents / "roles.yaml").write_text(json.dumps({
+            "custom": {
+                "rules": ["rules/worker.md"],
+                "skills": ["skills/kit"]
+            }
+        }, indent=2) + "\n")
+        (global_agents / "roles.yaml").write_text(json.dumps({
+            "base": {"rules": ["rules/base.md"]},
+            "worker": {"rules": ["rules/worker.md"], "skills": ["skills/kit"]},
+            "reviewer": {"rules": ["rules/reviewer.md"]}
+        }, indent=2) + "\n")
+        return global_agents, project_agents
 
     def test_provider_secret_is_redacted_before_worker_output_becomes_evidence(self):
         from unittest.mock import patch
@@ -441,5 +469,199 @@ raise SystemExit(p.returncode)
             self.assertIn("missing required field: project", message)
             self.assertIn("missing required field: runtime", message)
             self.assertIn("acceptance_criteria must be a non-empty list", message)
+
+    def test_probe_failure_blocks_run_before_worker_and_records_probe_results(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("isolation-probe",repo,"Build app",runtime="copilot")
+            task=o.task("isolation-probe")
+            base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
+            branch="thesystem/isolation-probe"; subprocess.run(["git","-C",str(repo),"branch",branch,base],check=True)
+            run={"id":"run-probe","task_id":"isolation-probe","status":"starting","runtime":"copilot","ticket":"local","source_clone":str(repo),"base_commit":base,"branch":branch,"started_at":"now","started_epoch":time.time(),"timeout_seconds":300,"worker":{"bundle":{"path":"/tmp/worker-bundle"}},"reviewer":{"bundle":{"path":"/tmp/reviewer-bundle"}}}
+            o.state["runs"][run["id"]]=run
+            with patch.object(o,"_run_isolation_probes",return_value=[{"name":"worker-worktree-and-bundle","ok":False,"message":"outside write succeeded"}]),patch.object(o,"_worker") as worker:
+                o._execute(run,task)
+            worker.assert_not_called()
+            self.assertEqual(run["status"],"infra_blocked")
+            self.assertEqual(run["error"]["code"],"ISOLATION_PROBE_FAILED")
+            self.assertEqual(run["isolation_probes"][0]["ok"],False)
+
+    def test_review_tree_change_sets_isolation_violated(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("isolation-hash",repo,"Build app",runtime="copilot")
+            task=o.task("isolation-hash")
+            base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
+            branch="thesystem/isolation-hash"; subprocess.run(["git","-C",str(repo),"branch",branch,base],check=True)
+            subprocess.run(["git","-C",str(repo),"worktree","add",str(root/"work"),branch],check=True,capture_output=True,text=True)
+            try:
+                (root/"work"/"feature.txt").write_text("hello\n")
+                subprocess.run(["git","-C",str(root/"work"),"add","feature.txt"],check=True)
+                subprocess.run(["git","-C",str(root/"work"),"-c","user.email=test@example.invalid","-c","user.name=Test","commit","-qm","worker delivery"],check=True)
+                worker_commit=subprocess.run(["git","-C",str(repo),"rev-parse",branch],capture_output=True,text=True,check=True).stdout.strip()
+            finally:
+                subprocess.run(["git","-C",str(repo),"worktree","remove","--force",str(root/"work")],check=True,capture_output=True,text=True)
+            run={"id":"run-hash","task_id":"isolation-hash","status":"starting","runtime":"copilot","ticket":"local","source_clone":str(repo),"base_commit":base,"branch":branch,"started_at":"now","started_epoch":time.time(),"timeout_seconds":300,"worker":{"bundle":{"path":"/tmp/worker-bundle"}},"reviewer":{"bundle":{"path":"/tmp/reviewer-bundle"}},"worker_result":{"commit":worker_commit}}
+            o.state["runs"][run["id"]]=run
+            default_branch=subprocess.run(["git","-C",str(repo),"symbolic-ref","--short","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
+            def mutate_branch(*_args,**_kwargs):
+                subprocess.run(["git","-C",str(repo),"checkout","-qb","temp-isolation-edit",branch],check=True,capture_output=True,text=True)
+                try:
+                    (repo/"feature.txt").write_text("mutated during review\n")
+                    subprocess.run(["git","-C",str(repo),"commit","-qam","mutate during review"],check=True)
+                    subprocess.run(["git","-C",str(repo),"branch","-f",branch,"HEAD"],check=True)
+                finally:
+                    subprocess.run(["git","-C",str(repo),"checkout","-q",default_branch],check=True)
+                    subprocess.run(["git","-C",str(repo),"branch","-D","temp-isolation-edit"],check=True,capture_output=True,text=True)
+                return {"passed":True,"returncode":0,"timed_out":False,"worker_tree_unchanged":True}
+            with patch.object(o,"_run_isolation_probes",return_value=[{"name":"worker-worktree-and-bundle","ok":True},{"name":"reviewer-worktree-and-bundle","ok":True}]),patch.object(o,"_worker",return_value={"timed_out":False,"returncode":0,"commit":worker_commit}),patch.object(o,"_review",side_effect=mutate_branch):
+                o._execute(run,task)
+            self.assertEqual(run["status"],"isolation_violated")
+            self.assertEqual(run["error"]["code"],"ISOLATION_VIOLATED")
+            self.assertNotEqual(run["worker_tree_hash"]["before_review"],run["worker_tree_hash"]["after_review"])
+
+    def test_reviewer_edits_only_disposable_copy(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td); repo=self.repo(root); o=Orchestrator(root)
+            o.create_task("review-copy",repo,"Build app",runtime="copilot")
+            task=o.task("review-copy")
+            base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
+            branch="thesystem/review-copy"; subprocess.run(["git","-C",str(repo),"branch",branch,base],check=True)
+            run={"id":"run-review-copy","task_id":"review-copy","status":"reviewing","runtime":"copilot","ticket":"local","source_clone":str(repo),"base_commit":base,"branch":branch,"started_at":"now","started_epoch":time.time(),"timeout_seconds":300,"worker":{"bundle":{"path":"/tmp/worker-bundle"}},"reviewer":{"bundle":{"path":"/tmp/reviewer-bundle"}}}
+            before_tree=subprocess.run(["git","-C",str(repo),"rev-parse",branch+"^{tree}"],capture_output=True,text=True,check=True).stdout.strip()
+            real_run=subprocess.run
+            def fake_run(args, **kwargs):
+                if isinstance(args,list) and args[:2]==["docker","run"]:
+                    return subprocess.CompletedProcess(args,0,"ok","")
+                return real_run(args, **kwargs)
+            def fake_docker(_image, work, _cmd, _timeout, _prompt, **_kwargs):
+                (Path(work)/"review-notes.txt").write_text("review scratch\n")
+                return subprocess.CompletedProcess(["docker"],0,"VERDICT: PASS because tests pass\n","")
+            with patch.dict(os.environ,{"THESYSTEM_AGENT_IMAGE":"fake-image"}), patch("the_system_orchestrator.subprocess.run",side_effect=fake_run), patch.object(o,"_docker",side_effect=fake_docker):
+                review=o._review(run,task)
+            after_tree=subprocess.run(["git","-C",str(repo),"rev-parse",branch+"^{tree}"],capture_output=True,text=True,check=True).stdout.strip()
+            self.assertEqual(review["verdict"],"PASS")
+            self.assertTrue(review["worker_tree_unchanged"])
+            self.assertEqual(before_tree,after_tree)
+
+    def test_bundle_uses_project_role_overlay_and_skill_directory_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = root / "project"
+            project.mkdir()
+            global_agents, _ = self.fixture_agents(root)
+            orchestrator = Orchestrator(project, global_agents=global_agents)
+            effective = orchestrator._effective_roles()
+            bundle = orchestrator._build_bundle("run-a", "worker", ["base", "worker", "custom"], effective)
+            files = {entry["path"] for entry in bundle["manifest"]["entries"]}
+            self.assertIn("rules/base.md", files)
+            self.assertIn("rules/worker.md", files)
+            self.assertIn("skills/kit/SKILL.md", files)
+            self.assertNotIn("skills/kit/guide.md", files)
+            worker_rule = Path(bundle["path"]) / "rules" / "worker.md"
+            skill_doc = Path(bundle["path"]) / "skills" / "kit" / "SKILL.md"
+            self.assertEqual(worker_rule.read_text(), "project-worker-override\n")
+            self.assertEqual(skill_doc.read_text(), "project skill override\n")
+
+    def test_reviewer_rule_coverage_failure_names_the_missing_rule(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = root / "project"
+            project.mkdir()
+            global_agents = root / "global-agents"
+            (global_agents / "rules").mkdir(parents=True)
+            (global_agents / "rules" / "base.md").write_text("base\n")
+            (global_agents / "rules" / "worker-only.md").write_text("worker\n")
+            (global_agents / "roles.yaml").write_text(json.dumps({
+                "base": {"rules": ["rules/base.md"]},
+                "worker": {"rules": ["rules/worker-only.md"]},
+                "reviewer": {"rules": ["rules/base.md"]}
+            }, indent=2) + "\n")
+            orchestrator = Orchestrator(project, global_agents=global_agents)
+            effective = orchestrator._effective_roles()
+            worker_bundle = orchestrator._build_bundle("run-a", "worker", ["base", "worker"], effective)
+            reviewer_bundle = orchestrator._build_bundle("run-a", "reviewer", ["base", "reviewer"], effective)
+            with self.assertRaises(OrchestratorError) as failure:
+                orchestrator._ensure_reviewer_covers_worker(worker_bundle, reviewer_bundle)
+            self.assertEqual(failure.exception.code, "REVIEWER_RULES_MISSING")
+            self.assertIn("rules/worker-only.md", str(failure.exception))
+
+    def test_bundle_manifest_lists_path_and_hash_and_is_deterministic(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = root / "project"
+            project.mkdir()
+            global_agents, _ = self.fixture_agents(root)
+            orchestrator = Orchestrator(project, global_agents=global_agents)
+            effective = orchestrator._effective_roles()
+            first = orchestrator._build_bundle("run-a", "worker", ["base", "worker", "custom"], effective)
+            second = orchestrator._build_bundle("run-b", "worker", ["base", "worker", "custom"], effective)
+            self.assertEqual(first["manifest"], second["manifest"])
+            for entry in first["manifest"]["entries"]:
+                materialized = Path(first["path"]) / entry["path"]
+                self.assertEqual(entry["sha256"], hashlib.sha256(materialized.read_bytes()).hexdigest())
+
+    def test_worker_and_reviewer_mount_bundle_read_only_and_separate_from_workspace(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = root / "project"
+            project.mkdir()
+            global_agents, _ = self.fixture_agents(root)
+            orchestrator = Orchestrator(project, global_agents=global_agents)
+            prompt = project / "prompt.txt"
+            prompt.write_text("task")
+            workspace = project / "workspace"
+            workspace.mkdir()
+            bundle = project / "bundle"
+            bundle.mkdir()
+            completed = subprocess.CompletedProcess(["docker"], 0, stdout="ok", stderr="")
+            env = {
+                "THESYSTEM_BROKER_UPSTREAM_URL": "http://127.0.0.1:9/v1",
+                "THESYSTEM_BROKER_PROVIDER_KEY": "TEST_SECRET",
+                "THESYSTEM_BROKER_MODEL": "model-a",
+            }
+            with patch.dict(os.environ, env), patch("the_system_orchestrator.subprocess.run", return_value=completed) as run:
+                orchestrator._docker("test-image", workspace, ["copilot"], 10, prompt, runtime="copilot", bundle=bundle)
+            args = run.call_args.args[0]
+            self.assertIn(f"{bundle}:/bundle:ro", args)
+            self.assertIn("THESYSTEM_BUNDLE=/bundle", args)
+            self.assertIn(f"{workspace}:/workspace", args)
+
+    def test_start_records_worker_and_reviewer_bundle_manifests_in_run(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = root / "project"
+            project.mkdir()
+            repo = self.repo(project)
+            global_agents, _ = self.fixture_agents(root)
+            orchestrator = Orchestrator(project, global_agents=global_agents)
+            orchestrator.create_task("bundle-run", repo, "Build", runtime="copilot", roles=["base", "worker", "custom"])
+            task = orchestrator.task("bundle-run")
+            task["approval"] = "approved"
+            task["approval_digest"] = __import__("the_system_orchestrator", fromlist=["digest"]).digest({k: task[k] for k in ("source_clone", "prompt", "runtime", "acceptance", "roles")})
+            orchestrator.save()
+            env = {"THESYSTEM_COPILOT_IMAGE": "fake-image"}
+            real_run = subprocess.run
+            def fake_run(args, **kwargs):
+                if args[:4] == ["docker", "image", "inspect", "fake-image"]:
+                    return subprocess.CompletedProcess(args, 0, "[]", "")
+                return real_run(args, **kwargs)
+            with patch.dict(os.environ, env), \
+                 patch("the_system_orchestrator.HostCredentialBroker.from_environment", return_value=object()), \
+                 patch("the_system_orchestrator.subprocess.run", side_effect=fake_run), \
+                 patch.object(orchestrator, "_execute", return_value=None):
+                run = orchestrator.start("bundle-run", timeout=30, detach=False)
+            self.assertIn("bundle", run["worker"])
+            self.assertIn("bundle", run["reviewer"])
+            worker_entries = run["worker"]["bundle"]["manifest"]["entries"]
+            reviewer_entries = run["reviewer"]["bundle"]["manifest"]["entries"]
+            self.assertTrue(worker_entries)
+            self.assertTrue(reviewer_entries)
+            self.assertTrue(any(entry["path"].startswith("rules/") for entry in worker_entries))
 
 if __name__ == "__main__": unittest.main()

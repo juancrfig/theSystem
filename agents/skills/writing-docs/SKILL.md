@@ -1,6 +1,6 @@
 ---
 name: writing-docs
-description: Decide whether a fact deserves documentation and where it goes. Use before creating or editing a wiki page, an ADR, a decisions-ledger line, a rule, a project CONTEXT.md, or an agent context file (AGENTS.md at any layer).
+description: Use when creating, editing, or reviewing documentation, memory, or context files. Decide what deserves recording and where it belongs.
 ---
 
 Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
@@ -33,6 +33,21 @@ fixtures, and test behavior; document only the required validation outcome and w
 
 Do not repeat scope in artifact names or nested folders when the hierarchy already establishes it.
 
+## Keep each instruction with its owner
+
+Apply this skill before creating, editing, or reviewing documentation, memory, or context files.
+
+Delete statements that merely describe what the document, its title, path, or existing content
+already makes clear. Keep an explicit statement only when it adds a non-obvious fact or obligation;
+do not restate a document-type convention already owned by this skill.
+
+Keep instructions for interpreting, maintaining, or using a particular document in that document,
+not in the index that points to it. A navigation entry names the destination and its responsibility;
+it does not copy the destination's operating policy. This keeps policy changes local to one owner.
+
+When removing duplicated guidance, verify that the owning document contains it. Move any missing
+obligation there rather than silently dropping it or adding a second copy elsewhere.
+
 ## Choose the smallest durable artifact
 
 Use the most constrained form that can hold the fact:
@@ -54,4 +69,4 @@ one-line test. A new ADR must name what was rejected in its own text.
 
 ## Agent context files
 
-Context files are not a tier on the ladder. See [context-files.md](context-files.md).
+Context files are not a tier on the ladder. Before creating, editing, or reviewing an `AGENTS.md` or `CONTEXT.md`, read [context-files.md](context-files.md), including its guidance on separating navigation from procedures and avoiding redundant pointers.

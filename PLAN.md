@@ -1,5 +1,68 @@
 # Temporary MVP execution plan — resumed, incomplete
 
+## Resumed rebaseline + blocker burn-down (2026-09-28 08:44 -05:00)
+
+Current true state at resume:
+
+- Git baseline: `master` at `0bb5551`, clean against `origin/master`.
+- Test baseline: `python3 -m unittest discover -s tests -q` passed (54 tests, 1 skipped).
+- Evidence ledger updated first in [docs/MVP-EVIDENCE.md](docs/MVP-EVIDENCE.md).
+
+Prioritized blocker order for this resumed window:
+
+1. **Remote-distribution install verification** (highest immediate release risk because all prior normal-install proofs used local checkout source).
+2. Interactive desktop/account session + normal Herdr launch on supported targets.
+3. Hermes normal install + Hermes-in-Herdr verification.
+4. Interrupted-install recovery verification.
+5. Installed end-to-end retry verification.
+6. Native pending-write application verification.
+7. Approved wiki ingestion application-path verification.
+8. Habit tracker full orchestrator acceptance completion (replanned after earlier exhausted attempts).
+
+Executed immediately (highest-risk first):
+
+- Remote-distribution install verification executed now against the remote install script + codeload archive path in an isolated Ubuntu LTS host environment; recorded PASS artifact `HOST_UBUNTU_REMOTE_DISTRIBUTION_VERIFIED` in the ledger.
+- Additional Ubuntu/Arch clean-container reruns attempted for parity but blocked in this runtime by repeated container termination (signal 9 / exit 137) during prerequisite/install flows; recorded as environment blocker with exact evidence.
+- Follow-on blocker progress in same resumed window: fixed Hermes installer canonical-config parser dependency (`yaml` import failure) by moving machine-readable canonical entries to `agents/.harness/canonical_config.tsv`; verified local Hermes normal install and Hermes-in-Herdr launch (`LOCAL_HERMES_INSTALL_AFTER_FIX_VERIFIED`).
+
+This plan remains incomplete; MVP is still **not** ready until every remaining acceptance item is verified with target-context evidence.
+
+## Continuation update (2026-09-28 09:40 -05:00)
+
+Completed slices this window:
+
+- Verified interrupted-install recovery in installed host context (`INTERRUPTED_INSTALL_RECOVERY_VERIFIED`).
+- Verified installed end-to-end retry path (`INSTALLED_RETRY_E2E_VERIFIED`).
+- Verified native pending-write approval application path (`NATIVE_PENDING_APPLY_VERIFIED`).
+
+Unblocking implementation done during habit reattempt work:
+
+- Canonical config parsing for install/bootstrap no longer depends on runtime PyYAML; now sourced from `agents/.harness/canonical_config.tsv`.
+- Copilot contained worker/reviewer now set writable cache/home env (`HOME`, `XDG_CACHE_HOME`) and explicit `--reasoning-effort none`.
+- Broker now forwards non-sensitive request headers to upstream.
+
+Current top blocker (next to burn down):
+
+- Real provider execution for contained Copilot workers is still failing with upstream `400 Bad Request` after cache/reasoning/header fixes, blocking completion of the habit acceptance app through full orchestrator path.
+
+Update after next slice:
+
+- The upstream `400` blocker is now mitigated by constraining Copilot available tools (`bash`) and increasing broker request budget for long runs.
+- New highest blocker is completion quality/stability of the habit acceptance lane: repeated reviewed failures and worker divergence into network-dependent install loops under `--network none`.
+- User approved temporary lane with container network egress (`THESYSTEM_CONTAINER_NETWORK=bridge`) for habit acceptance attempts; this removed prior broker/provider rejection classes but has not yet yielded a passing reviewed/integrated habit run.
+
+Immediate next slice:
+
+1. Force a bounded, dependency-free habit implementation path (no package installs) with explicit no-network operational constraints.
+2. Run a fresh habit task with shorter timeout budget and deterministic acceptance-oriented tests present at first delivery.
+3. Require independent review PASS, integrate, and run browser/runtime verification before claiming objective #8 complete.
+4. Then finish remaining non-habit blockers (interactive/account target coverage and approved wiki-apply path) to reach READY.
+
+Current execution stop condition for this lane:
+
+- Do not claim completion until one habit run reaches reviewer PASS, integrates, and is browser-verified.
+- If repeated Copilot-worker divergence continues under approved egress, switch to a Hermes worker lane or request explicit human-approved deterministic scaffolding for the habit app task.
+
 ## Commit-and-push checkpoint (2026-09-28 07:20 -05:00)
 
 Next session resumes from the published commit; this plan is not superseded. Two phase-2 implementation slices are already delivered and integrated locally. Credential containment is locally certified (2/3 attempts, no third needed); CLI coverage is delivered (1/3). Habit acceptance remains blocked (three prior attempts exhausted in the earlier phase; not relabeled). See the [evidence ledger](docs/MVP-EVIDENCE.md) for the checked-off verified items and the exact unverified blockers to replan onward (interactive Herdr launch, Hermes normal install and Hermes-in-Herdr, remote-distribution install, interrupted-install recovery, installed end-to-end retry, native pending-write application, and approved wiki ingestion application). The authorized continuation deadline below remains 2026-09-28 14:07:48 -05:00. The client-managed `master`/`default` toolset decision was deferred for the next in-context session.
