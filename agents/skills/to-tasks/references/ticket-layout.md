@@ -1,6 +1,6 @@
 # Workspace ticket layout
 
-For projects using the workspace ticket tree, work records live under `<project>/tickets/`, keyed by ticket. Workspace-level work, if any, uses root `tickets/` with the same layout.
+For company/product projects using the workspace ticket tree, work records live under `<project>/tickets/`, keyed by ticket. Global workspace work and development of theSystem use GitHub exclusively, as defined in the root `AGENTS.md`; never create root `tickets/` or local planning/ticket artifacts for that scope. The layout below applies only to company/product execution records, not the global workspace's development tracker.
 
 ```text
 <project>/tickets/<ticket>/

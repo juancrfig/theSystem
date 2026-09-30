@@ -166,7 +166,7 @@ find_local_distribution() {
   local source=${BASH_SOURCE[0]:-} root
   [[ -n "$source" && "$source" != bash && -f "$source" ]] || return 1
   root=$(cd "$(dirname "$source")" && pwd -P)
-  [[ -f "$root/agents/roles.yaml" && -f "$root/CONTEXT.md" ]] || return 1
+  [[ -f "$root/agents/roles.yaml" && -f "$root/GLOSSARY.md" ]] || return 1
   printf '%s\n' "$root"
 }
 
@@ -186,7 +186,7 @@ download_distribution() {
 
 # Only these paths are distribution inputs. In particular, runtime state, .env,
 # .scratch, tests, and the source checkout's generated .agents are never copied.
-allowed_distribution_paths=(AGENTS.md CONTEXT.md MANUAL.md README.md orchestrator the_system_orchestrator.py installer_lifecycle.py bootstrap install company_cli.py agents .githooks docs)
+allowed_distribution_paths=(AGENTS.md GLOSSARY.md GLOSSARY-MAP.md MANUAL.md README.md orchestrator the_system_orchestrator.py installer_lifecycle.py bootstrap install company_cli.py agents .githooks docs)
 
 safe_source_path() {
   local source=$1 path=$2 resolved source_real

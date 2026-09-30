@@ -56,17 +56,17 @@ Use the most constrained form that can hold the fact:
 | Artifact | What limits it |
 |---|---|
 | **Rule** | `Prevents:` demands a real incident. A rule without one is a preference. |
-| **ADR** | Requires a named rejected alternative. No decision, no file. ADRs live in `docs/ADRs/`. |
+| **ADR** | Requires a hard-to-reverse, surprising decision with a real trade-off. ADRs live in `docs/adr/`. |
 | **Ledger line** | One line. The format forbids growth. |
 | **Wiki page** | **Nothing.** No scarcity mechanism at all. |
 
-Use a wiki page only for a cross-cutting fact that belongs to no single decision or incident. Pair
-every ADR with a ledger line that links to it. The ledger is the chronological index; ADRs hold the
-decisions that need argument.
+Use a wiki page only for a cross-cutting fact that belongs to no single decision or incident.
+For domain modeling, glossary formats, and ADR authoring, load `domain-modeling`. Prefer its short
+decision-and-rationale format; extra sections and separate ledger entries are not mandatory.
 
 Before adding a file, check the tier above it. A new wiki page must fail the ADR test and the
-one-line test. A new ADR must name what was rejected in its own text.
+one-line test. A new ADR must pass all three `domain-modeling` criteria.
 
 ## Agent context files
 
-Context files are not a tier on the ladder. Before creating, editing, or reviewing an `AGENTS.md` or `CONTEXT.md`, read [context-files.md](context-files.md), including its guidance on separating navigation from procedures and avoiding redundant pointers.
+Navigation and glossary files are not a tier on the ladder. Before creating, editing, or reviewing an `AGENTS.md`, `GLOSSARY.md`, or `GLOSSARY-MAP.md`, read [context-files.md](context-files.md), including its guidance on separating navigation from procedures and avoiding redundant pointers.

@@ -6,7 +6,8 @@ import os
 import sys
 from pathlib import Path
 
-ALLOWED = ("AGENTS.md", "CONTEXT.md", "MANUAL.md", "README.md", "orchestrator",
+# Keep the legacy glossary name valid for ownership manifests from older installations.
+ALLOWED = ("AGENTS.md", "GLOSSARY.md", "GLOSSARY-MAP.md", "CONTEXT.md", "MANUAL.md", "README.md", "orchestrator",
            "the_system_orchestrator.py", "installer_lifecycle.py", "bootstrap", "install",
            "company_cli.py", "agents", ".githooks", "docs")
 
