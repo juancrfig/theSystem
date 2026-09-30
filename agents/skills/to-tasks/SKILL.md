@@ -16,6 +16,8 @@ Create local tickets under the project's documented `.scratch/` location unless 
 
 Work from whatever is already in the conversation context. If the user passes a reference (a spec path, an issue number or URL) as an argument, fetch it and read its full body and comments.
 
+When working with workspace ticket files, read [Workspace ticket layout](references/ticket-layout.md) before creating or changing them. This reference describes the durable record layout; it does not change the tracker or destination policy.
+
 ### 2. Explore the codebase (optional)
 
 If you have not already explored the codebase, do so to understand the current state of the code. Ticket titles and descriptions should use the project's domain glossary vocabulary, and respect ADRs in the area you're touching.
@@ -65,6 +67,26 @@ Create the approved tickets in the user-authorized location. The tickets are the
 Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom.
 
 Do NOT close or modify any parent issue.
+
+## Workspace task anatomy
+
+For a workspace using the ticket tree in [Workspace ticket layout](references/ticket-layout.md), each task lives in `<project>/tickets/<ticket>/tasks/<task-id>/task.md`. This is a task file, not the parent `ticket.md` or a scratch-ticket draft.
+
+The following illustrates its YAML front matter; names are examples:
+
+```yaml
+---
+status: proposed
+source_clone: dummmyRepo
+roles:
+  - payments/APIs
+blockers:
+  - task: create-refund-model
+  - external: "Waiting for a coworker to do something"
+---
+```
+
+The YAML front matter is followed by the task description and acceptance criteria. Follow `MANUAL.md` for approval and status semantics; drafting a task does not approve execution.
 
 <local-ticket-template>
 
