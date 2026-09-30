@@ -110,53 +110,30 @@ class CompanyCliTests(unittest.TestCase):
             self.assertIn("inventory", command)
             self.assertTrue(command[1].endswith("review_memory_requests.py"))
 
-    def test_herdr_launch_never_places_copilot_token_in_arguments(self):
-        with tempfile.TemporaryDirectory() as td:
-            workspace = Path(td)
-            (workspace / ".thesystem").mkdir()
-            (workspace / ".thesystem" / "runtime").write_text("copilot\n")
-            marker = "disposable-test-token-not-real"
-            responses = [
-                subprocess.CompletedProcess([], 0, json.dumps({"result": {
-                    "root_pane": {"pane_id": "p1"},
-                    "workspace": {"workspace_id": "w1"},
-                }}) + "\n", ""),
-                subprocess.CompletedProcess([], 0, "", ""),
-            ]
-            with mock.patch.dict(os.environ, {"COPILOT_GITHUB_TOKEN": "", "GH_TOKEN": "", "GITHUB_TOKEN": ""}), \
-                 mock.patch("company_cli.subprocess.run", side_effect=responses) as run, \
-                 mock.patch("company_cli.shutil.which", side_effect=lambda name: "/usr/bin/herdr" if name == "herdr" else None), \
-                 mock.patch("company_cli.emit"):
-                self.assertEqual(company_cli.launch_master(workspace, json_mode=True), 0)
-            self.assertEqual(run.call_count, 2)
-            for call in run.call_args_list:
-                self.assertNotIn(marker, " ".join(call.args[0]))
+    def test_no_arguments_show_help_without_binding_or_subprocesses(self):
+        with mock.patch("company_cli.workspace_path") as workspace, \
+             mock.patch("company_cli.subprocess.run") as run, \
+             mock.patch("company_cli.subprocess.call") as call, \
+             mock.patch("builtins.print") as output:
+            self.assertEqual(company_cli.main([]), 0)
+        output.assert_called_once_with(company_cli.usage())
+        workspace.assert_not_called()
+        run.assert_not_called()
+        call.assert_not_called()
+        result = self.run_cli(None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Usage: COMPANY", result.stdout)
 
-    def test_copilot_herdr_prepares_host_pane_without_token_in_argv(self):
-        with tempfile.TemporaryDirectory() as td:
-            workspace = Path(td)
-            (workspace / ".thesystem").mkdir()
-            (workspace / ".thesystem" / "runtime").write_text("copilot\n")
-            marker = "disposable-provider-marker"
-            replies = [
-                subprocess.CompletedProcess([], 0, json.dumps({"result": {
-                    "root_pane": {"pane_id": "w1:p1"},
-                    "workspace": {"workspace_id": "w1"},
-                }}), ""),
-                subprocess.CompletedProcess([], 0, "", ""),  # gh auth status
-                subprocess.CompletedProcess([], 0, "", ""),  # host pane preparation
-                subprocess.CompletedProcess([], 0, "", ""),  # agent start
-            ]
-            with mock.patch.dict(os.environ, {"COPILOT_GITHUB_TOKEN": marker}), \
-                 mock.patch("company_cli.subprocess.run", side_effect=replies) as run, \
-                 mock.patch("company_cli.shutil.which", side_effect=lambda name: "/usr/bin/gh" if name == "gh" else "/usr/bin/herdr" if name == "herdr" else None), \
-                 mock.patch("company_cli.emit"):
-                self.assertEqual(company_cli.launch_master(workspace, json_mode=True), 0)
-            self.assertEqual(run.call_count, 4)
-            self.assertEqual(run.call_args_list[2].args[0][:4], ["herdr", "pane", "run", "w1:p1"])
-            self.assertIn("gh auth token", run.call_args_list[2].args[0][4])
-            for call in run.call_args_list:
-                self.assertNotIn(marker, " ".join(call.args[0]))
+    def test_removed_launch_commands_are_rejected_without_subprocesses(self):
+        for args in (["launch"], ["--direct"], ["--json", "launch"], ["--json", "--direct"]):
+            with self.subTest(args=args), \
+                 mock.patch("company_cli.subprocess.run") as run, \
+                 mock.patch("company_cli.subprocess.call") as call, \
+                 mock.patch("company_cli.emit") as emit:
+                self.assertEqual(company_cli.main(args), 2)
+                self.assertEqual(emit.call_args.args[0]["code"], "UNKNOWN_COMMAND")
+                run.assert_not_called()
+                call.assert_not_called()
 
     def run_cli(self, workspace: Path | None, *args: str, cwd: Path | None = None):
         env = dict(os.environ)

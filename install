@@ -120,17 +120,6 @@ ensure_copilot() {
   copilot --version >/dev/null 2>&1 || die 'Copilot CLI failed verification'
 }
 
-ensure_herdr() {
-  if ! command -v herdr >/dev/null 2>&1; then
-    require_command curl
-    say 'Herdr not found; running the official Herdr installer' >&2
-    curl --fail --location --silent --show-error "${THESYSTEM_HERDR_INSTALL_URL:-https://herdr.dev/install.sh}" | sh
-    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-  fi
-  require_command herdr
-  herdr --version >/dev/null 2>&1 || die 'Herdr failed verification'
-}
-
 ask_workspace() {
   local answer=''
   [[ -n "$workspace" ]] && return
@@ -596,7 +585,6 @@ main() {
   local source
   if source=$(find_local_distribution); then :; else source=$(download_distribution); fi
   if [[ "$lifecycle" == upgrade ]]; then upgrade_distribution "$source" "$workspace"; else provision_distribution "$source" "$workspace"; python3 "$source/installer_lifecycle.py" snapshot "$source" "$workspace"; fi
-  if [[ "$runtime" != none ]]; then ensure_herdr; fi
   if [[ "$runtime" == hermes ]]; then
     link_project_skills "$workspace"
     configure_master_profile

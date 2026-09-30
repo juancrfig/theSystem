@@ -15,7 +15,7 @@ Build software with AI agents. Keep control of the requirements, permissions, an
 | Shared planning skills and assisted memory/skill review | Implemented in Hermes; coverage and fallback are being verified |
 | Experimental rules and skills | Opt-in with `--experimental` |
 | Automated task admission, isolated execution, independent review, run records | **Partial local implementation; MVP incomplete** |
-| Native Copilot operation, Herdr launch, upgrade/rollback/uninstall, wiki ingestion | **Partial local verification; MVP incomplete** |
+| Native Copilot operation, upgrade/rollback/uninstall, wiki ingestion | **Partial local verification; MVP incomplete** |
 
 “Implemented” describes repository capability, not a fresh deployment certification.
 
@@ -26,7 +26,7 @@ Build software with AI agents. Keep control of the requirements, permissions, an
 
 ### 1. Install
 
-Supported MVP targets are Linux x86-64 on Ubuntu LTS and Arch/Omarchy. Fresh installation must obtain missing prerequisites through supported paths; no preinstalled Hermes, uv, Copilot, or Herdr is assumed. Choose Hermes or Copilot as the agent runtime. A Copilot-only install and operation must not depend on Hermes. Human account sign-in remains a human step.
+Supported MVP targets are Linux x86-64 on Ubuntu LTS and Arch/Omarchy. Fresh installation must obtain missing prerequisites through supported paths; no preinstalled Hermes, uv, or Copilot is assumed. Choose Hermes or Copilot as the agent runtime. A Copilot-only install and operation must not depend on Hermes. Human account sign-in remains a human step.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash
@@ -49,9 +49,9 @@ The installer creates a distribution, **not a Git checkout**. It configures the 
 | Option | Effect |
 | --- | --- |
 | `--workspace PATH` | Choose the workspace. |
-| `--company NAME` | Create the company command; refuses unrelated command-name collisions. |
+| `--company NAME` | Create the workspace-bound command for task/orchestrator and supporting operations; refuses unrelated command-name collisions. |
 | `--experimental` | Include experimental rules and skills. |
-| `--blank=yes` | Install theSystem infrastructure only; no Herdr, Hermes, Copilot, or model setup. Verified locally on a clean Ubuntu container; other target coverage remains open. |
+| `--blank=yes` | Install theSystem infrastructure only; no Hermes, Copilot, or model setup. Verified locally on a clean Ubuntu container; other target coverage remains open. |
 | `--non-interactive` | Requires `--company` and an existing `master`; cannot perform first-time setup. |
 | `--help` | Show usage without installing. |
 
@@ -65,19 +65,19 @@ Shared skills are trusted for the workspace, and those needing curator protectio
 
 </details>
 
-### 2. Open your workspace
+### 2. Use your company command
 
 If you chose `company`:
 
 ```bash
-company
+company --help
 ```
 
-**Intended success:** Herdr opens the selected agent in the command's bound workspace, regardless of your current directory. The command lives in `~/.local/bin`, which must be on your shell's `PATH`. If Herdr reports an interaction is pending, the agent is not yet ready.
+**Success:** the command shows its supported operations. It lives in `~/.local/bin`, which must be on your shell's `PATH`, and is bound to the installed workspace regardless of your current directory.
 
-Herdr manages the session display, not task execution or approval. Remote access stays off by default. Direct/no-Herdr and headless operation remain available. In blank mode, non-chat company operations work without an agent runtime; chat requires an explicitly selected installed runtime or reports none configured. Copilot launch in Herdr has a local isolated proof after the credential-safety correction; installed normal launch on both supported targets and Hermes-in-Herdr are not yet certified. Direct and headless paths have limited local probes in [MVP evidence on GitHub](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757).
+The company command is a non-chat interface for ticket/task and orchestrator operations, project/source-clone registration, role configuration, evidence, and learning review. Calling it without arguments shows help. It does not open an interactive agent session; `launch` and `--direct` are not supported.
 
-If you skipped the company command, open Hermes with `master` from the installed workspace instead. Describe your goal to the main agent. **Conversation alone does not approve execution or learning.**
+Open any interactive planning agent separately. **Conversation alone does not approve execution or learning.** Runtime configuration remains available for task execution and learning evaluation, not company-command session launch.
 
 ## Register a project
 
@@ -218,7 +218,7 @@ Run-learning decisions are separate from the immutable run record. A rule needs 
 
 For Hermes writes, ask the main agent to review pending requests. **Moving on is not approval.** Unreadable requests stay pending; changed requests need a new review. Review criteria also require explicit human approval.
 
-The intended company-session opening offers pending review but allows skipping it. Each proposal shows its origin, content, evaluator concerns, and explicit approve/reject/leave-pending choices. Hermes proposals use native pending-write application; Copilot-only proposals use a separate human-controlled review/application path that does not import Hermes. Completed worker/reviewer learning remains separate from immutable run evidence. An approved enforceable requirement becomes a project rule only with a real incident and a checkable compliance condition; an approved procedure becomes a project skill, both delivered through roles.
+Use `company learning inventory`, `company learning show`, and `company learning decide` to inspect and decide pending requests. Each proposal shows its origin, content, evaluator concerns, and explicit approve/reject/leave-pending choices. Hermes proposals use native pending-write application; Copilot-only proposals use a separate human-controlled review/application path that does not import Hermes. Completed worker/reviewer learning remains separate from immutable run evidence. An approved enforceable requirement becomes a project rule only with a real incident and a checkable compliance condition; an approved procedure becomes a project skill, both delivered through roles.
 
 The first approved advisory criterion asks: **Is this proposed change unclear to a reader who has only the proposal?** Yes means the reader cannot determine what knowledge or procedure is added, changed, or removed from the proposal itself. No means it is understandable on its own. Lack of proof of correctness alone is not a clarity defect. The older generic clarity criterion was a testing placeholder, not mature policy. Further criteria require your approval.
 
