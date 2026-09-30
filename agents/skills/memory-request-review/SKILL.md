@@ -7,9 +7,7 @@ description: "Use when reviewing pending Hermes memory or skill writes across de
 
 Use this skill at the start of a new conversation to review pending writes for
 `memory` and `skills` in the company `master` profile (and legacy compatible
-profiles when present). In Copilot-only mode the same proposal, evaluation, and
-explicit-decision flow is used without importing Hermes. It does not create or
-maintain another queue.
+profiles when present). It does not create or maintain another queue.
 
 ## Authority limits
 

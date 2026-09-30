@@ -15,18 +15,36 @@ Build software with AI agents. Keep control of the requirements, permissions, an
 | Shared planning skills and assisted memory/skill review | Implemented in Hermes; coverage and fallback are being verified |
 | Experimental rules and skills | Opt-in with `--experimental` |
 | Automated task admission, isolated execution, independent review, run records | **Partial local implementation; MVP incomplete** |
-| Native Copilot operation, upgrade/rollback/uninstall, wiki ingestion | **Partial local verification; MVP incomplete** |
+| Copilot runtime, task execution, and learning integration | **Deferred backlog; outside the current Hermes-focused MVP scope** |
+| Upgrade/rollback/uninstall, wiki ingestion | **Partial local verification; MVP incomplete** |
 
 “Implemented” describes repository capability, not a fresh deployment certification.
 
 > [!WARNING]
 > **The execution contract is not fully certified.** Local contained Hermes and Copilot runs, independent reviews, and two browser-tested apps are documented in [MVP evidence on GitHub](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757). The third app and several installation/learning guarantees remain incomplete; the workflow below remains the intended contract, not a blanket availability claim.
 
+<details>
+<summary><strong>Recorded verification and remaining gaps</strong></summary>
+
+This summary uses historical GitHub evidence, not a fresh deployment check. Results apply only to the tested source, runtime, and environment; a passed probe or a closed issue does not certify the whole capability. See the [MVP evidence ledger](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757), [installation/lifecycle record](https://github.com/juancrfig/theSystem/issues/24), and [Copilot adapter record](https://github.com/juancrfig/theSystem/issues/22) for provenance and scope.
+
+| Area | Recorded evidence | Remaining gap |
+| --- | --- | --- |
+| Installation | Fresh local-distribution blank and Copilot-only installs passed in Ubuntu 24.04 and Arch base containers, with Hermes absent. A remote-distribution Copilot install passed on an isolated Ubuntu LTS host. | Default Hermes clean installation and first-time setup, remote-distribution parity across targets/runtimes, and actual Omarchy desktop coverage remain uncertified. |
+| Software lifecycle | Isolated blank-mode upgrade, rollback, and uninstall probes preserved data fixtures and user-edited content on Ubuntu and Arch. A separate interrupted-install/rerun probe passed in an isolated host context. | These probes do not certify every runtime, interruption point, or real company-data migration. |
+| Task execution | Contained Hermes/Copilot runs, independent reviews, a narrow Hermes-free Copilot integration, and two integrated browser-tested apps are recorded. An installed retry probe dispatched a new run; both attempts ended in execution failure. | Full execution/safety and native Copilot parity are not certified. The habit app has no accepted reviewed integration. Later adapter records retain acceptance gaps; earlier sampled runs do not establish full parity. |
+| Learning | Disposable Hermes/Copilot fallback evaluations and a native Hermes pending-write approval/application probe passed in isolated state. | Installed-main-agent coverage, complete Copilot-only learning/application, and full evaluator acceptance remain incomplete; a later Copilot evaluator attempt lacked authentication and reported unavailable. |
+| Wiki ingestion | A disposable proposal preserved raw files and deferred writes pending approval. | The human-approved wiki application path remains unverified. |
+
+The records describe different historical slices. An item listed as untested in one slice is not evidence that another slice's narrower probe failed, nor does that probe close the broader acceptance gap. No additional user testing outside GitHub is claimed.
+
+</details>
+
 ## Get started
 
 ### 1. Install
 
-Supported MVP targets are Linux x86-64 on Ubuntu LTS and Arch/Omarchy. Fresh installation must obtain missing prerequisites through supported paths; no preinstalled Hermes, uv, or Copilot is assumed. Choose Hermes or Copilot as the agent runtime. A Copilot-only install and operation must not depend on Hermes. Human account sign-in remains a human step.
+Supported MVP targets are Linux x86-64 on Ubuntu LTS and Arch/Omarchy. Fresh installation must obtain missing prerequisites through supported paths; no preinstalled Hermes or uv is assumed. Hermes is the sole integrated runtime for the current MVP. Native Copilot task execution and learning integration are deferred backlog work; they are not install options or part of the current MVP scope. `--blank=yes` selects infrastructure only. Human account sign-in remains a human step.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash
@@ -34,14 +52,19 @@ curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install 
 
 1. Choose a workspace; the default is `~/workspace`.
 2. Choose the name of the main command; the default is `company`. Use a single word with standard English characters.
-3. For a new `master` profile, complete the Hermes setup wizard and choose **Blank Slate**. You own the provider and model choices.
+3. Complete setup for your selected installation mode:
 
-**Success:** the installer reports `Ready` with the profile and workspace. An earlier error means installation is incomplete; some files may already exist.
+| Mode | Setup |
+| --- | --- |
+| Hermes (default) | For a new `master` profile, complete the Hermes setup wizard and choose **Blank Slate**. An existing `master` is reused. You own the provider and model choices. |
+| Infrastructure only (`--blank=yes`) | No agent runtime or model setup is installed. Company operations that do not require an agent runtime remain available. |
 
-The installer creates a distribution, **not a Git checkout**. It configures the dedicated `master` profile, shared skills, required CLI toolsets, and the memory-review environment. Your default Hermes profile is not configured. An existing `master` is reused, but theSystem's managed settings still apply.
+**Success:** the installer reports `Ready` with the runtime and workspace (`none` is the runtime in blank mode). An earlier error means installation is incomplete; some files may already exist. `Ready` is not proof of authenticated chat or full MVP certification.
+
+The installer creates a distribution, **not a Git checkout**. In Hermes mode, it configures the dedicated `master` profile, shared skills, required CLI toolsets, and the memory-review environment. Your default Hermes profile is not configured. An existing `master` is reused, but theSystem's managed settings still apply. Blank mode installs only theSystem infrastructure.
 
 > [!NOTE]
-> **Current installer limitation:** Fresh local-distribution Copilot-only installation and blank installation passed in clean Ubuntu 24.04 and Arch base containers. Upgrade, rollback, and uninstall preserved company data in isolated local probes. Interactive desktop/account setup, Hermes normal install, remote-distribution install, and interrupted-install recovery are not yet certified. The intended lifecycle safely upgrades, rolls back installed software, and uninstalls without deleting company knowledge, source repositories, work records, or credentials. Rollback does not undo completed work.
+> **Installation is only partially verified.** See [recorded verification and remaining gaps](#what-works-today) for the tested contexts. The intended lifecycle safely upgrades, rolls back installed software, and uninstalls without deleting company knowledge, source repositories, work records, or credentials. Rollback does not undo completed work.
 
 <details>
 <summary><strong>Installer options</strong></summary>
@@ -50,9 +73,10 @@ The installer creates a distribution, **not a Git checkout**. It configures the 
 | --- | --- |
 | `--workspace PATH` | Choose the workspace. |
 | `--company NAME` | Create the workspace-bound command for task/orchestrator and supporting operations; refuses unrelated command-name collisions. |
+
 | `--experimental` | Include experimental rules and skills. |
-| `--blank=yes` | Install theSystem infrastructure only; no Hermes, Copilot, or model setup. Verified locally on a clean Ubuntu container; other target coverage remains open. |
-| `--non-interactive` | Requires `--company` and an existing `master`; cannot perform first-time setup. |
+| `--blank=yes` | Install theSystem infrastructure only; no agent runtime or model setup. See the verification summary for tested targets. |
+| `--non-interactive` | Requires `--company`. Hermes mode also requires an existing `master`; it cannot create a new profile through the setup wizard. Blank mode does not require a Hermes profile. |
 | `--help` | Show usage without installing. |
 
 Example with explicit choices:
@@ -61,7 +85,7 @@ Example with explicit choices:
 curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash -s -- --workspace "$HOME/workspace" --company company --experimental
 ```
 
-Shared skills are trusted for the workspace, and those needing curator protection are pinned. Concrete model selection remains yours.
+In Hermes mode, shared skills are trusted for the workspace, and those needing curator protection are pinned. Concrete model selection remains yours.
 
 </details>
 
@@ -104,7 +128,7 @@ Errors return `status: "error"`, a code, and an explanation. `--help` shows usag
 
 ## From request to completed change
 
-**Approved workflow · automated execution is not yet verified.**
+**Approved workflow · partial execution evidence, not full certification.**
 
 ![Designed workflow: describe and plan, human approval, implementation, independent review, human decision, then merge.](docs/assets/workflow.svg)
 
@@ -128,19 +152,19 @@ A **ticket** expresses work; its **tasks** divide it into bounded changes. One t
 - Starting returns a stable run identifier and detaches; you need not keep a waiting terminal open.
 - The worker stops on conflicting instructions and reports them rather than guessing.
 - Review starts after the worker stops, uses a fresh agent, and cannot alter the worker's delivery.
-- Worker commands and edits run inside a per-run container, whether the runtime is Hermes or Copilot. The reviewer reads the delivered tree without changing it and uses a disposable writable layer for tests. Unexpected delivery changes fail review; tracked test-layer and lockfile changes are reported.
+- Worker commands and edits run inside a per-run container. The reviewer reads the delivered tree without changing it and uses a disposable writable layer for tests. Unexpected delivery changes fail review; tracked test-layer and lockfile changes are reported.
 - A passing review only makes the branch eligible for human integration approval. When the base moves, conflicts are resolved and the resulting change is reverified; completion follows actual integration.
 - Control flow belongs to the orchestrator—not an LLM interpreting prose. The main agent uses supported parameters only.
 
 <details>
-<summary><strong>Designed command interface — not operational</strong></summary>
+<summary><strong>Illustrative command interface — not current CLI usage</strong></summary>
 
 ```text
 ./orchestrator start <task>
 ./orchestrator status [<ticket>]
 ```
 
-These describe intended interfaces, not commands to use today. A successful review is not an automatic merge.
+These describe intended interfaces, not commands to use today; they do not describe the partially implemented CLI's current syntax. A successful review is not an automatic merge.
 
 </details>
 
@@ -218,11 +242,11 @@ Run-learning decisions are separate from the immutable run record. A rule needs 
 
 For Hermes writes, ask the main agent to review pending requests. **Moving on is not approval.** Unreadable requests stay pending; changed requests need a new review. Review criteria also require explicit human approval.
 
-Use `company learning inventory`, `company learning show`, and `company learning decide` to inspect and decide pending requests. Each proposal shows its origin, content, evaluator concerns, and explicit approve/reject/leave-pending choices. Hermes proposals use native pending-write application; Copilot-only proposals use a separate human-controlled review/application path that does not import Hermes. Completed worker/reviewer learning remains separate from immutable run evidence. An approved enforceable requirement becomes a project rule only with a real incident and a checkable compliance condition; an approved procedure becomes a project skill, both delivered through roles.
+Use `company learning inventory`, `company learning show`, and `company learning decide` to inspect and decide pending requests. Each proposal shows its origin, content, evaluator concerns, and the explicit choices above. Requests remain pending until an explicit decision; opening an agent session is not part of this command's responsibilities.
 
 The first approved advisory criterion asks: **Is this proposed change unclear to a reader who has only the proposal?** Yes means the reader cannot determine what knowledge or procedure is added, changed, or removed from the proposal itself. No means it is understandable on its own. Lack of proof of correctness alone is not a clarity defect. The older generic clarity criterion was a testing placeholder, not mature policy. Further criteria require your approval.
 
-The optional remote evaluation setting is `SYSTEM_ONE_API`. When configured, use the existing TypeSafe/Jev path; if absent, timed out, rejected, or unusable, use a fresh headless Hermes evaluator in Hermes mode or a fresh headless Copilot evaluator in Copilot-only mode. Report the evaluator actually used. If neither works, show evaluation unavailable and keep human review possible. Fallback concerns carry reasons, not invented probabilities. Company AI use is already approved; no extra consent screen is required.
+The optional remote evaluation setting is `SYSTEM_ONE_API`. When configured, use the existing TypeSafe/Jev path; if absent, timed out, rejected, or unusable, use a fresh headless Hermes evaluator. Report the evaluator actually used. If neither works, show evaluation unavailable and keep human review possible. Fallback concerns carry reasons, not invented probabilities. Company AI use is already approved; no extra consent screen is required.
 
 Remote evaluation may assist, never decide. Only the pending payload may be sent—not conversations, current memories, or installed skills. Requests held locally by the sensitive-data check must not be sent; that check can make mistakes in either direction.
 
@@ -231,7 +255,7 @@ Remote evaluation may assist, never decide. Only the pending payload may be sent
 
 ### Ingest selected project sources
 
-The intended `ingest` skill reads selected files from a project's `wiki/raw/`, presents facts, obligations, pending matters, and contradictions against existing knowledge, then **waits for explicit approval** before updating the wiki. Raw sources remain unchanged; claims cite their provenance, existing pages are reused, and the index/log are maintained. Obligations are knowledge, not automatically approved execution tasks. No automatic crawling or background rewriting is part of this workflow. **Designed; not yet verified.**
+The intended `ingest` skill reads selected files from a project's `wiki/raw/`, presents facts, obligations, pending matters, and contradictions against existing knowledge, then **waits for explicit approval** before updating the wiki. Raw sources remain unchanged; claims cite their provenance, existing pages are reused, and the index/log are maintained. Obligations are knowledge, not automatically approved execution tasks. No automatic crawling or background rewriting is part of this workflow. **Proposal-only evidence exists; approved application remains unverified.**
 
 ## Maintain the contract
 

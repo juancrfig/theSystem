@@ -3,14 +3,12 @@ import hashlib
 import http.client
 import os
 from pathlib import Path
-import shutil
 import socket
 import subprocess
 import tempfile
 import threading
 import time
 import unittest
-import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from the_system_orchestrator import HostCredentialBroker, Orchestrator, OrchestratorError
@@ -83,15 +81,15 @@ raise SystemExit(p.returncode)
             root=Path(td);o=Orchestrator(root);prompt=root/"prompt";prompt.write_text("task")
             secret="TEST_SECRET_DO_NOT_USE"
             completed=subprocess.CompletedProcess(["docker"],0,stdout="debug "+secret,stderr="warning "+secret)
-            env={"THESYSTEM_BROKER_UPSTREAM_URL":"http://127.0.0.1:9/v1","THESYSTEM_BROKER_PROVIDER_KEY":secret,"THESYSTEM_BROKER_MODEL":"model-a","COPILOT_GITHUB_TOKEN":"HOST_ONLY_TEST_TOKEN"}
-            with patch.dict(os.environ,env),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"),patch("the_system_orchestrator.subprocess.run",return_value=completed) as run:
-                result=o._docker("test-image",root,["copilot"],10,prompt,runtime="copilot")
+            env={"THESYSTEM_BROKER_UPSTREAM_URL":"http://127.0.0.1:9/v1","THESYSTEM_BROKER_PROVIDER_KEY":secret,"THESYSTEM_BROKER_MODEL":"model-a","GH_TOKEN":"HOST_ONLY_TEST_TOKEN"}
+            synthetic_broker=HostCredentialBroker("http://127.0.0.1:9/v1",secret,"model-a")
+            with patch.dict(os.environ,env),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"),patch("the_system_orchestrator.HostCredentialBroker.from_environment",return_value=synthetic_broker),patch("the_system_orchestrator.subprocess.run",return_value=completed) as run:
+                result=o._docker("test-image",root,["hermes"],10,prompt,runtime="hermes")
             args=run.call_args.args[0]
             self.assertNotIn(secret," ".join(args))
             self.assertNotIn("HOST_ONLY_TEST_TOKEN"," ".join(args))
             self.assertEqual(args[args.index("--network")+1],"none")
-            self.assertIn("HOME=/run/copilot-home", args)
-            self.assertIn("XDG_CACHE_HOME=/run/copilot-home/.cache", args)
+            self.assertIn("HERMES_HOME=/home/agent/.hermes", args)
             self.assertNotIn(secret,str(run.call_args.kwargs["env"]))
             self.assertNotIn("HOST_ONLY_TEST_TOKEN",str(run.call_args.kwargs["env"]))
             self.assertNotIn(secret,result.stdout+result.stderr)
@@ -109,13 +107,14 @@ raise SystemExit(p.returncode)
                 "THESYSTEM_BROKER_MODEL":"model-a",
                 "THESYSTEM_CONTAINER_NETWORK":"bridge",
             }
-            with patch.dict(os.environ,env),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"),patch("the_system_orchestrator.subprocess.run",return_value=completed) as run:
-                o._docker("test-image",root,["copilot"],10,prompt,runtime="copilot")
+            synthetic_broker=HostCredentialBroker("http://127.0.0.1:9/v1","TEST_SECRET","model-a")
+            with patch.dict(os.environ,env),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"),patch("the_system_orchestrator.HostCredentialBroker.from_environment",return_value=synthetic_broker),patch("the_system_orchestrator.subprocess.run",return_value=completed) as run:
+                o._docker("test-image",root,["hermes"],10,prompt,runtime="hermes")
             args=run.call_args.args[0]
             self.assertEqual(args[args.index("--network")+1],"bridge")
-            with patch.dict(os.environ,{**env,"THESYSTEM_CONTAINER_NETWORK":"invalid"}),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"):
+            with patch.dict(os.environ,{**env,"THESYSTEM_CONTAINER_NETWORK":"invalid"}),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"),patch("the_system_orchestrator.HostCredentialBroker.from_environment",return_value=synthetic_broker):
                 with self.assertRaises(OrchestratorError) as failure:
-                    o._docker("test-image",root,["copilot"],10,prompt,runtime="copilot")
+                    o._docker("test-image",root,["hermes"],10,prompt,runtime="hermes")
             self.assertEqual(failure.exception.code,"CONTAINER_NETWORK_INVALID")
 
     def test_hermes_profile_auth_reuse_fails_closed_without_adapter(self):
@@ -139,75 +138,16 @@ raise SystemExit(p.returncode)
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
             root=Path(td); repo=self.repo(root); o=Orchestrator(root)
-            o.create_task("broker-absent",repo,"Build app",runtime="copilot")
-            environment={"THESYSTEM_COPILOT_IMAGE":"thesystem-copilot:local","THESYSTEM_BROKER_PROVIDER_KEY":"","THESYSTEM_BROKER_UPSTREAM_URL":"","OPENROUTER_API_KEY":"","OPENAI_API_KEY":""}
+            o.create_task("broker-absent",repo,"Build app",runtime="hermes")
+            environment={"THESYSTEM_HERMES_IMAGE":"thesystem-hermes:local","THESYSTEM_BROKER_PROVIDER_KEY":"","THESYSTEM_BROKER_UPSTREAM_URL":"","OPENROUTER_API_KEY":"","OPENAI_API_KEY":""}
             with patch.dict(os.environ,environment),patch("the_system_orchestrator.shutil.which",return_value="/usr/bin/docker"),patch("the_system_orchestrator.subprocess.run",return_value=subprocess.CompletedProcess([],0,"","")):
                 with self.assertRaises(OrchestratorError) as failure: o.approve("broker-absent")
-            self.assertEqual(failure.exception.code,"CREDENTIAL_BROKER_REQUIRED")
+            self.assertEqual(failure.exception.code,"CREDENTIAL_BROKER_UNSUPPORTED_AUTH")
             self.assertEqual(o.state["runs"],{})
             self.assertFalse(subprocess.run(["git","-C",str(repo),"branch","--list","thesystem/*"],capture_output=True,text=True,check=True).stdout.strip())
         with self.assertRaises(OrchestratorError) as failure:
-            HostCredentialBroker.from_environment("copilot",{"THESYSTEM_BROKER_UPSTREAM_URL":"https://unrelated.invalid/v1","OPENROUTER_API_KEY":"marker"})
-        self.assertEqual(failure.exception.code,"CREDENTIAL_BROKER_INVALID")
-
-    def test_actual_container_forwards_only_a_scoped_capability(self):
-        from unittest.mock import patch
-        if not shutil.which("docker") or subprocess.run(["docker","image","inspect","thesystem-copilot:local"],capture_output=True).returncode:
-            self.skipTest("disposable Copilot image or Docker daemon is unavailable")
-        marker="DISPOSABLE_PROVIDER_SECRET_NOT_REAL"
-        seen=[]
-        class Upstream(BaseHTTPRequestHandler):
-            def do_POST(self):
-                seen.append(self.headers.get("Authorization"))
-                self.rfile.read(int(self.headers["Content-Length"]))
-                self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers(); self.wfile.write(b'{"ok":true}')
-            def log_message(self, format, *args): pass
-        upstream=ThreadingHTTPServer(("127.0.0.1",0),Upstream)
-        threading.Thread(target=upstream.serve_forever,daemon=True).start()
-        try:
-            with tempfile.TemporaryDirectory() as td:
-                root=Path(td); prompt=root/"prompt"; prompt.write_text("probe")
-                script=("import os,urllib.request,json,time; "
-                        "assert not any(k in os.environ for k in ('THESYSTEM_BROKER_PROVIDER_KEY','OPENROUTER_API_KEY','OPENAI_API_KEY','COPILOT_GITHUB_TOKEN','GH_TOKEN','GITHUB_TOKEN')); "
-                        "base=os.environ['COPILOT_PROVIDER_BASE_URL']; token=os.environ['COPILOT_PROVIDER_API_KEY']; "
-                        "req=urllib.request.Request(base+'/chat/completions', "
-                        "data=b'{\"model\":\"model-a\",\"messages\":[]}', "
-                        "headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'},method='POST'); "
-                        "assert json.loads(urllib.request.urlopen(req,timeout=10).read())=={'ok':True}; "
-                        "print('CONTAINED_REQUEST_OK'); time.sleep(4)")
-                environment={"THESYSTEM_BROKER_UPSTREAM_URL":f"http://127.0.0.1:{upstream.server_port}/v1","THESYSTEM_BROKER_PROVIDER_KEY":marker,"THESYSTEM_BROKER_MODEL":"model-a"}
-                container_name="thesystem-broker-probe-"+uuid.uuid4().hex[:8]
-                outcome=[]
-                def run_container():
-                    try:
-                        outcome.append(Orchestrator(root)._docker("thesystem-copilot:local",root,["python3","-c",script],30,prompt,runtime="copilot",container_name=container_name))
-                    except Exception as exc:
-                        outcome.append(exc)
-                with patch.dict(os.environ,environment):
-                    worker=threading.Thread(target=run_container,daemon=True); worker.start()
-                    inspected=None
-                    for _ in range(50):
-                        candidate=subprocess.run(["docker","inspect",container_name],capture_output=True,text=True)
-                        if candidate.returncode==0:
-                            inspected=json.loads(candidate.stdout)[0]
-                            break
-                        time.sleep(0.1)
-                    worker.join(timeout=40)
-                self.assertFalse(worker.is_alive(),"contained Docker probe did not finish")
-                self.assertIsNotNone(inspected,"container never became inspectable")
-                assert inspected is not None
-                self.assertNotIn(marker,json.dumps(inspected))
-                self.assertEqual(inspected["HostConfig"]["NetworkMode"],"none")
-                self.assertEqual(len(outcome),1)
-                if isinstance(outcome[0],Exception): raise outcome[0]
-                result=outcome[0]
-                self.assertIsNotNone(result)
-                self.assertEqual(result.returncode,0,result.stderr)
-                self.assertIn("CONTAINED_REQUEST_OK",result.stdout)
-                self.assertEqual(seen,["Bearer "+marker])
-                self.assertNotIn(marker,result.stdout+result.stderr)
-        finally:
-            upstream.shutdown(); upstream.server_close()
+            HostCredentialBroker.from_environment("other",{"THESYSTEM_BROKER_UPSTREAM_URL":"https://unrelated.invalid/v1","OPENROUTER_API_KEY":"marker"})
+        self.assertEqual(failure.exception.code,"RUNTIME_INVALID")
 
     def test_unix_broker_rejects_wrong_capability_and_cleans_socket(self):
         with tempfile.TemporaryDirectory() as td:
@@ -274,31 +214,28 @@ raise SystemExit(p.returncode)
                     with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
                         client.settimeout(10); client.connect(str(broker.socket_path))
                         body=b'{"model":"model-a","messages":[]}'
-                        request=(f"POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {broker.capability}\r\nX-Copilot-Feature: enabled\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n").encode()+body
+                        request=(f"POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {broker.capability}\r\nX-Test-Feature: enabled\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n").encode()+body
                         client.sendall(request)
                         response=http.client.HTTPResponse(client); response.begin(); response.read()
                         self.assertEqual(response.status,200)
                 finally:
                     broker.close()
-            self.assertEqual(captured[0].get("X-Copilot-Feature"),"enabled")
+            self.assertEqual(captured[0].get("X-Test-Feature"),"enabled")
             self.assertEqual(captured[0].get("Authorization"),"Bearer PROVIDER_KEY")
         finally:
             upstream.shutdown(); upstream.server_close()
 
-    def test_copilot_agent_command_uses_portable_reasoning_setting(self):
+    def test_hermes_agent_command_uses_oneshot_profile(self):
         with tempfile.TemporaryDirectory() as td:
-            command = Orchestrator(Path(td))._agent_command("copilot", review=False, prompt="do work")
-        self.assertIn("--reasoning-effort", command)
-        self.assertIn("none", command)
-        self.assertIn("--available-tools", command)
-        self.assertIn("bash", command)
+            command = Orchestrator(Path(td))._agent_command("hermes", review=False, prompt="do work")
+        self.assertEqual(command[0:4], ["hermes", "chat", "--oneshot", "--yolo"])
 
     def test_approval_dispatches_without_second_start(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
             root=Path(td); repo=self.repo(root)
             o=Orchestrator(root)
-            o.create_task("t1",repo,"Build an app",runtime="copilot")
+            o.create_task("t1",repo,"Build an app",runtime="hermes")
             with self.assertRaises(OrchestratorError) as failure: o.start("t1")
             self.assertEqual(failure.exception.code,"TASK_NOT_APPROVED")
             with patch.object(o,"start",return_value={"id":"r1","status":"starting"}) as start:
@@ -325,8 +262,8 @@ raise SystemExit(p.returncode)
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
             root = Path(td); repo = self.repo(root); o = Orchestrator(root)
-            o.create_task("missing-image", repo, "Build a page", runtime="copilot")
-            with patch.dict(os.environ, {"THESYSTEM_COPILOT_IMAGE": "", "THESYSTEM_AGENT_IMAGE": ""}), patch("the_system_orchestrator.shutil.which", return_value="/usr/bin/docker"):
+            o.create_task("missing-image", repo, "Build a page", runtime="hermes")
+            with patch.dict(os.environ, {"THESYSTEM_HERMES_IMAGE": "", "THESYSTEM_AGENT_IMAGE": ""}), patch("the_system_orchestrator.shutil.which", return_value="/usr/bin/docker"):
                 with self.assertRaises(OrchestratorError) as failure:
                     o.approve("missing-image")
             self.assertEqual(failure.exception.code, "AGENT_IMAGE_REQUIRED")
@@ -396,10 +333,10 @@ raise SystemExit(p.returncode)
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
             root=Path(td); repo=self.repo(root); first=Orchestrator(root)
-            first.create_task("one",repo,"Build a page",runtime="copilot")
+            first.create_task("one",repo,"Build a page",runtime="hermes")
             stale=Orchestrator(root)
             with patch.object(first,"start",return_value={}): first.approve("one")
-            stale.create_task("two",repo,"Build a second page",runtime="copilot")
+            stale.create_task("two",repo,"Build a second page",runtime="hermes")
             self.assertEqual(Orchestrator(root).task("one")["approval"],"approved")
             terminal=Orchestrator(root)
             terminal.state["runs"]["r1"]={"id":"r1","task_id":"one","status":"changes-requested","review_result":{"verdict":"FAIL"}}
@@ -417,8 +354,8 @@ raise SystemExit(p.returncode)
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
             root=Path(td); repo=self.repo(root); o=Orchestrator(root)
-            o.create_task("first", repo, "Build first", runtime="copilot")
-            o.create_task("second", repo, "Build second", runtime="copilot", dependencies=["first"])
+            o.create_task("first", repo, "Build first", runtime="hermes")
+            o.create_task("second", repo, "Build second", runtime="hermes", dependencies=["first"])
             with patch.object(o, "start", return_value={"id":"first-run"}):
                 o.approve("first")
             with patch.object(o, "start", wraps=o.start) as start:
@@ -432,7 +369,7 @@ raise SystemExit(p.returncode)
     def test_moved_integration_base_refuses_merge_and_completion(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td);repo=self.repo(root);o=Orchestrator(root)
-            o.create_task("moved",repo,"Build something",runtime="copilot")
+            o.create_task("moved",repo,"Build something",runtime="hermes")
             base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
             subprocess.run(["git","-C",str(repo),"branch","thesystem/moved-test"],check=True)
             (repo/"README").write_text("base changed\n")
@@ -449,7 +386,7 @@ raise SystemExit(p.returncode)
     def test_passing_run_only_becomes_done_after_real_local_merge(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td); repo=self.repo(root); o=Orchestrator(root)
-            o.create_task("ready",repo,"Build a page",runtime="copilot")
+            o.create_task("ready",repo,"Build a page",runtime="hermes")
             base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
             integration_branch=subprocess.run(["git","-C",str(repo),"symbolic-ref","--short","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
             subprocess.run(["git","-C",str(repo),"checkout","-qb","thesystem/ready-test"],check=True)
@@ -484,7 +421,7 @@ raise SystemExit(p.returncode)
     def test_capacity_and_attempt_caps_do_not_alter_approval_scope(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td);repo=self.repo(root);o=Orchestrator(root)
-            o.create_task("capacity",repo,"Implement app",runtime="copilot")
+            o.create_task("capacity",repo,"Implement app",runtime="hermes")
             with __import__("unittest.mock",fromlist=["patch"]).patch.object(o,"start",return_value={}):
                 o.approve("capacity")
             for index in range(3):
@@ -549,11 +486,11 @@ raise SystemExit(p.returncode)
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
             root=Path(td); repo=self.repo(root); o=Orchestrator(root)
-            o.create_task("isolation-probe",repo,"Build app",runtime="copilot")
+            o.create_task("isolation-probe",repo,"Build app",runtime="hermes")
             task=o.task("isolation-probe")
             base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
             branch="thesystem/isolation-probe"; subprocess.run(["git","-C",str(repo),"branch",branch,base],check=True)
-            run={"id":"run-probe","task_id":"isolation-probe","status":"starting","runtime":"copilot","ticket":"local","source_clone":str(repo),"base_commit":base,"branch":branch,"started_at":"now","started_epoch":time.time(),"timeout_seconds":300,"worker":{"bundle":{"path":"/tmp/worker-bundle"}},"reviewer":{"bundle":{"path":"/tmp/reviewer-bundle"}}}
+            run={"id":"run-probe","task_id":"isolation-probe","status":"starting","runtime":"hermes","ticket":"local","source_clone":str(repo),"base_commit":base,"branch":branch,"started_at":"now","started_epoch":time.time(),"timeout_seconds":300,"worker":{"bundle":{"path":"/tmp/worker-bundle"}},"reviewer":{"bundle":{"path":"/tmp/reviewer-bundle"}}}
             o.state["runs"][run["id"]]=run
             with patch.object(o,"_run_isolation_probes",return_value=[{"name":"worker-worktree-and-bundle","ok":False,"message":"outside write succeeded"}]),patch.object(o,"_worker") as worker:
                 o._execute(run,task)
@@ -566,7 +503,7 @@ raise SystemExit(p.returncode)
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
             root=Path(td); repo=self.repo(root); o=Orchestrator(root)
-            o.create_task("isolation-hash",repo,"Build app",runtime="copilot")
+            o.create_task("isolation-hash",repo,"Build app",runtime="hermes")
             task=o.task("isolation-hash")
             base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
             branch="thesystem/isolation-hash"; subprocess.run(["git","-C",str(repo),"branch",branch,base],check=True)
@@ -578,7 +515,7 @@ raise SystemExit(p.returncode)
                 worker_commit=subprocess.run(["git","-C",str(repo),"rev-parse",branch],capture_output=True,text=True,check=True).stdout.strip()
             finally:
                 subprocess.run(["git","-C",str(repo),"worktree","remove","--force",str(root/"work")],check=True,capture_output=True,text=True)
-            run={"id":"run-hash","task_id":"isolation-hash","status":"starting","runtime":"copilot","ticket":"local","source_clone":str(repo),"base_commit":base,"branch":branch,"started_at":"now","started_epoch":time.time(),"timeout_seconds":300,"worker":{"bundle":{"path":"/tmp/worker-bundle"}},"reviewer":{"bundle":{"path":"/tmp/reviewer-bundle"}},"worker_result":{"commit":worker_commit}}
+            run={"id":"run-hash","task_id":"isolation-hash","status":"starting","runtime":"hermes","ticket":"local","source_clone":str(repo),"base_commit":base,"branch":branch,"started_at":"now","started_epoch":time.time(),"timeout_seconds":300,"worker":{"bundle":{"path":"/tmp/worker-bundle"}},"reviewer":{"bundle":{"path":"/tmp/reviewer-bundle"}},"worker_result":{"commit":worker_commit}}
             o.state["runs"][run["id"]]=run
             default_branch=subprocess.run(["git","-C",str(repo),"symbolic-ref","--short","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
             def mutate_branch(*_args,**_kwargs):
@@ -601,11 +538,11 @@ raise SystemExit(p.returncode)
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
             root=Path(td); repo=self.repo(root); o=Orchestrator(root)
-            o.create_task("review-copy",repo,"Build app",runtime="copilot")
+            o.create_task("review-copy",repo,"Build app",runtime="hermes")
             task=o.task("review-copy")
             base=subprocess.run(["git","-C",str(repo),"rev-parse","HEAD"],capture_output=True,text=True,check=True).stdout.strip()
             branch="thesystem/review-copy"; subprocess.run(["git","-C",str(repo),"branch",branch,base],check=True)
-            run={"id":"run-review-copy","task_id":"review-copy","status":"reviewing","runtime":"copilot","ticket":"local","source_clone":str(repo),"base_commit":base,"branch":branch,"started_at":"now","started_epoch":time.time(),"timeout_seconds":300,"worker":{"bundle":{"path":"/tmp/worker-bundle"}},"reviewer":{"bundle":{"path":"/tmp/reviewer-bundle"}}}
+            run={"id":"run-review-copy","task_id":"review-copy","status":"reviewing","runtime":"hermes","ticket":"local","source_clone":str(repo),"base_commit":base,"branch":branch,"started_at":"now","started_epoch":time.time(),"timeout_seconds":300,"worker":{"bundle":{"path":"/tmp/worker-bundle"}},"reviewer":{"bundle":{"path":"/tmp/reviewer-bundle"}}}
             before_tree=subprocess.run(["git","-C",str(repo),"rev-parse",branch+"^{tree}"],capture_output=True,text=True,check=True).stdout.strip()
             real_run=subprocess.run
             def fake_run(args, **kwargs):
@@ -699,8 +636,9 @@ raise SystemExit(p.returncode)
                 "THESYSTEM_BROKER_PROVIDER_KEY": "TEST_SECRET",
                 "THESYSTEM_BROKER_MODEL": "model-a",
             }
-            with patch.dict(os.environ, env), patch("the_system_orchestrator.subprocess.run", return_value=completed) as run:
-                orchestrator._docker("test-image", workspace, ["copilot"], 10, prompt, runtime="copilot", bundle=bundle)
+            synthetic_broker = HostCredentialBroker("http://127.0.0.1:9/v1", "TEST_SECRET", "model-a")
+            with patch.dict(os.environ, env), patch("the_system_orchestrator.HostCredentialBroker.from_environment", return_value=synthetic_broker), patch("the_system_orchestrator.subprocess.run", return_value=completed) as run:
+                orchestrator._docker("test-image", workspace, ["hermes"], 10, prompt, runtime="hermes", bundle=bundle)
             args = run.call_args.args[0]
             self.assertIn(f"{bundle}:/bundle:ro", args)
             self.assertIn("THESYSTEM_BUNDLE=/bundle", args)
@@ -715,12 +653,12 @@ raise SystemExit(p.returncode)
             repo = self.repo(project)
             global_agents, _ = self.fixture_agents(root)
             orchestrator = Orchestrator(project, global_agents=global_agents)
-            orchestrator.create_task("bundle-run", repo, "Build", runtime="copilot", roles=["base", "worker", "custom"])
+            orchestrator.create_task("bundle-run", repo, "Build", runtime="hermes", roles=["base", "worker", "custom"])
             task = orchestrator.task("bundle-run")
             task["approval"] = "approved"
             task["approval_digest"] = __import__("the_system_orchestrator", fromlist=["digest"]).digest({k: task[k] for k in ("source_clone", "prompt", "runtime", "acceptance", "roles")})
             orchestrator.save()
-            env = {"THESYSTEM_COPILOT_IMAGE": "fake-image"}
+            env = {"THESYSTEM_HERMES_IMAGE": "fake-image"}
             real_run = subprocess.run
             def fake_run(args, **kwargs):
                 if args[:4] == ["docker", "image", "inspect", "fake-image"]:

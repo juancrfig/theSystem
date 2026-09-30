@@ -15,7 +15,7 @@ from typing import Any
 
 TERMINAL={"passed","changes-requested","execution-failed","review-failed","cancelled","timeout","aborted","infra_blocked","isolation_violated"}
 ACTIVE={"starting","running","reviewing"}
-RUNTIMES={"hermes","copilot"}
+RUNTIMES={"hermes"}
 ROLE_SECTIONS=("rules","skills","tools","utils","clis","mcp_servers")
 class OrchestratorError(Exception):
     def __init__(self,code,message): super().__init__(message); self.code=code
@@ -44,27 +44,14 @@ class HostCredentialBroker:
     @classmethod
     def from_environment(cls,runtime,env=None,lifetime=3600,max_requests=2000):
         env=os.environ if env is None else env
-        if runtime == "hermes":
-            # Hermes OAuth credentials are provider-specific and may require refresh/signing.
-            # Never downgrade profile auth to a manually supplied static key.
-            raise OrchestratorError(
-                "CREDENTIAL_BROKER_UNSUPPORTED_AUTH",
-                "Hermes profile credential reuse is unavailable: no selected main-profile provider adapter is configured",
-            )
-        upstream=env.get("THESYSTEM_BROKER_UPSTREAM_URL")
-        key=env.get("THESYSTEM_BROKER_PROVIDER_KEY")
-        if bool(upstream) != bool(key):
-            raise OrchestratorError("CREDENTIAL_BROKER_INVALID","custom broker upstream and provider key must be configured together")
-        if not (upstream and key):
-            if env.get("OPENROUTER_API_KEY"):
-                upstream="https://openrouter.ai/api/v1"; key=env["OPENROUTER_API_KEY"]
-            elif env.get("OPENAI_API_KEY"):
-                upstream="https://api.openai.com/v1"; key=env["OPENAI_API_KEY"]
-        if not (upstream and key):
-            raise OrchestratorError("CREDENTIAL_BROKER_REQUIRED","contained %s requires THESYSTEM_BROKER_UPSTREAM_URL and a host-held broker/provider key" % runtime)
-        default_model="gpt-4.1-mini" if upstream == "https://api.openai.com/v1" else "openai/gpt-4.1-mini"
-        model=env.get("THESYSTEM_BROKER_MODEL") or env.get("COPILOT_MODEL") or default_model
-        return cls(upstream,key,model,lifetime=lifetime,max_requests=max_requests)
+        if runtime not in RUNTIMES:
+            raise OrchestratorError("RUNTIME_INVALID",runtime)
+        # Hermes OAuth credentials are provider-specific and may require refresh/signing.
+        # Never downgrade profile auth to a manually supplied static key.
+        raise OrchestratorError(
+            "CREDENTIAL_BROKER_UNSUPPORTED_AUTH",
+            "Hermes profile credential reuse is unavailable: no selected main-profile provider adapter is configured",
+        )
 
     def serve(self, socket_path):
         socket_path=Path(socket_path)
@@ -555,8 +542,8 @@ class Orchestrator:
         inspected=subprocess.run(["docker","image","inspect",image],capture_output=True,text=True)
         if inspected.returncode:
             raise OrchestratorError("AGENT_IMAGE_UNAVAILABLE","selected agent image is not available locally")
-        # Fail before allocating a branch or a run. Native Copilot authentication
-        # is not a fallback: a real token must never enter the container.
+        # Fail before allocating a branch or a run when required credentials
+        # cannot be reused safely through the selected host-side provider.
         if not shutil.which("git"):
             raise OrchestratorError("GIT_UNAVAILABLE","git is required for contained execution")
         clone=Path(t["source_clone"])
@@ -592,7 +579,8 @@ class Orchestrator:
         reviewer_bundle=self._build_bundle(rid,"reviewer",reviewer_roles,effective_roles)
         self._ensure_reviewer_covers_worker(worker_bundle,reviewer_bundle)
         clone=Path(t["source_clone"]); base=git(clone,"rev-parse","HEAD"); branch=f"thesystem/{task_id.replace('/','-')}/{uuid.uuid4().hex[:8]}"; git(clone,"branch",branch,base)
-        r={"id":rid,"task_id":task_id,"status":"starting","runtime":t["runtime"],"ticket":t["ticket"],"source_clone":t["source_clone"],"models":{"worker":"openai/gpt-4.1-mini" if t["runtime"]=="hermes" else "copilot/default"},"base_commit":base,"branch":branch,"started_at":now(),"started_epoch":time.time(),"timeout_seconds":int(timeout),"evidence":[],"worker":{"prompt":t["prompt"],"roles":worker_roles,"bundle":worker_bundle},"reviewer":{"roles":reviewer_roles,"bundle":reviewer_bundle}}
+        model=os.environ.get("THESYSTEM_BROKER_MODEL") or "openai/gpt-4.1-mini"
+        r={"id":rid,"task_id":task_id,"status":"starting","runtime":t["runtime"],"ticket":t["ticket"],"source_clone":t["source_clone"],"models":{"worker":model},"base_commit":base,"branch":branch,"started_at":now(),"started_epoch":time.time(),"timeout_seconds":int(timeout),"evidence":[],"worker":{"prompt":t["prompt"],"roles":worker_roles,"bundle":worker_bundle},"reviewer":{"roles":reviewer_roles,"bundle":reviewer_bundle}}
         self.state["runs"][rid]=r; self.save()
         if detach:
             p=subprocess.Popen([sys.executable,__file__,"_run","--project",str(self.project),"--run",rid],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -651,7 +639,7 @@ class Orchestrator:
         finally:
             shutil.rmtree(worker_probe_work,ignore_errors=True)
             shutil.rmtree(reviewer_probe_work,ignore_errors=True)
-    def _docker(self,image,work,cmd,timeout,prompt,readonly=False,layer=None,runtime="copilot",container_name=None,bundle=None):
+    def _docker(self,image,work,cmd,timeout,prompt,readonly=False,layer=None,runtime="hermes",container_name=None,bundle=None):
         if not shutil.which("docker"): raise OrchestratorError("DOCKER_UNAVAILABLE","docker is required")
         if not image: raise OrchestratorError("AGENT_IMAGE_REQUIRED","configure an image with the selected CLI")
         broker=HostCredentialBroker.from_environment(runtime,lifetime=max(1,int(timeout))+30,max_requests=max(2000,int(timeout)*10))
@@ -662,7 +650,7 @@ class Orchestrator:
         if bundle: args += ["-v",f"{bundle}:/bundle:ro","-e","THESYSTEM_BUNDLE=/bundle"]
         if layer: args += ["-v",f"{layer}:/review"]
         env=os.environ.copy()
-        for name in ("COPILOT_GITHUB_TOKEN","GH_TOKEN","GITHUB_TOKEN","OPENROUTER_API_KEY","OPENAI_API_KEY","ANTHROPIC_API_KEY","CLAUDE_CODE_OAUTH_TOKEN","COPILOT_PROVIDER_API_KEY","COPILOT_PROVIDER_BEARER_TOKEN","THESYSTEM_BROKER_PROVIDER_KEY"):
+        for name in ("GH_TOKEN","GITHUB_TOKEN","OPENROUTER_API_KEY","OPENAI_API_KEY","ANTHROPIC_API_KEY","CLAUDE_CODE_OAUTH_TOKEN","THESYSTEM_BROKER_PROVIDER_KEY"):
             env.pop(name,None)
         # AF_UNIX path length is bounded independently of an arbitrary project
         # depth. Mount only this per-run directory into the container.
@@ -673,14 +661,11 @@ class Orchestrator:
             broker.serve(socket_path)
             try:
                 args += ["-v",f"{agent_home}:/run/thesystem","-v",f"{relay_path}:/run/thesystem-relay.py:ro","-e","THESYSTEM_BROKER_CAPABILITY="+broker.capability]
-                if runtime=="copilot":
-                    args += ["-v",f"{agent_home}:/run/copilot-home","-e","HOME=/run/copilot-home","-e","XDG_CACHE_HOME=/run/copilot-home/.cache","-e","COPILOT_HOME=/run/copilot-home","-e","COPILOT_PROVIDER_TYPE=openai","-e","COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:18080/v1","-e","COPILOT_PROVIDER_API_KEY="+broker.capability,"-e","COPILOT_MODEL="+broker.model]
-                elif runtime=="hermes":
-                    (agent_home/"config.yaml").write_text("model:\n  default: %s\n  provider: custom\n  base_url: http://127.0.0.1:18080/v1\n  api_key: ${THESYSTEM_BROKER_CAPABILITY}\n" % broker.model)
-                    # Hermes initializes a disposable home at startup; only
-                    # the opaque capability is stored there, never a real key.
-                    args += ["-v",f"{agent_home}:/home/agent/.hermes","-e","HERMES_HOME=/home/agent/.hermes"]
-                else: raise OrchestratorError("RUNTIME_INVALID",runtime)
+                if runtime!="hermes": raise OrchestratorError("RUNTIME_INVALID",runtime)
+                (agent_home/"config.yaml").write_text("model:\n  default: %s\n  provider: custom\n  base_url: http://127.0.0.1:18080/v1\n  api_key: ${THESYSTEM_BROKER_CAPABILITY}\n" % broker.model)
+                # Hermes initializes a disposable home at startup; only
+                # the opaque capability is stored there, never a real key.
+                args += ["-v",f"{agent_home}:/home/agent/.hermes","-e","HERMES_HOME=/home/agent/.hermes"]
                 wrapper="""python3 /run/thesystem-relay.py /run/thesystem/broker.sock \"$THESYSTEM_BROKER_CAPABILITY\" /run/thesystem/relay.port &
 relay_pid=$!
 cleanup() { kill \"$relay_pid\" 2>/dev/null || true; wait \"$relay_pid\" 2>/dev/null || true; }
@@ -704,8 +689,7 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
         finally:
             shutil.rmtree(agent_home,ignore_errors=True)
     def _agent_command(self,runtime,review=False,prompt=""):
-        if runtime=="copilot":
-            return ["copilot","-p",(prompt+"\nInspect and test in /workspace. This is a disposable review copy of the implementer result; you may modify files for validation as needed. End your response with exactly VERDICT: PASS or VERDICT: FAIL and a reason. Do not access paths outside /workspace." if review else prompt+"\nImplement in /workspace. This is an intentionally empty initial clone; the .git worktree pointer targets host metadata not mounted in the container. Do not attempt to resolve that pointer; create the requested files. The host orchestrator owns commits. Do not access paths outside /workspace."),"--allow-all-tools","--disallow-temp-dir","--disable-builtin-mcps","--available-tools","bash","--reasoning-effort","none",*(["--allow-all-paths"] if review else []),"--no-auto-update","--no-remote","--no-remote-export","--no-ask-user"]
+        if runtime!="hermes": raise OrchestratorError("RUNTIME_INVALID",runtime)
         return ["hermes","chat","--oneshot","--yolo","--ignore-rules","--provider","custom","--query-file","/run/prompt","--in","/workspace","--run-budget","600","--max-turns","40"]
     def _worker(self,r,t):
         clone=Path(t["source_clone"]); work=self.root/"worktrees"/r["id"]; work.parent.mkdir(parents=True,exist_ok=True); git(clone,"worktree","add",str(work),r["branch"])
@@ -743,7 +727,8 @@ for attempt in $(seq 1 50); do [ -s /run/thesystem/relay.port ] && break; sleep 
             test=subprocess.run(test_args,capture_output=True,text=True,timeout=120)
             verdicts=re.findall(r"(?im)^VERDICT: (PASS|FAIL)\b",p.stdout)
             diff=git(work,"diff","--stat",r["base_commit"])
-            return {"review_runtime":review_runtime,"model":"openai/gpt-4.1-mini" if review_runtime=="hermes" else "copilot/default","passed":p.returncode==0 and before_test.returncode==0 and test.returncode==0 and unchanged and bool(diff) and verdicts[-1:]==["PASS"],"returncode":p.returncode,"stdout":p.stdout[-8000:],"stderr":p.stderr[-4000:],"diff_stat":diff,"independent":True,"worker_tree_unchanged":unchanged,"verdict":verdicts[-1] if verdicts else None,"pre_review_test_result":{"returncode":before_test.returncode,"stdout":before_test.stdout[-2000:],"stderr":before_test.stderr[-2000:]},"test_result":{"returncode":test.returncode,"stdout":test.stdout[-2000:],"stderr":test.stderr[-2000:]},"review_layer_changed":sorted(str(x.relative_to(layer)) for x in layer.rglob('*') if x.is_file() and (not (work/x.relative_to(layer)).exists() or x.read_bytes()!=(work/x.relative_to(layer)).read_bytes()))}
+            model=os.environ.get("THESYSTEM_BROKER_MODEL") or "openai/gpt-4.1-mini"
+            return {"review_runtime":review_runtime,"model":model,"passed":p.returncode==0 and before_test.returncode==0 and test.returncode==0 and unchanged and bool(diff) and verdicts[-1:]==["PASS"],"returncode":p.returncode,"stdout":p.stdout[-8000:],"stderr":p.stderr[-4000:],"diff_stat":diff,"independent":True,"worker_tree_unchanged":unchanged,"verdict":verdicts[-1] if verdicts else None,"pre_review_test_result":{"returncode":before_test.returncode,"stdout":before_test.stdout[-2000:],"stderr":before_test.stderr[-2000:]},"test_result":{"returncode":test.returncode,"stdout":test.stdout[-2000:],"stderr":test.stderr[-2000:]},"review_layer_changed":sorted(str(x.relative_to(layer)) for x in layer.rglob('*') if x.is_file() and (not (work/x.relative_to(layer)).exists() or x.read_bytes()!=(work/x.relative_to(layer)).read_bytes()))}
         finally: self._remove_worktree(clone,work); pf.unlink(missing_ok=True); shutil.rmtree(layer,ignore_errors=True)
     def _remove_worktree(self,clone,work): subprocess.run(["git","worktree","remove","--force",str(work)],cwd=clone,capture_output=True,text=True)
 

@@ -227,11 +227,10 @@ def evaluate_with_jev(request: PendingRequest, criteria: tuple[Criterion, ...], 
         return Evaluation("EVALUATION ERROR", model or "", {}, f"{type(exc).__name__}: {exc}")
 
 
-def evaluate_with_headless(
-    request: PendingRequest, criteria: tuple[Criterion, ...], runtime: str,
-) -> Evaluation:
+def evaluate_with_headless(request: PendingRequest, criteria: tuple[Criterion, ...]) -> Evaluation:
     """Fresh CLI evaluation: reasons only, never invented calibrated probabilities."""
     import shutil
+    runtime = "hermes"
     executable = shutil.which(runtime)
     if not executable:
         return Evaluation("EVALUATION UNAVAILABLE", runtime, {}, f"{runtime} CLI unavailable")
@@ -241,35 +240,16 @@ def evaluate_with_headless(
               "with a concerns array. Each concern must have criterion_id and reason. "
               "List only problems supported by the proposal; if none use an empty array. "
               "Do not invent numerical scores.\n" + canonical_json(payload))
-    if runtime == "copilot":
-        command = [executable, "-p", prompt, "--silent", "--allow-all-tools", "--disable-builtin-mcps",
-                   "--no-custom-instructions", "--no-auto-update", "--no-remote", "--no-remote-export", "--no-ask-user"]
-    else:
-        command = [executable, "-p", "master", "chat", "--oneshot", "--ignore-rules", "--query-file", "-",
-                   "--run-budget", "55", "--max-turns", "3", "-Q"]
-        if os.environ.get("HERMES_EVALUATOR_PROVIDER"):
-            command.extend(["--provider", os.environ["HERMES_EVALUATOR_PROVIDER"]])
-        if os.environ.get("HERMES_EVALUATOR_MODEL"):
-            command.extend(["--model", os.environ["HERMES_EVALUATOR_MODEL"]])
+    command = [executable, "-p", "master", "chat", "--oneshot", "--ignore-rules", "--query-file", "-",
+               "--run-budget", "55", "--max-turns", "3", "-Q"]
+    if os.environ.get("HERMES_EVALUATOR_PROVIDER"):
+        command.extend(["--provider", os.environ["HERMES_EVALUATOR_PROVIDER"]])
+    if os.environ.get("HERMES_EVALUATOR_MODEL"):
+        command.extend(["--model", os.environ["HERMES_EVALUATOR_MODEL"]])
     try:
-        # No personal profile is imported into Copilot operation. Each call is
-        # a new CLI process; no resume or session reuse is permitted.
+        # Each call is a new CLI process; no resume or session reuse is permitted.
         env = os.environ.copy()
-        temporary = None
-        if runtime == "copilot":
-            import tempfile
-            temporary = tempfile.TemporaryDirectory(prefix="thesystem-eval-")
-            env["COPILOT_HOME"] = temporary.name
-            if not any(env.get(k) for k in ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")):
-                auth = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=15)
-                if auth.returncode or not auth.stdout.splitlines():
-                    return Evaluation("EVALUATION UNAVAILABLE", runtime, {}, "Copilot authentication unavailable")
-                env["COPILOT_GITHUB_TOKEN"] = auth.stdout.splitlines()[-1].strip()
-        try:
-            process = subprocess.run(command, input=prompt if runtime == "hermes" else None,
-                                     capture_output=True, text=True, timeout=65, check=False, env=env)
-        finally:
-            if temporary: temporary.cleanup()
+        process = subprocess.run(command, input=prompt, capture_output=True, text=True, timeout=65, check=False, env=env)
         if process.returncode:
             return Evaluation("EVALUATION UNAVAILABLE", runtime, {}, (process.stderr or process.stdout)[-600:])
         output = process.stdout.strip()
@@ -364,33 +344,13 @@ def evaluate_one(
         return Evaluation("EVALUATED", model, cached)
     # A possible secret is retained locally by the caller-facing show path.
     # Remote System One is preferred only when explicitly configured; every
-    # failure falls back to a fresh evaluator for the selected agent lane.
+    # failure falls back to a fresh headless Hermes evaluator.
     evaluation = evaluate_with_jev(request, catalog.criteria, model)
     if evaluation.status != "EVALUATED":
-        runtime = os.environ.get("MEMORY_REVIEW_RUNTIME", "hermes").lower()
-        if runtime not in {"hermes", "copilot"}:
-            runtime = "hermes"
-        evaluation = evaluate_with_headless(request, catalog.criteria, runtime)
+        evaluation = evaluate_with_headless(request, catalog.criteria)
     _store_evaluation(state, request, catalog, evaluation)
     return evaluation
 
-
-def evaluate_one_for_runtime(
-    request: PendingRequest, catalog: Catalog, runtime: str,
-    model: str | None = None, state: dict[str, Any] | None = None,
-) -> Evaluation:
-    """Evaluate in a selected native lane and never import the other agent."""
-    if runtime not in {"hermes", "copilot"}:
-        return Evaluation("EVALUATION UNAVAILABLE", runtime, {}, "unknown selected runtime")
-    original = os.environ.get("MEMORY_REVIEW_RUNTIME")
-    os.environ["MEMORY_REVIEW_RUNTIME"] = runtime
-    try:
-        return evaluate_one(request, catalog, model, state)
-    finally:
-        if original is None:
-            os.environ.pop("MEMORY_REVIEW_RUNTIME", None)
-        else:
-            os.environ["MEMORY_REVIEW_RUNTIME"] = original
 
 
 def cache_key(request: PendingRequest, criterion: Criterion, model: str) -> str:

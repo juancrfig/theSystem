@@ -5,7 +5,7 @@ description: Use when reviewing selected project wiki/raw sources for human-appr
 
 # Ingest selected project sources
 
-Build on the project-local `llm-wiki` conventions. Never use a personal/global wiki as a fallback. Resolve the registered company project first and operate only within its `wiki/` directory. This skill is available in both Hermes and Copilot experiences; it does not depend on Hermes APIs.
+Build on the project-local `llm-wiki` conventions. Never use a personal/global wiki as a fallback. Resolve the registered company project first and operate only within its `wiki/` directory.
 
 ## Prepare a proposal, without writing knowledge
 
