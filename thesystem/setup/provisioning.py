@@ -145,16 +145,26 @@ def skills_to_pin(workspace: Path, profile_home: Path, usage) -> list[str]:
         raise ValueError("Expected a list of curator skills")
     known = {}
     for entry in usage:
-        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str) or not entry["name"]:
+        if not isinstance(entry, dict):
             raise ValueError("Invalid curator skill entry")
-        known[entry["name"]] = entry
+        name = entry.get("name")
+        provenance = entry.get("provenance")
+        if (not isinstance(name, str) or not name or not isinstance(provenance, str)
+                or provenance not in {"agent", "bundled", "hub"}):
+            raise ValueError("Invalid curator skill entry")
+        if name in known:
+            raise ValueError(f"Duplicate curator skill entry: {name}")
+        known[name] = entry
     root = Path(workspace) / "agents" / "skills"
     manifests = list(root.rglob("SKILL.md"))
     if not manifests:
         raise ValueError(f"No global skills found in {root}")
     sidecar = Path(profile_home) / "skills" / ".usage.json"
     recorded = json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.exists() else {}
-    if not isinstance(recorded, dict) or any(not isinstance(entry, dict) for entry in recorded.values()):
+    if (not isinstance(recorded, dict)
+            or any(not isinstance(name, str) or not name or not isinstance(entry, dict)
+                   or ("pinned" in entry and not isinstance(entry["pinned"], bool))
+                   for name, entry in recorded.items())):
         raise ValueError(f"Invalid curator usage sidecar: {sidecar}")
     return [name for name in sorted({path.parent.name for path in manifests})
             if known.get(name, {}).get("provenance") not in ("bundled", "hub")

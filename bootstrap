@@ -60,55 +60,6 @@ ensure_profile_exists() {
   fi
 }
 
-resolve_hermes_python() {
-  local hermes_launcher hermes_shebang hermes_python
-  hermes_launcher=$(command -v hermes)
-  IFS= read -r hermes_shebang < "$hermes_launcher"
-  if [[ "$hermes_shebang" == '#!'/* && "$hermes_shebang" != '#!/usr/bin/env '* ]]; then
-    hermes_python=${hermes_shebang#\#!}
-  else
-    while IFS= read -r line; do
-      case "$line" in
-        'exec "'*)
-          hermes_python=${line#exec \"}
-          hermes_python=${hermes_python%%\"*}
-          break
-          ;;
-      esac
-    done < "$hermes_launcher"
-  fi
-  if [[ -z "${hermes_python:-}" || ! -x "$hermes_python" ]]; then
-    printf 'Unable to resolve Hermes Python runtime from: %s\n' "$hermes_launcher" >&2
-    exit 1
-  fi
-  printf '%s\n' "$hermes_python"
-}
-
-verify_project_skills() {
-  local hermes_python
-  hermes_python=$(resolve_hermes_python)
-  HERMES_HOME="$default_hermes_home" TERMINAL_CWD="$repo_root" "$hermes_python" - "$repo_root" <<'PY'
-from pathlib import Path
-import sys
-
-from agent.skill_utils import get_project_skills_dirs, iter_project_skill_files, iter_skill_index_files
-
-root = Path(sys.argv[1])
-skill_root = root / ".agents" / "skills"
-expected = {str(path.parent.relative_to(skill_root)) for path in iter_skill_index_files(skill_root, "SKILL.md")}
-accepted = {
-    str(path.parent.relative_to(directory))
-    for directory in get_project_skills_dirs()
-    for path in iter_project_skill_files(directory)
-}
-unavailable = expected - accepted
-if unavailable:
-    print("Project skills unavailable after Hermes security filtering: " + ", ".join(sorted(unavailable)), file=sys.stderr)
-    raise SystemExit(1)
-print(f"{len(accepted)} skills accepted")
-PY
-}
-
 canonical_entries() {
   provisioning config-entries "$canonical_config"
 }
@@ -158,33 +109,8 @@ enable_required_toolsets() {
 }
 
 provision_memory_review() {
-  local hermes_python
-  hermes_python=$(resolve_hermes_python)
-  if [[ ! -x "$memory_review_env/bin/python" ]]; then
-    uv venv --python "$hermes_python" "$memory_review_env"
-  fi
-  uv pip install --python "$memory_review_env/bin/python" --requirements "$memory_review_requirements"
-  # Native decisions need Hermes and its dependencies without installing the SDK
-  # into Hermes's own environment. Local review packages take precedence.
-  "$memory_review_env/bin/python" - "$hermes_python" <<'PY'
-import json
-from pathlib import Path
-import subprocess
-import sys
-import sysconfig
-
-runtime = subprocess.run(
-    [sys.argv[1], "-I", "-c", "import json, site, sys; print(json.dumps([list(sys.version_info[:2]), site.getsitepackages()]))"],
-    check=True, capture_output=True, text=True,
-)
-version, paths = json.loads(runtime.stdout)
-if version != list(sys.version_info[:2]):
-    raise SystemExit("Review environment Python differs from Hermes; recreate .agents/memory-review and rerun bootstrap.")
-target = Path(sysconfig.get_path("purelib")) / "hermes-runtime.pth"
-target.write_text("import site; " + "; ".join(f"site.addsitedir({path!r})" for path in paths) + "\n", encoding="utf-8")
-PY
-  uv pip check --python "$memory_review_env/bin/python"
-  "$memory_review_env/bin/python" -c 'from typesafe_sdk import Noul, TypeSafeClient; from tools import write_approval; from hermes_cli.write_approval_commands import _apply_one; from importlib.metadata import version; print("typesafe-sdk " + version("typesafe-sdk"))'
+  provisioning memory-review "$repo_root" "$default_hermes_home" --runtime launcher \
+    --environment "$memory_review_env" --requirements "$memory_review_requirements"
   step_detail='isolated review environment ready'
 }
 
@@ -237,50 +163,24 @@ link_project_skills() {
 }
 
 trust_repository() {
-  HERMES_HOME="$default_hermes_home" hermes skills trust "$repo_root" >/dev/null
+  provisioning trust-skills "$repo_root" "$default_hermes_home"
 }
 
 verify_skills() {
-  step_detail=$(verify_project_skills)
+  step_detail=$(provisioning verify-skills "$repo_root" "$default_hermes_home" --runtime launcher)
 }
 
-# The repository's global skill declarations are the source of truth. Hermes
-# refuses pins for bundled/hub skills (already exempt from curation).
 pin_global_skills() {
-  local usage skill_names skill pinned_count=0
-  usage=$(HERMES_HOME="$default_hermes_home" hermes curator usage --json)
-  skill_names=$(python3 -c '
-import json
-import sys
-from pathlib import Path
-
-skills = json.load(sys.stdin)
-if not isinstance(skills, list):
-    raise SystemExit("Expected a list of curator skills")
-known = {}
-for entry in skills:
-    if not isinstance(entry, dict) or not isinstance(entry.get("name"), str) or not entry["name"]:
-        raise SystemExit("Invalid curator skill entry")
-    known[entry["name"]] = entry
-root = Path(sys.argv[1]) / "agents" / "skills"
-sidecar = Path(sys.argv[2]) / "skills" / ".usage.json"
-recorded = json.loads(sidecar.read_text()) if sidecar.exists() else {}
-if not isinstance(recorded, dict):
-    raise SystemExit(f"Invalid curator usage sidecar: {sidecar}")
-manifests = list(root.rglob("SKILL.md"))
-if not manifests:
-    raise SystemExit(f"No global skills found in {root}")
-for name in sorted({path.parent.name for path in manifests}):
-    entry = known.get(name, {})
-    if entry.get("provenance") not in ("bundled", "hub") and not recorded.get(name, {}).get("pinned", False):
-        print(name)
-' "$repo_root" "$default_hermes_home" <<<"$usage")
-  while IFS= read -r skill; do
-    [[ -n "$skill" ]] || continue
-    HERMES_HOME="$default_hermes_home" hermes curator pin "$skill"
-    ((pinned_count += 1))
-  done <<<"$skill_names"
-  step_detail="$pinned_count newly pinned"
+  local count_file status
+  count_file=$(mktemp)
+  if provisioning pin-skills "$repo_root" "$default_hermes_home" --count-file "$count_file"; then
+    step_detail="$(<"$count_file") newly pinned"
+    rm -f "$count_file"
+  else
+    status=$?
+    rm -f "$count_file"
+    return "$status"
+  fi
 }
 
 steps=(

@@ -13,12 +13,14 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from typing import Any
 
+from thesystem.errors import CodedError
+from thesystem.guidance import GuidanceError, ROLE_SECTIONS, read_role_file
+
 TERMINAL={"passed","changes-requested","execution-failed","review-failed","cancelled","timeout","aborted","infra_blocked","isolation_violated"}
 ACTIVE={"starting","running","reviewing"}
 RUNTIMES={"hermes"}
-ROLE_SECTIONS=("rules","skills","tools","utils","clis","mcp_servers")
-class OrchestratorError(Exception):
-    def __init__(self,code,message): super().__init__(message); self.code=code
+class OrchestratorError(CodedError):
+    pass
 
 class _NoCredentialRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -248,25 +250,10 @@ class Orchestrator:
                 lines.append(text)
         return [x for x in lines if x]
     def _load_roles_file(self,path):
-        if not path.exists(): return {}
-        if path.is_symlink() or not path.is_file(): raise OrchestratorError("ROLE_CONFIG_INVALID",f"roles file is not a regular file: {path}")
-        try: payload=json.loads(path.read_text())
-        except json.JSONDecodeError as error:
-            raise OrchestratorError("ROLE_CONFIG_INVALID",f"roles file must be JSON-compatible YAML object: {path}: {error.msg}") from error
-        if not isinstance(payload,dict): raise OrchestratorError("ROLE_CONFIG_INVALID",f"roles file must contain an object: {path}")
-        normalized={}
-        for role,spec in payload.items():
-            if not isinstance(role,str) or not role.strip() or not isinstance(spec,dict):
-                raise OrchestratorError("ROLE_CONFIG_INVALID",f"invalid role declaration in {path}: {role!r}")
-            role_spec={}
-            for section,entries in spec.items():
-                if section not in ROLE_SECTIONS:
-                    raise OrchestratorError("ROLE_CONFIG_INVALID",f"unknown role section {section!r} in {path}")
-                if not isinstance(entries,list) or any((not isinstance(entry,str) or not entry.strip()) for entry in entries):
-                    raise OrchestratorError("ROLE_CONFIG_INVALID",f"role section {role}.{section} in {path} must be a list of non-empty strings")
-                role_spec[section]=[entry.strip() for entry in entries]
-            normalized[role]=role_spec
-        return normalized
+        try:
+            return read_role_file(path)
+        except GuidanceError as error:
+            raise OrchestratorError(error.code, str(error)) from error
     def _effective_roles(self):
         global_roles=self._load_roles_file(self.global_agents/"roles.yaml")
         project_roles=self._load_roles_file(self.project/"agents"/"roles.yaml")

@@ -73,6 +73,8 @@ def main(argv=None):
                     requirements = args.requirements or args.workspace / "agents" / "skills" / "memory-request-review" / "requirements.txt"
                     provision_memory_review(environment, requirements, runtime)
     except subprocess.CalledProcessError as exc:
+        if exc.stderr:
+            print(exc.stderr, end="" if exc.stderr.endswith("\n") else "\n", file=sys.stderr)
         # Preserve failures rather than hiding them behind a successful adapter.
         return exc.returncode if exc.returncode > 0 else 128 - exc.returncode
     except (OSError, ValueError) as exc:

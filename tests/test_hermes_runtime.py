@@ -22,8 +22,8 @@ class HermesRuntimeTests(unittest.TestCase):
         self.launcher = self.root / 'hermes launcher'
         self.home = self.root / 'isolated home'
         self.target = HermesTarget(self.home, executable=str(self.launcher))
-        self.script = self.root / 'script with spaces.py'
-        self.script.write_text('import json, os, sys; print(json.dumps([sys.argv[1:], os.environ["HERMES_HOME"], os.environ.get("TERMINAL_CWD"), "fixture_bootstrap" in sys.modules])); raise SystemExit(int(os.environ.get("SCRIPT_EXIT", "0")))')
+        self.script = self.root / 'script café with spaces.py'
+        self.script.write_text('import json, os, sys; print(json.dumps([sys.argv[1:], os.environ["HERMES_HOME"], os.environ.get("TERMINAL_CWD"), "fixture_bootstrap" in sys.modules, __file__, __name__])); raise SystemExit(int(os.environ.get("SCRIPT_EXIT", "0")))')
         self.source = self.root / 'Hermes source with spaces'
         (self.source / 'hermes_cli').mkdir(parents=True)
         (self.source / 'fixture_bootstrap.py').write_text('VALUE = True\n')
@@ -43,17 +43,17 @@ class HermesRuntimeTests(unittest.TestCase):
                 self.launcher.chmod(0o755)
                 runtime = LauncherRuntime.discover(self.target)
                 self.assertEqual(runtime.python, Path(sys.executable))
-                result = runtime.run_file(self.script, 'space argument', 'semi;colon', capture=True,
+                result = runtime.run_file(self.script, 'space argument', 'semi;colon', 'naïve 🧪', capture=True,
                                           environment={'TERMINAL_CWD': str(self.root)})
-                self.assertEqual(json.loads(result.stdout), [['space argument', 'semi;colon'], str(self.home), str(self.root), False])
+                self.assertEqual(json.loads(result.stdout), [['space argument', 'semi;colon', 'naïve 🧪'], str(self.home), str(self.root), False, str(self.script), '__main__'])
 
     def test_published_runtime_preserves_bootstrap_and_arguments(self):
         self.publish()
         runtime = PublishedRuntime.discover(self.target)
         self.assertEqual(runtime.python, Path(sys.executable))
-        result = runtime.run_file(self.script, 'space argument', 'semi;colon', capture=True,
+        result = runtime.run_file(self.script, 'space argument', 'semi;colon', 'naïve 🧪', capture=True,
                                   environment={'TERMINAL_CWD': str(self.root)})
-        self.assertEqual(json.loads(result.stdout), [['space argument', 'semi;colon'], str(self.home), str(self.root), True])
+        self.assertEqual(json.loads(result.stdout), [['space argument', 'semi;colon', 'naïve 🧪'], str(self.home), str(self.root), True, str(self.script), '__main__'])
         self.assertFalse(list(self.source.rglob('__pycache__')))
 
     def test_unavailable_launcher_interpreter_is_refused(self):

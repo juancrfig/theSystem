@@ -1,8 +1,10 @@
 """Offline regression checks for bootstrap's isolated review provisioning."""
 import os
 from pathlib import Path
+import shutil
 import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -16,6 +18,8 @@ class MemoryReviewBootstrapTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / "checkout with spaces"
         self.root.mkdir()
+        shutil.copytree(ROOT / "thesystem", self.root / "thesystem",
+                        ignore=shutil.ignore_patterns("__pycache__"))
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.log = self.root / "calls"
@@ -35,22 +39,22 @@ if os.environ.get("FAIL_AT") == " ".join(args[:2]):
 if args[0] == "venv":
     target = pathlib.Path(args[-1]) / "bin" / "python"
     target.parent.mkdir(parents=True)
-    target.write_text("#!/bin/sh\\nexit ${IMPORT_EXIT:-0}\\n")
+    target.write_text("#!/bin/sh\\ncase \\\"$*\\\" in *verify-review-imports*) exit ${IMPORT_EXIT:-0};; *) exit 0;; esac\\n")
     target.chmod(0o755)
 if args[:2] == ["pip", "install"]:
     with open(os.environ["CALL_LOG"], "a") as log:
         log.write(pathlib.Path(args[-1]).read_text())
 ''')
-        self.env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}",
+        self.mock_command("hermes", f"#!{sys.executable}\n")
+        home = self.root / "home"
+        home.mkdir()
+        self.env = dict(os.environ, HOME=str(home), PATH=f"{self.bin}:{os.environ['PATH']}",
                         CALL_LOG=str(self.log))
         self.source_file = self.root / "bootstrap-functions"
         self.source_file.write_text((ROOT / "bootstrap").read_text().split("\nsteps=(", 1)[0])
         self.source = f"source {shlex.quote(str(self.source_file))}\n"
-        self.setup = (
-            '\nresolve_hermes_python() { command -v python3; }\n'
-            f"\nmemory_review_env={shlex.quote(str(self.env_dir))}\n"
-            f"memory_review_requirements={shlex.quote(str(self.requirements))}\n"
-        )
+        self.setup = (f"\nmemory_review_env={shlex.quote(str(self.env_dir))}\n"
+                      f"memory_review_requirements={shlex.quote(str(self.requirements))}\n")
 
     def mock_command(self, name, content):
         path = self.bin / name

@@ -8,12 +8,56 @@ import unittest
 from unittest import mock
 
 import company_cli
+import thesystem.cli as company_command
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "company_cli.py"
 
 
 class CompanyCliTests(unittest.TestCase):
+    def test_every_company_orchestrator_action_requires_a_registered_project_before_dispatch(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            outside = Path(td) / "outside"
+            workspace.mkdir()
+            outside.mkdir()
+            actions = {
+                "create-task": ["--task", "one", "--source-clone", str(outside), "--command", "work"],
+                "approve": ["--task", "one"],
+                "start": ["--task", "one"],
+                "status": ["--task", "one"],
+                "cancel": ["--run", "run1"],
+                "integrate": ["--run", "run1"],
+            }
+            for prefix in ([], ["orchestrator"]):
+                for action, options in actions.items():
+                    with self.subTest(prefix=prefix, action=action):
+                        result = self.run_cli(workspace, *prefix, action, "--project", str(outside), *options)
+                        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                        self.assertEqual(json.loads(result.stdout)["code"], "PROJECT_OUTSIDE_WORKSPACE")
+            self.assertFalse((outside / ".thesystem" / "orchestrator").exists())
+
+    def test_every_company_orchestrator_action_rejects_an_unregistered_in_workspace_project(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "unregistered"
+            project.mkdir(parents=True)
+            actions = {
+                "create-task": ["--task", "one", "--source-clone", str(project), "--command", "work"],
+                "approve": ["--task", "one"],
+                "start": ["--task", "one"],
+                "status": ["--task", "one"],
+                "cancel": ["--run", "run1"],
+                "integrate": ["--run", "run1"],
+            }
+            for prefix in ([], ["orchestrator"]):
+                for action, options in actions.items():
+                    with self.subTest(prefix=prefix, action=action):
+                        result = self.run_cli(workspace, *prefix, action, "--project", str(project), *options)
+                        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                        self.assertEqual(json.loads(result.stdout)["code"], "PROJECT_NOT_REGISTERED")
+            self.assertFalse((project / ".thesystem" / "orchestrator").exists())
+
     def test_source_clone_registration_is_project_scoped_and_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
             workspace = Path(td) / "workspace"
@@ -103,20 +147,60 @@ class CompanyCliTests(unittest.TestCase):
             result = self.run_cli(workspace, "evidence", "--project", str(project), "--run", "abc")
             self.assertEqual(json.loads(result.stdout)["run"]["status"], "changes-requested")
             with mock.patch.dict(os.environ, {"THESYSTEM_WORKSPACE": str(workspace)}), \
-                 mock.patch("company_cli.subprocess.run", return_value=subprocess.CompletedProcess([], 0, '{"counts": {"memory": 0}}', "")) as run, \
-                 mock.patch("company_cli.emit"):
+                 mock.patch("thesystem.learning.subprocess.run", return_value=subprocess.CompletedProcess([], 0, '{"counts": {"memory": 0}}', "")) as run, \
+                 mock.patch("thesystem.cli.emit"):
                 self.assertEqual(company_cli.main(["learning", "inventory"]), 0)
             command = run.call_args.args[0]
             self.assertIn("inventory", command)
             self.assertTrue(command[1].endswith("review_memory_requests.py"))
 
+    def test_company_orchestration_requires_binding_before_lifecycle_construction(self):
+        result = self.run_cli(None, "status", "--project", "/tmp/outside")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(json.loads(result.stdout)["code"], "WORKSPACE_NOT_BOUND")
+
+    def test_orchestrator_duplicate_and_malformed_options_fail_before_lifecycle_loading(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "project"
+            project.mkdir(parents=True)
+            self.assertEqual(self.run_cli(workspace, "add-project", str(project)).returncode, 0)
+
+            cases = (
+                ("status", "--project", str(project), "--project", str(project)),
+                ("status", "--project", str(project), "--unknown", "value"),
+                ("status", "--project", str(project), "--task"),
+                ("approve", "--project", str(project), "--task", "missing", "--timeout", "bad"),
+            )
+            for command in cases:
+                with self.subTest(command=command):
+                    result = self.run_cli(workspace, *command)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertEqual(json.loads(result.stdout)["code"],
+                                     "TIMEOUT_INVALID" if "bad" in command else "ORCHESTRATOR_USAGE")
+                    self.assertEqual(len(result.stdout.splitlines()), 1)
+            self.assertFalse((project / ".thesystem" / "orchestrator").exists())
+
+    def test_company_task_not_found_retains_orchestrator_error_code(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "project"
+            project.mkdir(parents=True)
+            registered = self.run_cli(workspace, "add-project", str(project))
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+
+            result = self.run_cli(workspace, "status", "--project", str(project), "--task", "missing")
+
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(json.loads(result.stdout)["code"], "TASK_NOT_FOUND")
+
     def test_no_arguments_show_help_without_binding_or_subprocesses(self):
-        with mock.patch("company_cli.workspace_path") as workspace, \
-             mock.patch("company_cli.subprocess.run") as run, \
-             mock.patch("company_cli.subprocess.call") as call, \
+        with mock.patch("thesystem.cli.workspace_path") as workspace, \
+             mock.patch("thesystem.cli.subprocess.run") as run, \
+             mock.patch("thesystem.cli.subprocess.call") as call, \
              mock.patch("builtins.print") as output:
             self.assertEqual(company_cli.main([]), 0)
-        output.assert_called_once_with(company_cli.usage())
+        output.assert_called_once_with(company_command.usage())
         workspace.assert_not_called()
         run.assert_not_called()
         call.assert_not_called()
@@ -127,9 +211,9 @@ class CompanyCliTests(unittest.TestCase):
     def test_removed_launch_commands_are_rejected_without_subprocesses(self):
         for args in (["launch"], ["--direct"], ["--json", "launch"], ["--json", "--direct"]):
             with self.subTest(args=args), \
-                 mock.patch("company_cli.subprocess.run") as run, \
-                 mock.patch("company_cli.subprocess.call") as call, \
-                 mock.patch("company_cli.emit") as emit:
+                 mock.patch("thesystem.cli.subprocess.run") as run, \
+                 mock.patch("thesystem.cli.subprocess.call") as call, \
+                 mock.patch("thesystem.cli.emit") as emit:
                 self.assertEqual(company_cli.main(args), 2)
                 self.assertEqual(emit.call_args.args[0]["code"], "UNKNOWN_COMMAND")
                 run.assert_not_called()

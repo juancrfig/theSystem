@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import shlex
 import subprocess
 import tempfile
@@ -20,6 +21,9 @@ class CuratorBootstrapTests(unittest.TestCase):
         self.home = self.root / "hermes home"
         self.home.mkdir()
         self.checkout = self.root / "checkout"
+        self.checkout.mkdir()
+        shutil.copytree(ROOT / "thesystem", self.checkout / "thesystem",
+                        ignore=shutil.ignore_patterns("__pycache__"))
         self.skills = self.checkout / "agents" / "skills"
         self.skills.mkdir(parents=True)
         self.bin = self.root / "bin"
@@ -53,7 +57,7 @@ else:
     sys.exit(6)
 ''')
         self.mock_hermes.chmod(0o755)
-        self.source_file = self.root / "bootstrap-functions"
+        self.source_file = self.checkout / "bootstrap-functions"
         self.source_file.write_text((ROOT / "bootstrap").read_text().split("\nsteps=(", 1)[0])
         self.env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}")
 

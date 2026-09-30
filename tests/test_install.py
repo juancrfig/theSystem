@@ -133,6 +133,8 @@ class InstallerIntegrationTests(unittest.TestCase):
             fake_agent.mkdir()
             (fake_agent / "__init__.py").write_text("")
             (fake_agent / "skill_utils.py").write_text("from pathlib import Path\nimport os\ndef iter_skill_index_files(root, name): return Path(root).rglob(name)\ndef get_project_skills_dirs(): return [Path(os.environ['TERMINAL_CWD']) / '.agents' / 'skills']\ndef iter_project_skill_files(directory): return Path(directory).rglob('SKILL.md')\n")
+            published_source = root / "hermes_cli"
+            published_source.mkdir()
             (root / "yaml.py").write_text("def safe_load(_text): return {'test': True}\n")
             log = root / "calls.jsonl"
             (bin_dir / "uv").write_text("#!/bin/sh\nif [ \"$1\" = venv ]; then mkdir -p \"$4/bin\"; printf '#!/bin/sh\\nexit ${IMPORT_EXIT:-0}\\n' > \"$4/bin/python\"; chmod +x \"$4/bin/python\"; fi\nexit 0\n")

@@ -335,43 +335,6 @@ configure_master_profile() {
   master_hermes setup </dev/tty >/dev/tty 2>/dev/tty
 }
 
-resolve_hermes_python() {
-  local launcher command_json python_path
-  launcher=$(command -v hermes)
-  command_json=$(HERMES_HOME="$HERMES_HOME_ROOT" "$launcher" --print-runtime-command) \
-    || die "Hermes could not resolve its supported runtime from $launcher"
-  python_path=$(python3 -c 'import json,sys; command=json.loads(sys.stdin.read()); print(command[0])' <<<"$command_json") \
-    || die "Hermes returned an invalid runtime command"
-  [[ -x "$python_path" ]] || die "Hermes runtime is not executable: $python_path"
-  printf '%s\n' "$python_path"
-}
-
-# Run a Python file with the exact command published by Hermes.  In particular,
-# do not invoke the interpreter from a shell wrapper directly: hermes_bootstrap
-# creates the dependency/runtime path that the installer relies on.
-run_hermes_python_file() {
-  local script=$1; shift
-  local command_json
-  command_json=$(HERMES_HOME="$HERMES_HOME_ROOT" hermes --print-runtime-command) \
-    || die 'Hermes could not publish its runtime command'
-  python3 - "$command_json" "$script" "$@" <<'PY'
-import json, os, subprocess, sys
-command=json.loads(sys.argv[1])
-if not isinstance(command, list) or len(command) < 4:
-    raise SystemExit('Hermes returned an invalid runtime command')
-script=sys.argv[2]
-bootstrap=command[3]
-marker="runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)"
-if marker not in bootstrap:
-    raise SystemExit('Hermes runtime command does not bootstrap hermes_cli.main')
-code=bootstrap.replace(marker, "exec(compile(open(sys.argv[1], encoding='utf-8').read(), sys.argv[1], 'exec'))", 1)
-env=os.environ.copy()
-env['HERMES_HOME']=env.get('HERMES_HOME') or os.environ.get('HERMES_HOME_ROOT', '')
-result=subprocess.run([command[0], '-I', '-c', code, script, *sys.argv[3:]], env=env)
-raise SystemExit(result.returncode)
-PY
-}
-
 check_required_files() {
   local root=$1
   for f in agents/.harness/canonical_config.tsv agents/.harness/required_toolsets.txt agents/skills/memory-request-review/requirements.txt; do
@@ -386,55 +349,20 @@ enable_required_toolsets() {
 }
 
 provision_memory_review() {
-  local root=$1 env_dir req runtime runtime_paths path_script
-  env_dir="$root/.agents/memory-review"
-  req="$root/agents/skills/memory-request-review/requirements.txt"
-  runtime=$(resolve_hermes_python)
-  if [[ ! -x "$env_dir/bin/python" ]]; then uv venv --python "$runtime" "$env_dir"; fi
-  uv pip install --python "$env_dir/bin/python" --requirements "$req"
-  path_script=$(mktemp)
-  printf '%s\n' 'import json,sys; print(json.dumps([p for p in sys.path if "site-packages" in p]))' > "$path_script"
-  runtime_paths=$(run_hermes_python_file "$path_script") || die 'Hermes runtime dependency paths unavailable'
-  rm -f "$path_script"
-  "$env_dir/bin/python" - "$runtime" "$runtime_paths" <<'PY'
-import json, subprocess, sys, sysconfig
-from pathlib import Path
-import ast
-runtime=subprocess.run([sys.argv[1],'-I','-c','import json,site,sys; print(json.dumps([list(sys.version_info[:2]),site.getsitepackages()]))'],check=True,capture_output=True,text=True)
-version, paths=json.loads(runtime.stdout)
-paths.extend(json.loads(sys.argv[2]))
-if version != list(sys.version_info[:2]): raise SystemExit('review environment Python differs from Hermes')
-command=subprocess.run(['hermes','--print-runtime-command'],check=True,capture_output=True,text=True)
-bootstrap=json.loads(command.stdout)[3]
-roots=[]
-for node in ast.walk(ast.parse(bootstrap)):
-    if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='insert' and isinstance(node.func.value,ast.Attribute) and node.func.value.attr=='path' and len(node.args)>=2 and isinstance(node.args[1],ast.Constant) and isinstance(node.args[1].value,str):
-        candidate=Path(node.args[1].value)
-        if candidate.is_absolute() and (candidate/'hermes_cli').is_dir(): roots.append(str(candidate))
-if len(roots)!=1: raise SystemExit('Hermes runtime did not publish one source root')
-target=Path(sysconfig.get_path('purelib'))/'hermes-runtime.pth'
-target.write_text('import site; '+'; '.join(f'site.addsitedir({p!r})' for p in [*paths,*roots])+'\n')
-PY
-  uv pip check --python "$env_dir/bin/python"
-  "$env_dir/bin/python" -c 'from typesafe_sdk import Noul, TypeSafeClient; from tools import write_approval; from hermes_cli.write_approval_commands import _apply_one; from importlib.metadata import version; print("typesafe-sdk " + version("typesafe-sdk"))'
+  local root=$1
+  provisioning "$root" memory-review "$root" "$HERMES_HOME_ROOT" --profile "$PROFILE" \
+    --runtime published --environment "$root/.agents/memory-review" \
+    --requirements "$root/agents/skills/memory-request-review/requirements.txt"
 }
 
-trust_and_verify_skills() {
+trust_repository() {
   local root=$1
-  master_hermes skills trust "$root" >/dev/null
-  local script; script=$(mktemp)
-  cat >"$script" <<'PY'
-from pathlib import Path
-import sys
-from agent.skill_utils import get_project_skills_dirs, iter_project_skill_files, iter_skill_index_files
-root=Path(sys.argv[1]); skill_root=root/'.agents'/'skills'
-expected={str(p.parent.relative_to(skill_root)) for p in iter_skill_index_files(skill_root,'SKILL.md')}
-accepted={str(p.parent.relative_to(d)) for d in get_project_skills_dirs() for p in iter_project_skill_files(d)}
-missing=expected-accepted
-if missing: raise SystemExit('project skills unavailable after Hermes security filtering: '+', '.join(sorted(missing)))
-PY
-  HERMES_HOME="$HERMES_HOME_ROOT" TERMINAL_CWD="$root" run_hermes_python_file "$script" "$root"
-  rm -f "$script"
+  provisioning "$root" trust-skills "$root" "$HERMES_HOME_ROOT" --profile "$PROFILE"
+}
+
+verify_skills() {
+  local root=$1
+  provisioning "$root" verify-skills "$root" "$HERMES_HOME_ROOT" --profile "$PROFILE" --runtime published
 }
 
 install_system_config() {
@@ -443,26 +371,8 @@ install_system_config() {
 }
 
 pin_global_skills() {
-  local root=$1 usage skill usage_file names_file profile_home
-  profile_home="$HERMES_HOME_ROOT/profiles/$PROFILE"
-  usage=$(master_hermes curator usage --json)
-  usage_file=$(mktemp)
-  printf '%s\n' "$usage" >"$usage_file"
-  names_file=$(mktemp)
-  python3 - "$root" "$profile_home" "$usage_file" >"$names_file" <<'PY'
-import json,sys
-from pathlib import Path
-entries=json.loads(Path(sys.argv[3]).read_text())
-if not isinstance(entries,list): raise SystemExit('expected curator usage list')
-known={e['name']:e for e in entries if isinstance(e,dict) and isinstance(e.get('name'),str)}
-root=Path(sys.argv[1])/'agents'/'skills'; side=Path(sys.argv[2])/'skills'/'.usage.json'
-recorded=json.loads(side.read_text()) if side.exists() else {}
-for p in sorted(root.rglob('SKILL.md')):
- n=p.parent.name; e=known.get(n,{})
- if e.get('provenance') not in ('bundled','hub') and not recorded.get(n,{}).get('pinned',False): print(n)
-PY
-  while IFS= read -r skill; do [[ -n "$skill" ]] && master_hermes curator pin "$skill"; done <"$names_file"
-  rm -f "$usage_file" "$names_file"
+  local root=$1
+  provisioning "$root" pin-skills "$root" "$HERMES_HOME_ROOT" --profile "$PROFILE"
 }
 
 install_company_cli() {
@@ -549,7 +459,8 @@ main() {
     check_required_files "$workspace"
     enable_required_toolsets "$workspace"
     provision_memory_review "$workspace"
-    trust_and_verify_skills "$workspace"
+    trust_repository "$workspace"
+    verify_skills "$workspace"
     install_system_config "$workspace"
     pin_global_skills "$workspace"
   fi

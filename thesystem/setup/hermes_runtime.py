@@ -88,7 +88,7 @@ class PublishedRuntime(LauncherRuntime):
         return cls(_executable_python(command[0]), target.home, command[3])
 
     def run_file(self, script: Path, *arguments: str, capture=False, environment=None):
-        invocation = "exec(compile(open(sys.argv[1], encoding='utf-8').read(), sys.argv[1], 'exec'))"
+        invocation = "sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
         code = "import sys; sys.dont_write_bytecode = True; " + self.bootstrap.replace(ENTRY_MARKER, invocation, 1)
         return subprocess.run([str(self.python), "-I", "-c", code, str(script), *arguments],
                               check=True, capture_output=capture, text=True,
