@@ -94,14 +94,7 @@ class Workspace:
                 project_entries = self._read_registry(registry_dir / "projects.json", "projects")
                 project_paths = {entry["path"] for entry in project_entries}
                 registry = registry_dir / "source-clones.json"
-                entries = self._read_registry(registry, "source clones")
-                for entry in entries:
-                    registered_project = entry.get("project")
-                    registered_clone = Path(entry["path"])
-                    if (not isinstance(registered_project, str) or registered_project not in project_paths
-                            or not self._inside(registered_clone, Path(registered_project))
-                            or registered_clone == Path(registered_project)):
-                        raise WorkspaceError("SOURCE_CLONE_REGISTRY_INVALID", "source clone registry contains an invalid entry")
+                entries = self._read_clone_registry(registry, project_paths)
                 record = {"project": str(project), "path": str(clone)}
                 already = record in entries
                 if not already:
@@ -162,7 +155,9 @@ class Workspace:
         clone = self._existing_directory(clone_value, "SOURCE_CLONE_NOT_REGISTERED")
         try:
             with self._locked_registry(create=False) as registry_dir:
-                entries = self._read_registry(registry_dir / "source-clones.json", "source clones")
+                projects = self._read_registry(registry_dir / "projects.json", "projects")
+                entries = self._read_clone_registry(registry_dir / "source-clones.json",
+                                                    {entry["path"] for entry in projects})
         except WorkspaceError:
             raise
         except (OSError, ValueError) as error:
@@ -234,6 +229,32 @@ class Workspace:
                 raise WorkspaceError("REGISTRY_INVALID", "registry contains a path outside the workspace")
             entries.append({**item, "path": str(registered)})
         return entries
+
+    def _read_clone_registry(self, path: Path, registered_projects: set[str]) -> list[dict]:
+        try:
+            entries = self._read_registry(path, "source clones")
+        except WorkspaceError as error:
+            raise WorkspaceError("SOURCE_CLONE_REGISTRY_INVALID", str(error)) from error
+        validated = []
+        seen = set()
+        for entry in entries:
+            project_value = entry.get("project")
+            if not isinstance(project_value, str):
+                raise WorkspaceError("SOURCE_CLONE_REGISTRY_INVALID", "source clone registry contains an invalid project")
+            try:
+                project = Path(project_value).resolve(strict=True)
+                clone = Path(entry["path"]).resolve(strict=True)
+            except OSError as error:
+                raise WorkspaceError("SOURCE_CLONE_REGISTRY_INVALID", "source clone registry contains an unreadable path") from error
+            record = {"project": str(project), "path": str(clone)}
+            identity = (record["project"], record["path"])
+            if (str(project) not in registered_projects or project == clone
+                    or not self._inside(clone, project) or not clone.is_dir()
+                    or self._lstat(clone / ".git") is None or identity in seen):
+                raise WorkspaceError("SOURCE_CLONE_REGISTRY_INVALID", "source clone registry contains an invalid entry")
+            seen.add(identity)
+            validated.append(record)
+        return validated
 
     @staticmethod
     def _write_registry(path: Path, value: list[dict]) -> None:

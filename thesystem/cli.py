@@ -16,6 +16,7 @@ if __name__ == "__main__":
 
 from thesystem.guidance import GuidanceError, update_project_role
 from thesystem.learning import LearningError, review_memory
+from thesystem.project_operations import ProjectOperationError, read_evidence, retry_task as retry_project_task
 from thesystem.workspace import Workspace, WorkspaceError
 
 # Orchestrator is imported lazily so registration remains usable in a minimal
@@ -138,13 +139,6 @@ def run_orchestrator(args: list[str]) -> int:
     return 0
 
 
-def _lstat(path: Path):
-    try:
-        return path.lstat()
-    except FileNotFoundError:
-        return None
-
-
 def add_project(raw: str, workspace: Path) -> int:
     try:
         result = Workspace(workspace).register_project(raw)
@@ -204,22 +198,14 @@ def retry_task(args: list[str], workspace: Path) -> int:
         return fail("RETRY_USAGE", "retry requires --project PATH --task ID", EXIT_USAGE)
     try:
         project = _registered_project(project_raw, workspace)
-        from the_system_orchestrator import Orchestrator
-        orchestrator = Orchestrator(project)
-        task = orchestrator.task(task_id)
-        runs = [run for run in orchestrator.state["runs"].values() if run.get("task_id") == task_id]
-        latest = max(runs, key=lambda run: run.get("finished_at", run.get("started_at", ""))) if runs else None
-        retryable = {"changes-requested", "execution-failed", "review-failed", "cancelled", "timeout", "aborted", "infra_blocked", "isolation_violated"}
-        if not latest or latest.get("status") not in retryable:
-            return fail("RETRY_NOT_ALLOWED", "retry requires a prior failed, cancelled, timed-out, or aborted run", EXIT_USAGE)
-        if task.get("approval") != "approved":
-            return fail("TASK_NOT_APPROVED", "retry requires an approved task", EXIT_USAGE)
-    except ProjectError as exc:
+        result = retry_project_task(project, task_id)
+    except (ProjectError, ProjectOperationError) as exc:
         return fail(exc.code, str(exc), EXIT_USAGE)
     except Exception as exc:
         code = getattr(exc, "code", "RETRY_UNAVAILABLE")
         return fail(code, str(exc), EXIT_USAGE if code == "TASK_NOT_FOUND" else EXIT_ERROR)
-    return run_orchestrator(["start", "--project", str(project), "--task", task_id])
+    print(json.dumps(result, sort_keys=True))
+    return 0
 
 
 def show_evidence(args: list[str], workspace: Path) -> int:
@@ -228,18 +214,9 @@ def show_evidence(args: list[str], workspace: Path) -> int:
         return fail("EVIDENCE_USAGE", "evidence requires --project PATH --run ID", EXIT_USAGE)
     try:
         project = _registered_project(project_raw, workspace)
-        target = project / ".thesystem" / "orchestrator" / "runs" / f"{run_id}.json"
-        if _lstat(target) is None:
-            return fail("EVIDENCE_NOT_FOUND", "no immutable evidence exists for that run", EXIT_USAGE)
-        if target.is_symlink() or not target.is_file():
-            return fail("EVIDENCE_INVALID", "run evidence is not a regular file")
-        record = json.loads(target.read_text(encoding="utf-8"))
-        if not isinstance(record, dict) or record.get("id") != run_id:
-            return fail("EVIDENCE_INVALID", "run evidence does not match the requested run")
-    except ProjectError as exc:
+        record = read_evidence(project, run_id)
+    except (ProjectError, ProjectOperationError) as exc:
         return fail(exc.code, str(exc), EXIT_USAGE)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        return fail("EVIDENCE_INVALID", f"cannot read run evidence: {exc}")
     emit({"status": "ok", "command": "evidence", "project": str(project), "run": record})
     return 0
 

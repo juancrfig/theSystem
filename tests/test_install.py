@@ -47,6 +47,31 @@ class InstallerIntegrationTests(unittest.TestCase):
             help_result = subprocess.run([str(launcher)], env=env, text=True, capture_output=True)
             self.assertEqual(help_result.returncode, 0, help_result.stderr)
             self.assertIn("Usage: COMPANY", help_result.stdout)
+            installed_project = workspace / "installed project"
+            installed_clone = installed_project / "source clone"
+            installed_clone.mkdir(parents=True)
+            (installed_project / "wiki").mkdir()
+            note = installed_project / "wiki" / "existing.md"
+            note.write_text("preserve installed project content\n")
+            subprocess.run(["git", "init", "-q", str(installed_clone)], check=True)
+
+            def installed_command(*args):
+                return subprocess.run([str(launcher), *args], cwd=root, env=env,
+                                      text=True, capture_output=True)
+
+            registered = installed_command("add-project", str(installed_project))
+            registered_again = installed_command("add-project", str(installed_project))
+            self.assertEqual(registered.returncode, 0, registered.stderr)
+            self.assertFalse(json.loads(registered.stdout)["idempotent"])
+            self.assertEqual(registered_again.returncode, 0, registered_again.stderr)
+            self.assertTrue(json.loads(registered_again.stdout)["idempotent"])
+            clone_registered = installed_command("add-source-clone", str(installed_project), str(installed_clone))
+            clone_registered_again = installed_command("add-source-clone", str(installed_project), str(installed_clone))
+            self.assertEqual(clone_registered.returncode, 0, clone_registered.stderr)
+            self.assertFalse(json.loads(clone_registered.stdout)["idempotent"])
+            self.assertEqual(clone_registered_again.returncode, 0, clone_registered_again.stderr)
+            self.assertTrue(json.loads(clone_registered_again.stdout)["idempotent"])
+            self.assertEqual(note.read_text(), "preserve installed project content\n")
             managed = json.loads((workspace / ".thesystem/managed.json").read_text())["entries"]
             self.assertIn("thesystem/setup/managed_files.py", managed)
             self.assertIn("thesystem/setup/provisioning.py", managed)

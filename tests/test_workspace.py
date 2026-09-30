@@ -118,6 +118,69 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(failure.exception.code, "REGISTRY_INVALID")
             self.assertEqual(registry.read_text(), "{invalid")
 
+    def test_malformed_source_clone_registry_is_refused_by_registration_and_lookup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace_path = root / "workspace"
+            project = workspace_path / "project"
+            clone = project / "clone"
+            clone.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(clone)], check=True)
+            workspace = Workspace(workspace_path)
+            workspace.register_project(project)
+            registry = workspace_path / ".thesystem" / "source-clones.json"
+            registry.write_text(json.dumps([{"path": str(clone)}]))
+            original = registry.read_bytes()
+
+            with self.assertRaises(WorkspaceError) as failure:
+                workspace.register_source_clone(project, clone)
+            self.assertEqual(failure.exception.code, "SOURCE_CLONE_REGISTRY_INVALID")
+            with self.assertRaises(WorkspaceError) as failure:
+                workspace.require_registered_clone(project, clone)
+            self.assertEqual(failure.exception.code, "SOURCE_CLONE_REGISTRY_INVALID")
+            self.assertEqual(registry.read_bytes(), original)
+
+    def test_source_clone_registry_symlink_is_refused_without_external_write(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace_path = root / "workspace"
+            project = workspace_path / "project"
+            clone = project / "clone"
+            clone.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(clone)], check=True)
+            workspace = Workspace(workspace_path)
+            workspace.register_project(project)
+            outside = root / "source-clones.json"
+            outside.write_text("[]")
+            registry = workspace_path / ".thesystem" / "source-clones.json"
+            registry.symlink_to(outside)
+
+            with self.assertRaises(WorkspaceError) as failure:
+                workspace.register_source_clone(project, clone)
+            self.assertEqual(failure.exception.code, "SOURCE_CLONE_REGISTRY_INVALID")
+            self.assertEqual(outside.read_text(), "[]")
+            self.assertTrue(registry.is_symlink())
+
+    def test_concurrent_source_clone_registrations_preserve_both_entries(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace_path = Path(temporary) / "workspace"
+            project = workspace_path / "project"
+            clones = [project / "one", project / "two"]
+            for clone in clones:
+                clone.mkdir(parents=True)
+                subprocess.run(["git", "init", "-q", str(clone)], check=True)
+            workspace = Workspace(workspace_path)
+            workspace.register_project(project)
+
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                results = list(workers.map(lambda clone: workspace.register_source_clone(project, clone), clones))
+
+            self.assertEqual(len(results), 2)
+            entries = json.loads((workspace_path / ".thesystem" / "source-clones.json").read_text())
+            self.assertEqual({entry["path"] for entry in entries}, {str(clone.resolve()) for clone in clones})
+
 
 if __name__ == "__main__":
     unittest.main()

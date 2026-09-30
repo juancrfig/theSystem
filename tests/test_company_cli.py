@@ -58,6 +58,74 @@ class CompanyCliTests(unittest.TestCase):
                         self.assertEqual(json.loads(result.stdout)["code"], "PROJECT_NOT_REGISTERED")
             self.assertFalse((project / ".thesystem" / "orchestrator").exists())
 
+    def test_retry_and_evidence_refuse_outside_or_unregistered_projects_before_orchestrator_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            unregistered = workspace / "unregistered"
+            unregistered.mkdir()
+            for project, code in ((outside, "PROJECT_OUTSIDE_WORKSPACE"),
+                                  (unregistered, "PROJECT_NOT_REGISTERED")):
+                for command in (("retry", "--project", str(project), "--task", "missing"),
+                                ("evidence", "--project", str(project), "--run", "missing")):
+                    with self.subTest(project=project, command=command):
+                        result = self.run_cli(workspace, *command)
+                        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                        self.assertEqual(json.loads(result.stdout)["code"], code)
+                        self.assertFalse((project / ".thesystem" / "orchestrator").exists())
+
+    def test_every_project_command_validates_scope_before_orchestrator_construction(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            unregistered = workspace / "unregistered"
+            unregistered.mkdir()
+            commands = (
+                ("create-task", "--project", None, "--task", "t", "--source-clone", None, "--command", "work"),
+                ("approve", "--project", None, "--task", "t"),
+                ("start", "--project", None, "--task", "t"),
+                ("status", "--project", None),
+                ("cancel", "--project", None, "--run", "r"),
+                ("integrate", "--project", None, "--run", "r"),
+                ("retry", "--project", None, "--task", "t"),
+                ("evidence", "--project", None, "--run", "r"),
+            )
+            for project, code in ((outside, "PROJECT_OUTSIDE_WORKSPACE"),
+                                  (unregistered, "PROJECT_NOT_REGISTERED")):
+                for command in commands:
+                    args = [part if part is not None else str(project) for part in command]
+                    if args[0] == "create-task":
+                        args[args.index("--source-clone") + 1] = str(project)
+                    for prefix in ([], ["orchestrator"]):
+                        if args[0] in {"retry", "evidence"} and prefix:
+                            continue
+                        with self.subTest(project=project, command=args, prefix=prefix), \
+                             mock.patch.dict(os.environ, {"THESYSTEM_WORKSPACE": str(workspace)}), \
+                             mock.patch("the_system_orchestrator.Orchestrator") as orchestrator, \
+                             mock.patch("thesystem.cli.emit") as emit:
+                            result = company_command.main([*prefix, *args])
+                            self.assertEqual(result, 2)
+                            self.assertEqual(emit.call_args.args[0]["code"], code)
+                            orchestrator.assert_not_called()
+
+    def test_raw_standalone_orchestrator_status_does_not_require_company_registration(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td) / "raw project"
+            project.mkdir()
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "orchestrator"), "status", "--project", str(project)],
+                cwd=td, env={key: value for key, value in os.environ.items() if key != "THESYSTEM_WORKSPACE"},
+                text=True, capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), {"runs": [], "tasks": []})
+
     def test_source_clone_registration_is_project_scoped_and_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
             workspace = Path(td) / "workspace"
