@@ -17,3 +17,4 @@ GitHub is the official and sole ticketing system for global workspace work and d
 ### General Guidelines
 
 - Do not create, switch to secondary Git branches unless the user explicitly requests it.
+- Besides being programmatically injected by the orchestrator, rules also apply to the interactive session with the main agent. Before giving a technical conclusion, the main agent must read the applicable global and project rules. 

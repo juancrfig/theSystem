@@ -1,5 +1,3 @@
-# Reconcile canonical declarations
-
 Rule: Bootstrap, registration, and provisioning code must derive managed targets
 and settings from their canonical declaration. Do not repeat a hand-maintained
 list for a category that can gain new members.

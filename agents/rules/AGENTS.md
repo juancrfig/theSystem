@@ -1,6 +1,5 @@
-Rules the worker follows while writing a change and the reviewer checks it
-against. Each rule is one file with three fields:
+Each rule is one file with three fields:
 
 - `Rule:` the requirement.
 - `Prevents:` the real incident it guards against. No incident, no rule.
-- `Enforce with:` the steps a reviewer takes to check it. Do not restate the rule.
+- `Enforce with:` the steps an agent or reviewer takes to check compliance. Do not restate the rule.

@@ -1,5 +1,3 @@
-# Overlays escape clipping ancestors
-
 Rule: An overlay meant to extend beyond its trigger — dropdown, popover,
 calendar, tooltip, menu, drawer, or modal — must not be clipped by an ancestor.
 `z-index` does not override overflow clipping; render the overlay outside the
