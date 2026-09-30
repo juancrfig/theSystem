@@ -23,7 +23,8 @@ EXIT_ERROR = 1
 EXIT_USAGE = 2
 # Distribution-owned workspace paths cannot be registered as projects.
 RESERVED_WORKSPACE_NAMES = {
-    ".git", ".thesystem", ".agents", ".githooks", "AGENTS.md", "CONTEXT.md",
+    ".git", ".thesystem", ".agents", ".githooks", "AGENTS.md", "GLOSSARY.md",
+    "GLOSSARY-MAP.md", "CONTEXT.md",
     "README.md", "agents", "bootstrap", "company_cli.py", "docs", "install",
     "tests", "tickets", "wiki",
 }

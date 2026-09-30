@@ -76,7 +76,7 @@ elif 'skills' in args:
             hermes.chmod(0o755)
             archive = root / "theSystem.tar.gz"
             distribution_paths = (
-                "AGENTS.md", "CONTEXT.md", "README.md", "orchestrator", "bootstrap",
+                "AGENTS.md", "GLOSSARY.md", "README.md", "orchestrator", "bootstrap",
                 "install", "company_cli.py", "installer_lifecycle.py", "the_system_orchestrator.py", "agents", ".githooks", "docs",
             )
             with tarfile.open(archive, "w:gz") as bundle:
@@ -102,6 +102,8 @@ elif 'skills' in args:
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((workspace / "agents" / "roles.yaml").exists())
+            self.assertEqual((workspace / "GLOSSARY.md").read_text(), (ROOT / "GLOSSARY.md").read_text())
+            self.assertFalse((workspace / "CONTEXT.md").exists())
             self.assertTrue((workspace / ".agents" / "skills").is_symlink())
             self.assertFalse((workspace / "projects").exists())
             calls = [json.loads(line) for line in log.read_text().splitlines()]

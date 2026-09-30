@@ -45,12 +45,16 @@ when to load it. Keep only pointers that add discovery, not instructions inferab
 When reviewing a context-file refactor, check that locations remain discoverable, every consumer
 loads the relocated guidance, links resolve, and the move does not change workflow or permissions.
 
-## CONTEXT.md
+## Glossaries
 
-The workspace `CONTEXT.md` is the glossary of the agent system's own terms (such as role), shared
-by every project. Each project has one `CONTEXT.md` at `<project>/CONTEXT.md`: the glossary of its
-domain terms, shared by all of its clones. Individual clones do not get one. A term that only one
-clone uses is usually implementation vocabulary the code already states.
+The workspace `GLOSSARY.md` contains agent-system terms shared by every project. A project's domain
+language is owned at `<project>/`: use `GLOSSARY.md` for one context, or `GLOSSARY-MAP.md` to locate
+glossaries for multiple bounded contexts. Knowledge is shared across the project's source clones;
+a clone does not automatically constitute a bounded context.
+
+For active terminology modeling or changes to glossary definitions, load `domain-modeling` and read
+its [glossary format](../domain-modeling/references/GLOSSARY-FORMAT.md). That skill owns discovery,
+the modeling workflow, and entry format; this reference owns workspace/project placement.
 
 ## Who changes them
 

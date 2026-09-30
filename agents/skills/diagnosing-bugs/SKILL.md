@@ -7,7 +7,7 @@ description: Diagnosis loop for hard bugs and performance regressions. Use when 
 
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
-When exploring the codebase, read the project's `CONTEXT.md` at the project root (if it exists) to get a clear mental model of the relevant modules, and check ADRs in the area you're touching.
+When exploring the codebase, read the project's `GLOSSARY-MAP.md` and follow the relevant context links, or read its root `GLOSSARY.md` if there is no map, to understand the domain vocabulary. Check ADRs in the area you're touching; explore code for the module structure.
 
 ## Redact
 

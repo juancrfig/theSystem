@@ -9,7 +9,7 @@ Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed605
 
 TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle: consult them before and during the loop, not after.
 
-When exploring the codebase, read the project's `CONTEXT.md` at the project root (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs in the area you're touching.
+When exploring the codebase, read the project's `GLOSSARY-MAP.md` and follow the relevant context links, or read its root `GLOSSARY.md` if there is no map, so test names and interface vocabulary match the domain language. Respect ADRs in the area you're touching.
 
 ## What a good test is
 

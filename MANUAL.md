@@ -191,7 +191,7 @@ A **role** selects rules, skills, tools, utilities, CLIs, and MCP servers. Use w
 - The reviewer must receive every worker rule. Otherwise execution must be rejected. Other capabilities may differ.
 - Company workspaces keep mutable knowledge, history, and pending learning separate. Unrelated personal profiles are not imported into company review.
 
-The worker receives only the guidance and access it needs. See [CONTEXT.md](CONTEXT.md) for vocabulary and each project's glossary for domain terms.
+The worker receives only the guidance and access it needs. See [GLOSSARY.md](GLOSSARY.md) for vocabulary and each project's glossary or glossary map for domain terms.
 
 ## Review evidence and learning
 
@@ -241,7 +241,7 @@ When code, tests, instructions, or other documents disagree with this manual, re
 
 Missing approval, unresolved blockers, contradictory instructions, and unavailable prerequisites must stop the affected work—not weaken its safeguards. Completion claims must match observed outcomes in the user's delivery context, not just internal checks.
 
-The glossary supplies vocabulary; [architectural decisions](docs/ADRs/0001-approved-task-execution-orchestrator.md) supply rationale. Neither replaces this functional contract.
+The glossary supplies vocabulary; [architectural decisions](docs/adr/0001-approved-task-execution-orchestrator.md) supply rationale. Neither replaces this functional contract.
 
 ## Open decisions
 

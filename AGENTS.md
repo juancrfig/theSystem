@@ -3,8 +3,8 @@
 This workspace contains one folder per company project. A project can contain multiple source clones.
 
 - `MANUAL.md` - the human-owned functional contract.
-- `CONTEXT.md` - workspace glossary for system terminology.
-- `<project>/CONTEXT.md` - project glossary.
+- `GLOSSARY.md` - workspace glossary for system terminology.
+- `<project>/GLOSSARY.md` or `<project>/GLOSSARY-MAP.md` - project domain language.
 - `docs/` - architectural decisions and verification evidence.
 - `agents/` - global agent configuration.
 - `<project>/agents/` - project-specific agent configuration.
