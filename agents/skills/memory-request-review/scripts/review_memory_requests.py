@@ -362,8 +362,9 @@ def evaluate_one(
     cached = reusable_results(request, catalog, model, state.get("results", {})) if model else {}
     if len(cached) == len(catalog.criteria):
         return Evaluation("EVALUATED", model, cached)
-    # Remote System One is preferred when explicitly configured. Any failure
-    # falls back to a fresh evaluator for the selected agent lane.
+    # A possible secret is retained locally by the caller-facing show path.
+    # Remote System One is preferred only when explicitly configured; every
+    # failure falls back to a fresh evaluator for the selected agent lane.
     evaluation = evaluate_with_jev(request, catalog.criteria, model)
     if evaluation.status != "EVALUATED":
         runtime = os.environ.get("MEMORY_REVIEW_RUNTIME", "hermes").lower()
@@ -372,6 +373,24 @@ def evaluate_one(
         evaluation = evaluate_with_headless(request, catalog.criteria, runtime)
     _store_evaluation(state, request, catalog, evaluation)
     return evaluation
+
+
+def evaluate_one_for_runtime(
+    request: PendingRequest, catalog: Catalog, runtime: str,
+    model: str | None = None, state: dict[str, Any] | None = None,
+) -> Evaluation:
+    """Evaluate in a selected native lane and never import the other agent."""
+    if runtime not in {"hermes", "copilot"}:
+        return Evaluation("EVALUATION UNAVAILABLE", runtime, {}, "unknown selected runtime")
+    original = os.environ.get("MEMORY_REVIEW_RUNTIME")
+    os.environ["MEMORY_REVIEW_RUNTIME"] = runtime
+    try:
+        return evaluate_one(request, catalog, model, state)
+    finally:
+        if original is None:
+            os.environ.pop("MEMORY_REVIEW_RUNTIME", None)
+        else:
+            os.environ["MEMORY_REVIEW_RUNTIME"] = original
 
 
 def cache_key(request: PendingRequest, criterion: Criterion, model: str) -> str:
