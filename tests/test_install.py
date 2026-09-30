@@ -2,15 +2,86 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import tarfile
 import unittest
 
+from thesystem.setup.distribution import DISTRIBUTION_PATHS
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class InstallerIntegrationTests(unittest.TestCase):
+    def test_blank_distribution_package_survives_upgrade_and_rollback(self):
+        with tempfile.TemporaryDirectory(prefix="thesystem-lifecycle-") as td:
+            root = Path(td)
+            home = root / "home"
+            workspace = root / "workspace"
+            source = root / "distribution"
+            home.mkdir()
+            source.mkdir()
+            for name in ("install", "installer_lifecycle.py", "company_cli.py", "GLOSSARY.md", "MANUAL.md"):
+                shutil.copy2(ROOT / name, source / name)
+            shutil.copytree(ROOT / "thesystem", source / "thesystem", ignore=shutil.ignore_patterns("__pycache__"))
+            (source / "thesystem/__pycache__").mkdir()
+            (source / "thesystem/__pycache__/stale.pyc").write_bytes(b"generated cache")
+            (source / "agents").mkdir()
+            (source / "agents/roles.yaml").write_text("{}\n")
+            env = dict(os.environ, HOME=str(home))
+            env.pop("HERMES_HOME", None)
+
+            def install(*flags):
+                result = subprocess.run(
+                    ["bash", str(source / "install"), "--workspace", str(workspace), "--company", "Acme",
+                     "--blank=yes", "--non-interactive", *flags],
+                    env=env, text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+            install()
+            self.assertTrue((workspace / "thesystem/setup/managed_files.py").is_file())
+            self.assertFalse((workspace / "thesystem/__pycache__/stale.pyc").exists())
+            launcher = home / ".local/bin/Acme"
+            help_result = subprocess.run([str(launcher)], env=env, text=True, capture_output=True)
+            self.assertEqual(help_result.returncode, 0, help_result.stderr)
+            self.assertIn("Usage: COMPANY", help_result.stdout)
+            managed = json.loads((workspace / ".thesystem/managed.json").read_text())["entries"]
+            self.assertIn("thesystem/setup/managed_files.py", managed)
+
+            # New declared inputs propagate without changing the installer.
+            declaration = source / "thesystem/setup/distribution.py"
+            declaration.write_text(declaration.read_text().replace(
+                'MANAGED_ROOTS = (*DISTRIBUTION_PATHS, "CONTEXT.md")',
+                'DISTRIBUTION_PATHS = (*DISTRIBUTION_PATHS, "release-notes.md")\n'
+                'MANAGED_ROOTS = (*DISTRIBUTION_PATHS, "CONTEXT.md")',
+            ))
+            (source / "release-notes.md").write_text("release notes\n")
+
+            project = workspace / "payments"
+            project.mkdir()
+            knowledge = project / "knowledge.md"
+            knowledge.write_text("keep company data\n")
+            manual = workspace / "MANUAL.md"
+            manual.write_text("user customization\n")
+            (source / "MANUAL.md").write_text("new release\n")
+            install("--upgrade")
+            self.assertEqual(manual.read_text(), "new release\n")
+            self.assertEqual((workspace / "release-notes.md").read_text(), "release notes\n")
+            manifest = json.loads((workspace / ".thesystem/managed.json").read_text())["entries"]
+            self.assertIn("release-notes.md", manifest)
+            install("--rollback")
+            self.assertEqual(manual.read_text(), "user customization\n")
+            self.assertTrue((workspace / "thesystem/setup/managed_files.py").is_file())
+            self.assertFalse((workspace / "release-notes.md").exists())
+            install("--uninstall")
+            self.assertEqual(manual.read_text(), "user customization\n")
+            self.assertEqual(knowledge.read_text(), "keep company data\n")
+            self.assertFalse(launcher.exists())
+            self.assertFalse((workspace / "thesystem/setup/managed_files.py").exists())
+            self.assertFalse((workspace / "thesystem").exists())
+
     def test_experimental_rules_require_opt_in_and_preserve_existing_files(self):
         with tempfile.TemporaryDirectory(prefix="thesystem-experimental-") as td:
             workspace = Path(td) / "workspace"
@@ -75,12 +146,8 @@ elif 'skills' in args:
 """)
             hermes.chmod(0o755)
             archive = root / "theSystem.tar.gz"
-            distribution_paths = (
-                "AGENTS.md", "GLOSSARY.md", "README.md", "orchestrator", "bootstrap",
-                "install", "company_cli.py", "installer_lifecycle.py", "the_system_orchestrator.py", "agents", ".githooks", "docs",
-            )
             with tarfile.open(archive, "w:gz") as bundle:
-                for name in distribution_paths:
+                for name in DISTRIBUTION_PATHS:
                     source = ROOT / name
                     if source.exists() or source.is_symlink():
                         bundle.add(source, arcname=f"theSystem-master/{name}")
@@ -133,7 +200,7 @@ elif 'skills' in args:
             home = root / "home"; home.mkdir(); bindir = home / '.local' / 'bin'; bindir.mkdir(parents=True)
             source = ROOT / "company_cli.py"
             company = bindir / "Acme"
-            company.write_text(f"#!/usr/bin/env python3\nexec(compile(open({str(source)!r}).read(), {str(source)!r}, 'exec'))\n")
+            company.write_text(f"#!/usr/bin/env python3\nimport sys\nsys.path.insert(0, {str(ROOT)!r})\nexec(compile(open({str(source)!r}).read(), {str(source)!r}, 'exec'))\n")
             company.chmod(0o755)
             env = dict(os.environ, HOME=str(home), PATH=f"{bindir}:{os.environ['PATH']}")
             result = subprocess.run([str(company), "add-project"], cwd=str(root), env=dict(env, THESYSTEM_WORKSPACE=str(workspace)), text=True, capture_output=True)

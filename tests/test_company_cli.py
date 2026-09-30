@@ -194,7 +194,7 @@ class CompanyCliTests(unittest.TestCase):
             (source / ".git").mkdir()
             result = self.run_cli(workspace, "add-project", str(source))
             self.assertEqual(json.loads(result.stdout)["code"], "PROJECT_IS_SOURCE_CLONE")
-            for name in ("agents", "docs", ".agents", ".githooks", "tests"):
+            for name in ("agents", "docs", ".agents", ".githooks", "tests", "thesystem"):
                 reserved = workspace / name
                 reserved.mkdir()
                 result = self.run_cli(workspace, "add-project", str(reserved))

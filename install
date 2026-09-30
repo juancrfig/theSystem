@@ -163,7 +163,13 @@ download_distribution() {
 
 # Only these paths are distribution inputs. In particular, runtime state, .env,
 # .scratch, tests, and the source checkout's generated .agents are never copied.
-allowed_distribution_paths=(AGENTS.md GLOSSARY.md GLOSSARY-MAP.md MANUAL.md README.md orchestrator the_system_orchestrator.py installer_lifecycle.py bootstrap install company_cli.py agents .githooks docs)
+allowed_distribution_paths=()
+
+load_distribution_paths() {
+  local source=$1 paths
+  paths=$(python3 -B "$source/installer_lifecycle.py" paths) || die 'could not load canonical distribution paths'
+  mapfile -t allowed_distribution_paths <<<"$paths"
+}
 
 safe_source_path() {
   local source=$1 path=$2 resolved source_real
@@ -202,7 +208,7 @@ copy_additive() {
   mkdir -p "$target"
   for item in "$source"/* "$source"/.[!.]*; do
     [[ -e "$item" || -L "$item" ]] || continue
-    name=${item##*/}; [[ "$name" == .git || "$name" == .gitignore ]] && continue
+    name=${item##*/}; [[ "$name" == .git || "$name" == .gitignore || "$name" == __pycache__ || "$name" == *.pyc ]] && continue
     safe_source_path "$source" "$name"
     if (( ! experimental )) && is_experimental_content "$item"; then continue; fi
     if [[ -L "$item" ]]; then
@@ -220,6 +226,7 @@ copy_additive() {
 
 backup_distribution() {
   local target=$1 backup_dir="$target/.thesystem/backups" id archive item
+  load_distribution_paths "${2:-$target}"
   id=$(date -u +%Y%m%dT%H%M%SZ)
   mkdir -p "$backup_dir"
   archive="$backup_dir/$id.tar.gz"
@@ -236,16 +243,16 @@ backup_distribution() {
 remove_distribution() {
   local target=$1
   [[ -f "$target/installer_lifecycle.py" ]] || die 'safe ownership cleanup is unavailable; preserving distribution'
-  python3 "$target/installer_lifecycle.py" clean "$target" || die 'safe ownership cleanup failed; no destructive fallback'
+  python3 -B "$target/installer_lifecycle.py" clean "$target" || die 'safe ownership cleanup failed; no destructive fallback'
 }
 
 upgrade_distribution() {
   local source=$1 target=$2 snapshot
   [[ -d "$target" ]] || die "cannot upgrade missing workspace: $target"
-  snapshot=$(backup_distribution "$target") || die 'could not create upgrade backup'
+  snapshot=$(backup_distribution "$target" "$source") || die 'could not create upgrade backup'
   replace_managed=1
   provision_distribution "$source" "$target"
-  python3 "$source/installer_lifecycle.py" snapshot "$source" "$target"
+  python3 -B "$source/installer_lifecycle.py" snapshot "$source" "$target"
   printf '%s\n' "$snapshot" > "$target/.thesystem/active-backup"
   say "Upgraded distribution at $(cd "$target" && pwd -P); rollback snapshot: $snapshot"
 }
@@ -279,6 +286,7 @@ PYLAUNCHER
 
 provision_distribution() {
   local source=$1 target=$2 source_real target_abs item
+  load_distribution_paths "$source"
   [[ ! -L "$target" ]] || die "refusing to provision through symlink workspace: $target"
   mkdir -p "$target"
   source_real=$(cd "$source" && pwd -P)
@@ -570,7 +578,7 @@ main() {
   [[ "$workspace" = /* ]] || workspace="$PWD/$workspace"
   local source
   if source=$(find_local_distribution); then :; else source=$(download_distribution); fi
-  if [[ "$lifecycle" == upgrade ]]; then upgrade_distribution "$source" "$workspace"; else provision_distribution "$source" "$workspace"; python3 "$source/installer_lifecycle.py" snapshot "$source" "$workspace"; fi
+  if [[ "$lifecycle" == upgrade ]]; then upgrade_distribution "$source" "$workspace"; else provision_distribution "$source" "$workspace"; python3 -B "$source/installer_lifecycle.py" snapshot "$source" "$workspace"; fi
 
   if [[ "$runtime" == hermes ]]; then
     link_project_skills "$workspace"

@@ -12,6 +12,11 @@ import subprocess
 import sys
 import tempfile
 
+# Installed entry points must not leave unowned caches behind after rollback.
+if __name__ == "__main__":
+    sys.dont_write_bytecode = True
+
+from thesystem.setup.distribution import MANAGED_ROOTS
 
 # Orchestrator is imported lazily so registration remains usable in a minimal
 # installed distribution that predates the optional execution module.
@@ -21,10 +26,7 @@ EXIT_ERROR = 1
 EXIT_USAGE = 2
 # Distribution-owned workspace paths cannot be registered as projects.
 RESERVED_WORKSPACE_NAMES = {
-    ".git", ".thesystem", ".agents", ".githooks", "AGENTS.md", "GLOSSARY.md",
-    "GLOSSARY-MAP.md", "CONTEXT.md",
-    "README.md", "agents", "bootstrap", "company_cli.py", "docs", "install",
-    "tests", "tickets", "wiki",
+    *MANAGED_ROOTS, ".git", ".thesystem", ".agents", "tests", "tickets", "wiki",
 }
 PROJECT_INFRASTRUCTURE = ("wiki", "agents", "tickets")
 
