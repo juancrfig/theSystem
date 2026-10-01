@@ -46,7 +46,7 @@ class LauncherRuntime:
             python = _executable_python(candidate)
         except ValueError as exc:
             raise ValueError(f"Unable to resolve Hermes Python runtime from: {launcher}") from exc
-        return cls(python, target.home)
+        return cls(python, target.profile_home)
 
     def environment(self, overrides=None):
         env = dict(os.environ, HERMES_HOME=str(self.home), PYTHONDONTWRITEBYTECODE="1")
@@ -85,7 +85,7 @@ class PublishedRuntime(LauncherRuntime):
             raise ValueError("Hermes returned an invalid runtime command")
         if ENTRY_MARKER not in command[3]:
             raise ValueError("Hermes runtime command does not bootstrap hermes_cli.main")
-        return cls(_executable_python(command[0]), target.home, command[3])
+        return cls(_executable_python(command[0]), target.profile_home, command[3])
 
     def run_file(self, script: Path, *arguments: str, capture=False, environment=None):
         invocation = "sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"

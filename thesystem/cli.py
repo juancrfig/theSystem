@@ -48,7 +48,7 @@ def workspace_path() -> Path:
 
 
 def usage() -> str:
-    return ("Usage: COMPANY [--help|--json] "
+    return ("Usage: thesystem [--workspace PATH] [--help|--json] "
             "[add-project PATH|add-source-clone PROJECT CLONE|set-role PROJECT ROLE [OPTIONS]|"
             "retry --project PATH --task ID|evidence --project PATH --run ID|"
             "learning inventory|show|decide ...|orchestrator ACTION ...]")

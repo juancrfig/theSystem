@@ -45,7 +45,7 @@ class HermesRuntimeTests(unittest.TestCase):
                 self.assertEqual(runtime.python, Path(sys.executable))
                 result = runtime.run_file(self.script, 'space argument', 'semi;colon', 'naïve 🧪', capture=True,
                                           environment={'TERMINAL_CWD': str(self.root)})
-                self.assertEqual(json.loads(result.stdout), [['space argument', 'semi;colon', 'naïve 🧪'], str(self.home), str(self.root), False, str(self.script), '__main__'])
+                self.assertEqual(json.loads(result.stdout), [['space argument', 'semi;colon', 'naïve 🧪'], str(self.target.profile_home), str(self.root), False, str(self.script), '__main__'])
 
     def test_published_runtime_preserves_bootstrap_and_arguments(self):
         self.publish()
@@ -53,7 +53,7 @@ class HermesRuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.python, Path(sys.executable))
         result = runtime.run_file(self.script, 'space argument', 'semi;colon', 'naïve 🧪', capture=True,
                                   environment={'TERMINAL_CWD': str(self.root)})
-        self.assertEqual(json.loads(result.stdout), [['space argument', 'semi;colon', 'naïve 🧪'], str(self.home), str(self.root), True, str(self.script), '__main__'])
+        self.assertEqual(json.loads(result.stdout), [['space argument', 'semi;colon', 'naïve 🧪'], str(self.target.profile_home), str(self.root), True, str(self.script), '__main__'])
         self.assertFalse(list(self.source.rglob('__pycache__')))
 
     def test_unavailable_launcher_interpreter_is_refused(self):

@@ -2,8 +2,7 @@
 import importlib.util
 import json
 from pathlib import Path
-import subprocess
-import sys
+
 import tempfile
 import unittest
 
@@ -13,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ManagedFilesTests(unittest.TestCase):
-    def test_legacy_entry_point_preserves_snapshot_and_clean_output(self):
+    def test_managed_files_module_preserves_snapshot_and_clean_contract(self):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / "source"
             target = Path(td) / "workspace"
@@ -21,18 +20,8 @@ class ManagedFilesTests(unittest.TestCase):
             target.mkdir()
             for directory in (source, target):
                 (directory / "README.md").write_text("managed\n")
-            result = subprocess.run(
-                [sys.executable, str(ROOT / "installer_lifecycle.py"), "snapshot", str(source), str(target)],
-                cwd=td, text=True, capture_output=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, "tracked 1 managed files\n")
-            result = subprocess.run(
-                [sys.executable, str(ROOT / "installer_lifecycle.py"), "clean", str(target)],
-                cwd=td, text=True, capture_output=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), {"removed": 1, "retained_modified": []})
+            self.assertEqual(snapshot(source, target), 1)
+            self.assertEqual(clean(target), {"removed": 1, "retained_modified": []})
 
     def test_legacy_manifest_roots_remain_supported(self):
         with tempfile.TemporaryDirectory() as td:
@@ -60,6 +49,20 @@ class ManagedFilesTests(unittest.TestCase):
                     manifest.write_text(json.dumps({"version": 1, "entries": {path: ["file", "invalid"]}}))
                     with self.assertRaisesRegex(SystemExit, "unsafe ownership manifest path"):
                         clean(target)
+
+    def test_cleanup_validates_every_entry_before_removing_any_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td)
+            safe = target / "README.md"
+            safe.write_text("owned content\n")
+            manifest = target / ".thesystem/managed.json"
+            manifest.parent.mkdir()
+            manifest.write_text(json.dumps({"version": 1, "entries": {
+                "README.md": identity(safe), "../outside": ["file", "0" * 64]
+            }}))
+            with self.assertRaisesRegex(SystemExit, "unsafe ownership manifest path"):
+                clean(target)
+            self.assertEqual(safe.read_text(), "owned content\n")
 
     def test_cleanup_refuses_a_symlink_parent_outside_workspace(self):
         with tempfile.TemporaryDirectory() as td:

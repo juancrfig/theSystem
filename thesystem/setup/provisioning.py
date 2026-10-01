@@ -85,7 +85,9 @@ class HermesTarget:
 def apply_config(source: Path, target: HermesTarget) -> int:
     entries = read_config(source)
     for key, value in entries:
-        target.run("config", "set", "--force", key, value, quiet=True)
+        parsed = json.loads(value)
+        cli_value = parsed if isinstance(parsed, str) else value
+        target.run("config", "set", "--force", key, cli_value, quiet=True)
     return len(entries)
 
 
@@ -95,17 +97,53 @@ def enable_toolsets(source: Path, target: HermesTarget) -> int:
     return len(names)
 
 
-def link_project_skills(workspace: Path, link: Path | None = None) -> bool:
-    """Create the existing relative link; refuse conflicts, including broken links."""
+def validate_project_skill_links(workspace: Path, link: Path | None = None) -> list[Path]:
+    """Validate discovery without writes and return missing canonical directory links."""
     link = Path(link) if link is not None else Path(workspace) / ".agents" / "skills"
+    source = Path(workspace) / "agents" / "skills"
+    root = Path(workspace).resolve()
+    if (source.is_symlink() or not source.is_dir() or not source.resolve().is_relative_to(root)
+            or not any(source.rglob("SKILL.md"))):
+        raise ValueError(f"Canonical project skills are missing or empty: {source}")
+    if (link.parent.is_symlink() or not link.parent.resolve().is_relative_to(root)
+            or (link.parent.exists() and not link.parent.is_dir())):
+        raise ValueError(f"Refusing unsafe project skill link parent: {link.parent}")
+    if link.is_symlink():
+        if os.readlink(link) != "../agents/skills" or link.resolve() != source.resolve():
+            raise ValueError(f"Refusing to replace project skill link {link} -> {os.readlink(link)}")
+        return []
+    if link.exists() and not link.is_dir():
+        raise ValueError(f"Refusing to replace non-directory project skill path: {link}")
+    for child in link.iterdir() if link.exists() else ():
+        if not child.is_symlink():
+            raise ValueError(f"Refusing non-empty project skill directory with unmanaged content: {child}")
+        target = child.resolve()
+        canonical = source / child.name
+        if (not target.is_relative_to(root) or not target.is_dir()
+                or not any(target.rglob("SKILL.md"))
+                or (canonical.exists() and target != canonical.resolve())):
+            raise ValueError(f"Refusing conflicting or unsafe project skill link: {child}")
+    return [child for child in source.iterdir()
+            if child.is_dir() and any(child.rglob("SKILL.md"))
+            and not (link / child.name).exists()]
+
+
+def link_project_skills(workspace: Path, link: Path | None = None) -> bool:
+    """Reconcile discovery while preserving valid workspace/project skill links."""
+    link = Path(link) if link is not None else Path(workspace) / ".agents" / "skills"
+    missing = validate_project_skill_links(workspace, link)
     link.parent.mkdir(parents=True, exist_ok=True)
     if link.is_symlink():
-        existing = os.readlink(link)
-        if existing != "../agents/skills":
-            raise ValueError(f"Refusing to replace project skill link {link} -> {existing}")
         return False
+    if link.exists() and any(link.iterdir()):
+        for source in missing:
+            (link / source.name).symlink_to(os.path.relpath(source, link))
+        return bool(missing)
     if link.exists():
-        raise ValueError(f"Refusing to replace non-symlink project skill directory: {link}")
+        try:
+            link.rmdir()
+        except OSError as exc:
+            raise ValueError(f"Refusing to replace non-empty project skill directory: {link}") from exc
     link.symlink_to("../agents/skills")
     return True
 
@@ -134,10 +172,15 @@ def verify_project_skills(workspace: Path, runtime) -> int:
     probe = Path(__file__).with_name("runtime_probe.py")
     result = runtime.run_file(probe, "verify-skills", str(workspace), capture=True,
                               environment={"TERMINAL_CWD": str(workspace)})
-    count = json.loads(result.stdout)
-    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-        raise ValueError("Hermes returned an invalid verified skill count")
-    return count
+    report = json.loads(result.stdout)
+    if (not isinstance(report, dict) or report.get("trusted") is not True
+            or report.get("discovered") is not True
+            or not isinstance(report.get("expected"), int)
+            or not isinstance(report.get("accepted"), int)
+            or report["expected"] <= 0 or report["accepted"] <= 0
+            or report["accepted"] < report["expected"]):
+        raise ValueError("Hermes returned an incomplete project-skill readiness report")
+    return report["accepted"]
 
 
 def skills_to_pin(workspace: Path, profile_home: Path, usage) -> list[str]:

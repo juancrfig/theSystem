@@ -10,10 +10,11 @@ Verification applies only to the source, runtime, and environment identified in 
 
 | Capability | Evidence-backed scope | Evidence |
 | --- | --- | --- |
-| Infrastructure-only installation | Local-distribution `--blank=yes` installs completed in fresh Ubuntu 24.04 and Arch base containers without preinstalled agent runtimes. The installed company command returned help, and the manual was shipped. | [Installation record](https://github.com/juancrfig/theSystem/issues/24) and [historical ledger](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757) |
+| Infrastructure-only installation | The current public command's runtime-free install, registration, upgrade, rollback, uninstall, aliases, and preservation behavior passed isolated temporary-home tests outside the checkout cwd. No fresh Ubuntu/Arch certification is claimed for the current command. | [Current bounded delivery evidence](https://github.com/juancrfig/theSystem/issues/30) |
 | Non-chat company command | Current checkout tests verified no-argument help and rejection of removed launch options without launching subprocesses. | [CLI change record](https://github.com/juancrfig/theSystem/issues/28) and [checkout verification](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5912380760) |
 | Project and source-clone registration; role configuration | An installed blank-mode Ubuntu command registered a project and Git clone and set worker/reviewer roles. Current checkout subprocess tests also verified registration/idempotence, project content preservation, and role configuration/refusal paths. | [Historical ledger](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757) and [checkout verification](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5912380760) |
-| Software upgrade, rollback, and uninstall | Isolated blank-mode Ubuntu and Arch probes preserved source, wiki, ticket/run, and credential fixtures. Rollback restored a user-edited managed file; uninstall retained that modified file and data fixtures while removing the owned launcher. | [Lifecycle record](https://github.com/juancrfig/theSystem/issues/24) |
+| Software upgrade, rollback, and uninstall | Current public-command tests exercised runtime-free install → project registration → upgrade → rollback → uninstall in temporary homes outside the checkout cwd; they verified preservation of modified files and project knowledge, independent aliases, shared command availability, and separate rollback readiness output. No fresh Ubuntu/Arch certification is claimed. | [Current bounded delivery evidence](https://github.com/juancrfig/theSystem/issues/30) |
+| Hermes configure and doctor | Native isolated Hermes v0.21.5 configured a disposable Git-root fixture twice, accepted 32/32 included skills, verified canonical settings/toolsets/review imports, set `.githooks` as `core.hooksPath`, and passed read-only doctor. The hook file was executable; direct execution was blocked by the session's fail-closed Tirith timeout. The fixture excluded a quarantined vendored Hermes skill; with the full distribution present Hermes quarantined `autonomous-ai-agents/hermes-agent`, configure failed, and doctor correctly reported not ready. This does not certify readiness for the unmodified full distribution. | [Current bounded delivery evidence](https://github.com/juancrfig/theSystem/issues/30) |
 | Existing run-record inspection | A current checkout subprocess test read a fixture record through `evidence` and returned its recorded status. This verifies record retrieval, not creation, accuracy, or end-to-end execution of a run. | [Checkout verification](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5912380760) |
 | Hermes pending-memory-write review and application | An isolated `master` profile's inventory, display, and explicit human approval applied a pending memory write; the pending count became zero and `MEMORY.md` contained the approved line. This does not establish every profile or every kind of learning proposal. | [Native pending-write evidence](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757), artifact `NATIVE_PENDING_APPLY_VERIFIED` |
 
@@ -23,37 +24,32 @@ Verification applies only to the source, runtime, and environment identified in 
 
 #### Infrastructure-only installation
 
-The verified fresh-install path uses a local distribution on Linux x86-64 in Ubuntu 24.04 and Arch base containers. Those tests began without preinstalled agent runtimes; blank-mode probes also exercised installation of missing Python through the distribution package manager. See the [installation evidence](https://github.com/juancrfig/theSystem/issues/24) and [MVP evidence ledger](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757) for the tested sources and environments.
+The current runtime-free path has been exercised by isolated temporary-home tests; the older fresh-install probes on Ubuntu 24.04 and Arch base containers used the retired `--blank=yes` installer and do not certify the current command. No fresh-machine or no-Python acquisition certification is claimed for this delivery.
 
-From the directory containing the local distribution's `install` script:
+Download the public launcher to a file, then run it. The launcher downloads and validates the distribution source before dispatching Python when it is outside a checkout:
 
 ```bash
-bash ./install --workspace "$HOME/workspace" --company company --blank=yes --non-interactive
+curl -fsSLo /tmp/thesystem https://raw.githubusercontent.com/juancrfig/theSystem/master/bin/thesystem
+bash /tmp/thesystem install --workspace "$HOME/workspace" --runtime none --company company --non-interactive
 ```
 
-This installs theSystem infrastructure and a workspace-bound company command. It does not install an agent runtime or configure a model. No Hermes profile is required for this mode. The installed files are a distribution, not a Git checkout.
+This installs theSystem infrastructure and a workspace-bound company alias. It does not install an agent runtime or configure a model. No Hermes profile is required for this mode. The installed files are a distribution, not a Git checkout. The current Hermes setup path is blocked for non-Git workspaces because Hermes project-skill discovery requires a Git root; setup does not initialize user workspaces.
 
 | Tested option | Effect |
 | --- | --- |
 | `--workspace PATH` | Select the installation workspace. |
 | `--company NAME` | Name the workspace-bound command; the example uses `company`. |
-| `--blank=yes` | Install infrastructure only, without an agent runtime or model setup. |
-| `--non-interactive` | Run the blank installation without setup prompts, supplying the company name explicitly. |
-| `--help` | Show installer usage without installing. |
+| `--runtime none` | Install infrastructure only, without an agent runtime or model setup. |
+| `--non-interactive` | Run without interactive setup; Hermes mode requires an already configured selected profile. |
+| `--help` | Show command usage without installing. |
 
-**Success:** the installer reports `Ready` with runtime `none` and the workspace path. Verify the installed command using its absolute path:
+**Success:** the command reports completion with runtime `none` and the workspace path. Completion confirms deployment only; run `thesystem doctor --workspace "$HOME/workspace" --runtime none` to inspect installed distribution readiness. `Ready` does not establish authenticated agent operation.
 
-```bash
-"$HOME/.local/bin/company" --help
-```
-
-The recorded probes returned help successfully and confirmed that `MANUAL.md` was installed in the workspace. An installer error means installation is incomplete; some files may already exist. `Ready` does not establish authenticated agent operation.
-
-**Verification boundary:** these local-distribution container results do not certify a remotely downloaded current release, an Omarchy desktop, or fresh Hermes setup. Other installation requirements and verification work are tracked on [GitHub](https://github.com/juancrfig/theSystem/issues/24).
+**Verification boundary:** runtime-free install and lifecycle tests ran in isolated temporary homes outside the checkout cwd. Native Hermes checks used an isolated profile and disposable Git-root workspace: configure succeeded twice and doctor was read-only/ready for a fixture with the quarantined vendored Hermes skill excluded. With the full distribution skill set, Hermes quarantined `autonomous-ai-agents/hermes-agent`; configure refused and doctor reported not ready. Non-Git Hermes setup is unsupported; the command does not initialize user workspaces or use profile-wide external skill paths. No authenticated model call or fresh Ubuntu/Arch/no-Python certification was performed.
 
 #### Software lifecycle
 
-Blank-mode upgrade, rollback, and uninstall have recorded working evidence in isolated Ubuntu and Arch contexts. In those probes, rollback restored a user-edited managed file, and uninstall retained that modified file and source, wiki, ticket/run, and credential fixtures while removing the owned company launcher. These results apply to the tested fixtures and sources, not every runtime or a real company-data migration. See the [lifecycle record](https://github.com/juancrfig/theSystem/issues/24) for the exact invocations and results.
+The current runtime-free lifecycle path is covered by the isolated public-command tests summarized above. Historical Ubuntu/Arch lifecycle evidence applies to the retired installer only. Rollback output now distinguishes restored software from the independent Hermes readiness report; a successful restoration does not imply a ready Hermes workspace.
 
 ### 2. Use your company command
 

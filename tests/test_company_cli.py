@@ -7,11 +7,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-import company_cli
 import thesystem.cli as company_command
 
 ROOT = Path(__file__).resolve().parents[1]
-CLI = ROOT / "company_cli.py"
+CLI = ROOT / "bin/thesystem"
 
 
 class CompanyCliTests(unittest.TestCase):
@@ -114,13 +113,15 @@ class CompanyCliTests(unittest.TestCase):
                             self.assertEqual(emit.call_args.args[0]["code"], code)
                             orchestrator.assert_not_called()
 
-    def test_raw_standalone_orchestrator_status_does_not_require_company_registration(self):
+    def test_orchestrator_status_is_available_through_public_command(self):
         with tempfile.TemporaryDirectory() as td:
-            project = Path(td) / "raw project"
-            project.mkdir()
+            workspace = Path(td) / "workspace"
+            project = workspace / "project"
+            project.mkdir(parents=True)
+            self.assertEqual(self.run_cli(workspace, "add-project", str(project)).returncode, 0)
             result = subprocess.run(
-                [sys.executable, str(ROOT / "orchestrator"), "status", "--project", str(project)],
-                cwd=td, env={key: value for key, value in os.environ.items() if key != "THESYSTEM_WORKSPACE"},
+                [str(CLI), "--workspace", str(workspace), "orchestrator", "status", "--project", str(project)],
+                cwd=td, env=os.environ.copy(),
                 text=True, capture_output=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -217,7 +218,7 @@ class CompanyCliTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"THESYSTEM_WORKSPACE": str(workspace)}), \
                  mock.patch("thesystem.learning.subprocess.run", return_value=subprocess.CompletedProcess([], 0, '{"counts": {"memory": 0}}', "")) as run, \
                  mock.patch("thesystem.cli.emit"):
-                self.assertEqual(company_cli.main(["learning", "inventory"]), 0)
+                self.assertEqual(company_command.main(["learning", "inventory"]), 0)
             command = run.call_args.args[0]
             self.assertIn("inventory", command)
             self.assertTrue(command[1].endswith("review_memory_requests.py"))
@@ -288,14 +289,14 @@ class CompanyCliTests(unittest.TestCase):
              mock.patch("thesystem.cli.subprocess.run") as run, \
              mock.patch("thesystem.cli.subprocess.call") as call, \
              mock.patch("builtins.print") as output:
-            self.assertEqual(company_cli.main([]), 0)
+            self.assertEqual(company_command.main([]), 0)
         output.assert_called_once_with(company_command.usage())
         workspace.assert_not_called()
         run.assert_not_called()
         call.assert_not_called()
         result = self.run_cli(None)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Usage: COMPANY", result.stdout)
+        self.assertIn("Usage: thesystem", result.stdout)
 
     def test_removed_launch_commands_are_rejected_without_subprocesses(self):
         for args in (["launch"], ["--direct"], ["--json", "launch"], ["--json", "--direct"]):
@@ -303,7 +304,7 @@ class CompanyCliTests(unittest.TestCase):
                  mock.patch("thesystem.cli.subprocess.run") as run, \
                  mock.patch("thesystem.cli.subprocess.call") as call, \
                  mock.patch("thesystem.cli.emit") as emit:
-                self.assertEqual(company_cli.main(args), 2)
+                self.assertEqual(company_command.main(args), 2)
                 self.assertEqual(emit.call_args.args[0]["code"], "UNKNOWN_COMMAND")
                 run.assert_not_called()
                 call.assert_not_called()
@@ -315,7 +316,7 @@ class CompanyCliTests(unittest.TestCase):
         else:
             env["THESYSTEM_WORKSPACE"] = str(workspace)
         return subprocess.run(
-            [sys.executable, str(CLI), *args],
+            [str(CLI), *args],
             cwd=str(cwd or ROOT),
             env=env,
             text=True,

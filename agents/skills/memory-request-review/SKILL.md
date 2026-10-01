@@ -26,13 +26,15 @@ profiles when present). It does not create or maintain another queue.
 
 ## Batch start
 
-`./install` prepares the environment with the pinned `typesafe-sdk` version in
-`requirements.txt`. The review script discovers it automatically from its own
-location, regardless of the current directory or skill symlinks. Do not ask the
-user to export variables or interpret a missing variable as a missing
-installation. `HERMES_MEMORY_REVIEW_PYTHON` is only an optional explicit choice
-of another prepared interpreter. Do not install dependencies while running a
-review; if the environment is missing, instruct the user to run install.
+`thesystem configure --workspace PATH --runtime hermes` prepares the isolated
+review environment with the pinned `typesafe-sdk` version in `requirements.txt`.
+The review script discovers it automatically from its own location, regardless
+of the current directory or skill symlinks. Do not ask the user to export
+variables or interpret a missing variable as a missing installation.
+`HERMES_MEMORY_REVIEW_PYTHON` is only an optional explicit choice of another
+prepared interpreter. Do not install dependencies while running a review. The
+current setup requires Hermes project discovery to be available for the
+workspace; it does not initialize a Git repository on the user's behalf.
 
 ```sh
 python3 \

@@ -48,7 +48,7 @@ class ReviewRuntimeTests(unittest.TestCase):
     def test_missing_runtime_reports_install_without_installing(self):
         result = self.run_review()
         self.assertEqual(result.returncode, 2)
-        self.assertIn("Run ./install", result.stderr)
+        self.assertIn("thesystem configure", result.stderr)
         self.assertFalse(self.runtime.exists())
 
     def test_explicit_override_wins(self):
@@ -67,7 +67,7 @@ class ReviewRuntimeTests(unittest.TestCase):
         self.runtime.touch()
         result = self.run_review()
         self.assertEqual(result.returncode, 2)
-        self.assertIn("Run ./install", result.stderr)
+        self.assertIn("thesystem configure", result.stderr)
 
     def test_skill_symlink_resolves_to_checkout(self):
         self.fake_runtime(self.runtime)

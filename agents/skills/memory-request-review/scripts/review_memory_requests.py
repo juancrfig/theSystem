@@ -683,7 +683,7 @@ def ensure_review_runtime() -> None:
     if not Path(interpreter).is_file() or not os.access(interpreter, os.X_OK):
         raise ReviewError(
             f"Review interpreter is unavailable: {interpreter}. "
-            "Run ./install from the checkout, or set HERMES_MEMORY_REVIEW_PYTHON "
+            "Run `thesystem configure --workspace PATH --runtime hermes`, or set HERMES_MEMORY_REVIEW_PYTHON "
             "to a prepared interpreter. Review never installs dependencies."
         )
     # Do not resolve the executable symlink: virtualenvs share a base Python.
