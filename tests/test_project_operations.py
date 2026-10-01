@@ -87,6 +87,12 @@ class ProjectOperationTests(unittest.TestCase):
             read_evidence("/fixture/project", "missing")
         self.assertEqual(failure.exception.code, "EVIDENCE_NOT_FOUND")
 
+    def test_evidence_operation_codes_non_missing_lstat_errors_as_invalid(self):
+        with patch("thesystem.project_operations.Path.lstat", side_effect=PermissionError("denied")):
+            with self.assertRaises(ProjectOperationError) as failure:
+                read_evidence("/fixture/project", "run-1")
+        self.assertEqual(failure.exception.code, "EVIDENCE_INVALID")
+
 
 if __name__ == "__main__":
     unittest.main()

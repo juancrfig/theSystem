@@ -222,6 +222,27 @@ class CompanyCliTests(unittest.TestCase):
             self.assertIn("inventory", command)
             self.assertTrue(command[1].endswith("review_memory_requests.py"))
 
+    def test_invalid_evidence_returns_error_exit_and_filesystem_failures_are_json(self):
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td) / "workspace"
+            project = workspace / "payments"
+            project.mkdir(parents=True)
+            self.assertEqual(self.run_cli(workspace, "add-project", str(project)).returncode, 0)
+
+            runs = project / ".thesystem/orchestrator/runs"
+            runs.mkdir(parents=True)
+            (runs / "malformed.json").write_text("not json")
+            malformed = self.run_cli(workspace, "evidence", "--project", str(project), "--run", "malformed")
+            self.assertEqual(malformed.returncode, 1, malformed.stdout + malformed.stderr)
+            self.assertEqual(json.loads(malformed.stdout)["code"], "EVIDENCE_INVALID")
+
+            (runs / "malformed.json").unlink()
+            runs.rmdir()
+            runs.write_text("not a directory")
+            inaccessible = self.run_cli(workspace, "evidence", "--project", str(project), "--run", "broken")
+            self.assertEqual(inaccessible.returncode, 1, inaccessible.stdout + inaccessible.stderr)
+            self.assertEqual(json.loads(inaccessible.stdout)["code"], "EVIDENCE_INVALID")
+
     def test_company_orchestration_requires_binding_before_lifecycle_construction(self):
         result = self.run_cli(None, "status", "--project", "/tmp/outside")
         self.assertEqual(result.returncode, 1)

@@ -215,8 +215,11 @@ def show_evidence(args: list[str], workspace: Path) -> int:
     try:
         project = _registered_project(project_raw, workspace)
         record = read_evidence(project, run_id)
-    except (ProjectError, ProjectOperationError) as exc:
+    except ProjectError as exc:
         return fail(exc.code, str(exc), EXIT_USAGE)
+    except ProjectOperationError as exc:
+        status = EXIT_USAGE if exc.code in {"EVIDENCE_USAGE", "EVIDENCE_NOT_FOUND"} else EXIT_ERROR
+        return fail(exc.code, str(exc), status)
     emit({"status": "ok", "command": "evidence", "project": str(project), "run": record})
     return 0
 

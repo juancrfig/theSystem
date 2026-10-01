@@ -41,6 +41,8 @@ def read_evidence(project: str | Path, run_id: str) -> dict:
         target.lstat()
     except FileNotFoundError as error:
         raise ProjectOperationError("EVIDENCE_NOT_FOUND", "no immutable evidence exists for that run") from error
+    except OSError as error:
+        raise ProjectOperationError("EVIDENCE_INVALID", f"cannot inspect run evidence: {error}") from error
     if target.is_symlink() or not target.is_file():
         raise ProjectOperationError("EVIDENCE_INVALID", "run evidence is not a regular file")
     try:
