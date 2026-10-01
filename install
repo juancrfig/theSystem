@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_root=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  source_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+fi
+if [[ -z "$source_root" || ! -f "$source_root/thesystem/cli.py" ]]; then
+  source_root="${THESYSTEM_SOURCE_ROOT:-}"
+fi
+if [[ -z "$source_root" || ! -f "$source_root/thesystem/cli.py" ]]; then
+  cache="${XDG_CACHE_HOME:-$HOME/.cache}/thesystem/source"
+  mkdir -p "$(dirname "$cache")"
+  temp_root="${TMPDIR:-${XDG_CACHE_HOME:-$HOME/.cache}}"
+  mkdir -p "$temp_root"
+  archive=$(mktemp "$temp_root/thesystem.XXXXXX.tar.gz")
+  trap 'rm -f "$archive"' EXIT
+
+  auth_header=()
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    auth_header=(-H "Authorization: token $GITHUB_TOKEN")
+  elif [[ -n "${GH_TOKEN:-}" ]]; then
+    auth_header=(-H "Authorization: token $GH_TOKEN")
+  fi
+
+  acquired=0
+  if command -v curl >/dev/null 2>&1 && command -v tar >/dev/null 2>&1; then
+    url="${THESYSTEM_ARCHIVE_URL:-https://codeload.github.com/juancrfig/theSystem/tar.gz/refs/heads/${THESYSTEM_BRANCH:-master}}"
+    if curl --fail --location --silent "${auth_header[@]}" "$url" -o "$archive" 2>/dev/null; then
+      stage=$(mktemp -d "$temp_root/thesystem-source.XXXXXX")
+      if tar -xzf "$archive" -C "$stage" 2>/dev/null; then
+        source_dir=$(find "$stage" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+        if [[ -n "$source_dir" && -f "$source_dir/thesystem/cli.py" ]]; then
+          source_id=$(sha256sum "$archive" | awk '{print $1}')
+          mkdir -p "$cache"
+          rm -rf "$cache/$source_id"
+          mv "$source_dir" "$cache/$source_id"
+          rm -rf "$stage"
+          source_root="$cache/$source_id"
+          acquired=1
+        else
+          rm -rf "$stage"
+        fi
+      else
+        rm -rf "$stage"
+      fi
+    fi
+  fi
+
+  if [[ $acquired -eq 0 ]]; then
+    if command -v git >/dev/null 2>&1; then
+      source_id="git-$(date +%s)-$$-${RANDOM}"
+      git_repo="${THESYSTEM_GIT_REPO:-https://github.com/juancrfig/theSystem.git}"
+      mkdir -p "$cache"
+      if git clone --depth 1 -b "${THESYSTEM_BRANCH:-master}" "$git_repo" "$cache/$source_id" >/dev/null 2>&1 || git clone --depth 1 "$git_repo" "$cache/$source_id" >/dev/null 2>&1; then
+        if [[ -f "$cache/$source_id/thesystem/cli.py" ]]; then
+          source_root="$cache/$source_id"
+          acquired=1
+        fi
+      fi
+    fi
+  fi
+
+  if [[ $acquired -eq 0 ]]; then
+    printf 'Could not acquire theSystem source via archive or git\n' >&2
+    exit 1
+  fi
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  privilege=()
+  if [[ "$(id -u)" != 0 ]]; then
+    command -v sudo >/dev/null 2>&1 || { printf 'Python 3 is required; install it and retry\n' >&2; exit 1; }
+    privilege=(sudo)
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    "${privilege[@]}" apt-get update
+    "${privilege[@]}" apt-get install -y python3
+  elif command -v pacman >/dev/null 2>&1; then
+    "${privilege[@]}" pacman -Sy --needed --noconfirm python
+  else
+    printf 'Python 3 is required; no supported package manager found\n' >&2
+    exit 1
+  fi
+fi
+
+if [[ ! -t 0 && -r /dev/tty ]]; then
+  exec </dev/tty
+fi
+
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$source_root${PYTHONPATH:+:$PYTHONPATH}" exec python3 -B -m thesystem.install_cli "$@"

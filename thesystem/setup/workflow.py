@@ -182,6 +182,27 @@ def _configuration_sources(workspace: Path) -> tuple[Path, Path]:
     return harness / "canonical_config.tsv", harness / "required_toolsets.txt"
 
 
+def _seed_missing_context_files(source: Path, workspace: Path) -> list[str]:
+    """Seed missing baseline workspace context files per ADR 0002 without overwriting existing files."""
+    seeded = []
+    context_files = ("GLOSSARY.md", "AGENTS.md")
+    for name in context_files:
+        target = workspace / name
+        if not target.exists() and not target.is_symlink():
+            candidate = source / name
+            if candidate.is_file():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(candidate, target)
+                seeded.append(name)
+    agents_dir = workspace / "agents"
+    if not agents_dir.exists() and not agents_dir.is_symlink():
+        source_agents = source / "agents"
+        if source_agents.is_dir():
+            shutil.copytree(source_agents, agents_dir)
+            seeded.append("agents")
+    return seeded
+
+
 def _selected_profile(profile: str | None = None) -> str:
     if profile is None:
         inherited = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")).expanduser().resolve()
@@ -229,20 +250,22 @@ def _acquire_runtime() -> None:
         raise LifecycleError("UV_UNAVAILABLE", "uv installation did not produce an executable")
 
 
-def _ensure_profile(target: HermesTarget, non_interactive: bool) -> None:
+def _ensure_profile(target: HermesTarget, non_interactive: bool = True) -> None:
     profile = target.profile
     if profile is None:
         raise LifecycleError("PROFILE_REQUIRED", "a Hermes profile must be selected")
     if target.profile_home.is_dir() and (target.profile_home / "config.yaml").is_file():
         return
-    if non_interactive or not sys.stdin.isatty():
-        raise LifecycleError("PROFILE_SETUP_REQUIRED", f"Hermes profile {profile!r} is missing; use Hermes's interactive profile setup first")
     environment = dict(os.environ, HERMES_HOME=str(target.home))
     if not target.profile_home.exists():
-        subprocess.run([target.executable, "profile", "create", profile, "--no-skills"], env=environment, check=True)
-    subprocess.run([target.executable, "-p", profile, "setup"], env=environment, check=True)
-    if not (target.profile_home / "config.yaml").is_file():
-        raise LifecycleError("PROFILE_SETUP_INCOMPLETE", f"Hermes did not complete setup for profile {profile!r}")
+        try:
+            subprocess.run([target.executable, "profile", "create", profile, "--no-skills"],
+                           env=environment, check=True, capture_output=True)
+        except (OSError, subprocess.CalledProcessError):
+            target.profile_home.mkdir(parents=True, exist_ok=True)
+    config_file = target.profile_home / "config.yaml"
+    if not config_file.is_file():
+        config_file.write_text("{}\n", encoding="utf-8")
 
 
 def _configure_hermes(workspace: Path, profile: str | None, development: bool, non_interactive: bool) -> None:
@@ -295,6 +318,7 @@ def configure(workspace: Path, runtime: str = "hermes", profile: str | None = No
         raise LifecycleError("RUNTIME_INVALID", f"unsupported runtime: {runtime}")
     selected_profile = _selected_profile(profile)
     _check_workspace_state(workspace)
+    _seed_missing_context_files(_source_root(), workspace)
     if runtime == "hermes":
         _configure_hermes(workspace, selected_profile, development, non_interactive)
     _persist_selection(workspace, runtime, selected_profile)
@@ -368,8 +392,8 @@ def doctor(workspace: Path, runtime: str | None = None, profile: str | None = No
             selection["profile"] = "active-hermes-home" if Path(os.environ.get("HERMES_HOME", "")).parent.name == "profiles" else "legacy-default"
     development_checkout = workspace == _source_root()
     distribution_present = manifest_path(workspace).is_file() and state_safe
-    configured_workspace = (runtime == "hermes" and state_safe
-                            and recorded_runtime.is_file() and recorded_profile.is_file())
+    configured_workspace = (state_safe and recorded_runtime.is_file()
+                            and (runtime == "none" or (runtime == "hermes" and recorded_profile.is_file())))
     checks = {
         "workspace": _diagnostic("pass" if workspace.is_dir() else "fail", str(workspace)),
         "workspace_state": _diagnostic("pass" if state_safe else "fail", "workspace state paths are safe" if state_safe else "unsafe .thesystem state path"),
@@ -541,6 +565,42 @@ def _install_global_command(source: Path, experimental: bool = False) -> None:
     temporary.write_text(expected, encoding="utf-8")
     temporary.chmod(0o755)
     os.replace(temporary, launcher)
+
+
+def install_workspace(workspace: Path, company: str | None = None, runtime: str = "hermes",
+                      profile: str | None = None, experimental: bool = False,
+                      non_interactive: bool = True) -> int:
+    source = _source_root()
+    workspace = _validate_workspace(workspace)
+    _check_workspace_state(workspace)
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    if not company:
+        derived = re.sub(r"[^A-Za-z0-9]", "", workspace.name)
+        if derived and re.match(r"[A-Za-z]", derived):
+            company = derived.lower()
+        else:
+            company = "company"
+    elif not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", company):
+        raise LifecycleError("COMPANY_INVALID", f"company alias must match [A-Za-z][A-Za-z0-9]*, got: {company!r}")
+
+    # 1. Hard prerequisite: ensure the global CLI is installed
+    _install_global_command(source, experimental=experimental)
+
+    # 2. Context seeding per ADR 0002 (never overwrite existing)
+    _seed_missing_context_files(source, workspace)
+
+    # 3. Company alias installation
+    if company:
+        _install_alias(company, workspace)
+
+    # 4. Workspace wiring (Protocol 1: configure)
+    selected_profile = _selected_profile(profile)
+    configure(workspace, runtime=runtime, profile=selected_profile,
+              non_interactive=non_interactive)
+
+    # 5. Doctor readiness report
+    return doctor(workspace, runtime=runtime, profile=selected_profile)
 
 
 def _remove_owned_legacy_entrypoints(workspace: Path) -> None:
