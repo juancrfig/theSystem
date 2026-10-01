@@ -26,22 +26,32 @@ Verification applies only to the source, runtime, and environment identified in 
 
 The current runtime-free path has been exercised by isolated temporary-home tests; the older fresh-install probes on Ubuntu 24.04 and Arch base containers used the retired `--blank=yes` installer and do not certify the current command. No fresh-machine or no-Python acquisition certification is claimed for this delivery.
 
-Download the public launcher to a file, then run it. The launcher downloads and validates the distribution source before dispatching Python when it is outside a checkout:
+Download and run the installer directly:
 
 ```bash
-curl -fsSLo /tmp/thesystem https://raw.githubusercontent.com/juancrfig/theSystem/master/bin/thesystem
-bash /tmp/thesystem install --workspace "$HOME/workspace" --runtime none --company company --non-interactive
+curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash
 ```
 
-This installs theSystem infrastructure and a workspace-bound company alias. It does not install an agent runtime or configure a model. No Hermes profile is required for this mode. The installed files are a distribution, not a Git checkout. The current Hermes setup path is blocked for non-Git workspaces because Hermes project-skill discovery requires a Git root; setup does not initialize user workspaces.
+Or from a local checkout:
 
-| Tested option | Effect |
-| --- | --- |
-| `--workspace PATH` | Select the installation workspace. |
-| `--company NAME` | Name the workspace-bound command; the example uses `company`. |
-| `--runtime none` | Install infrastructure only, without an agent runtime or model setup. |
-| `--non-interactive` | Run without interactive setup; Hermes mode requires an already configured selected profile. |
-| `--help` | Show command usage without installing. |
+```bash
+./install
+```
+
+This installs theSystem into your home directory (`~/.local/bin/thesystem`, `~/.local/share/thesystem`), initializes the default workspace at `~/workspace`, and registers the workspace command alias `workspace`. It presets all defaults internally without requiring flags:
+- It does not install an agent runtime or configure a model by default (`--runtime none`).
+- It seeds essential context files without overwriting existing files ([ADR 0002](docs/adr/0002-seed-missing-workspace-context-files.md)).
+- It runs non-interactively without prompting.
+
+The installer accepts optional parameters to customize configuration:
+
+| Tested option | Default | Effect |
+| --- | --- | --- |
+| `-w`, `--workspace PATH` | `~/workspace` | Select the installation workspace. |
+| `-c`, `--company NAME` | `workspace` | Name the workspace-bound command. |
+| `-r`, `--runtime {none,hermes}` | `none` | Install infrastructure only (`none`) or configure Hermes wiring (`hermes`). |
+| `--interactive` | disabled | Prompt for configuration interactively. |
+| `--help` | | Show command usage without installing. |
 
 **Success:** the command reports completion with runtime `none` and the workspace path. Completion confirms deployment only; run `thesystem doctor --workspace "$HOME/workspace" --runtime none` to inspect installed distribution readiness. `Ready` does not establish authenticated agent operation.
 

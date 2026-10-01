@@ -2,11 +2,10 @@
 
 A framework to reliably build high-quality software by leveraging AI agents
 
-Install infrastructure without a Hermes runtime:
+Install theSystem (defaults to infrastructure-only at `~/workspace`):
 
 ```bash
-curl -fsSLo /tmp/thesystem https://raw.githubusercontent.com/juancrfig/theSystem/master/bin/thesystem
-bash /tmp/thesystem install --workspace "$HOME/workspace" --runtime none --non-interactive
+curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash
 ```
 
 The public command is `thesystem`; run it without arguments or with `--help` to see usage.

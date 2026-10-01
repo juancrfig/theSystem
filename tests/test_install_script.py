@@ -47,13 +47,20 @@ class InstallScriptTests(unittest.TestCase):
         self.assertIn("usage: install", result.stdout)
         self.assertEqual(set(self.root.rglob("*")), before)
 
-    def test_missing_company_without_input_exits_with_usage_error(self):
+    def test_default_invocation_succeeds_without_arguments(self):
         result = self.run_installer()
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("company name is required", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        workspace_dir = self.home / "workspace"
+        self.assertTrue(workspace_dir.is_dir())
+        workspace_cmd = self.home / ".local/bin/workspace"
+        self.assertTrue(workspace_cmd.is_file())
+        self.assertTrue((workspace_dir / "GLOSSARY.md").is_file())
+        self.assertFalse((workspace_dir / "thesystem").exists())
+        self.assertFalse((workspace_dir / "the_system_orchestrator.py").exists())
 
     def test_prompts_company_name_and_creates_lowercase_folder_at_home(self):
-        result = self.run_installer("--runtime", "none", input_text="acme\n")
+        result = self.run_installer("--interactive", input_text="acme\n")
         self.assertEqual(result.returncode, 0, result.stderr)
 
         acme_dir = self.home / "acme"
@@ -65,7 +72,7 @@ class InstallScriptTests(unittest.TestCase):
         self.assertFalse((acme_dir / "the_system_orchestrator.py").exists())
 
     def test_prompts_mixed_case_company_creates_lowercase_folder(self):
-        result = self.run_installer("--runtime", "none", input_text="AcmeCorp\n")
+        result = self.run_installer("--interactive", input_text="AcmeCorp\n")
         self.assertEqual(result.returncode, 0, result.stderr)
 
         acme_dir = self.home / "acmecorp"

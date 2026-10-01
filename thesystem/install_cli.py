@@ -28,18 +28,18 @@ def parse_args(argv=None):
     )
     parser.add_argument("workspace_pos", nargs="?", metavar="WORKSPACE", help="Target workspace directory or company name")
     parser.add_argument("company_pos", nargs="?", metavar="COMPANY", help="Company alias name")
-    parser.add_argument("-w", "--workspace", help="Target workspace directory")
-    parser.add_argument("-c", "--company", help="Company alias name")
+    parser.add_argument("-w", "--workspace", help="Target workspace directory (default: ~/workspace)")
+    parser.add_argument("-c", "--company", help="Company alias name (default: workspace)")
     parser.add_argument(
-        "-r", "--runtime", choices=["hermes", "none"], default="hermes",
-        help="Runtime mode: 'hermes' (default) or 'none' (infrastructure only)",
+        "-r", "--runtime", choices=["none", "hermes"], default="none",
+        help="Runtime mode: 'none' (default, infrastructure only) or 'hermes'",
     )
     parser.add_argument("-p", "--profile", help="Hermes profile name (default: active profile or 'master')")
     parser.add_argument(
         "--non-interactive", dest="non_interactive", action="store_true", default=None,
-        help="Run non-interactively",
+        help="Run non-interactively (default)",
     )
-    parser.add_argument("--interactive", dest="non_interactive", action="store_false", help="Run interactively")
+    parser.add_argument("--interactive", dest="non_interactive", action="store_false", help="Run interactively and prompt for configuration")
     parser.add_argument("--experimental", action="store_true", help="Include experimental rules")
     parser.add_argument("--json", action="store_true", help="Output doctor report as JSON")
     return parser.parse_args(argv)
@@ -49,12 +49,13 @@ def derive_company_name(workspace: Path) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9]", "", workspace.name)
     if cleaned and re.match(r"[A-Za-z]", cleaned):
         return cleaned.lower()
-    return "company"
+    return "workspace"
 
 
 def main(argv=None):
     args = parse_args(argv)
-    non_interactive = args.non_interactive if args.non_interactive is not None else not sys.stdin.isatty()
+    interactive = args.non_interactive is False
+    non_interactive = args.non_interactive if args.non_interactive is not None else not interactive
 
     workspace_arg = args.workspace or args.workspace_pos
     company_arg = args.company or args.company_pos
@@ -73,26 +74,37 @@ def main(argv=None):
     if company_arg:
         company = company_arg.strip()
 
-    if not company:
+    if interactive and not company:
         if sys.stdin.isatty():
             try:
                 sys.stdout.write("Company name: ")
                 sys.stdout.flush()
-                company = sys.stdin.readline().strip()
+                entered = sys.stdin.readline().strip()
+                if entered:
+                    company = entered
             except (EOFError, KeyboardInterrupt):
                 sys.stderr.write("\ninstall: aborted\n")
                 return 1
         else:
             line = sys.stdin.readline()
-            if line:
+            if line and line.strip():
                 company = line.strip()
 
-    if not company and workspace is not None:
-        company = derive_company_name(workspace)
+    if workspace is None:
+        if company:
+            cleaned = re.sub(r"[^A-Za-z0-9]", "", company)
+            target_dir = Path.home() / (cleaned.lower() if cleaned else "workspace")
+        else:
+            target_dir = Path.home() / "workspace"
+        if not target_dir.exists() and not target_dir.is_symlink():
+            target_dir.mkdir(parents=True, exist_ok=True)
+        workspace = target_dir.resolve()
+    else:
+        if not workspace.exists() and not workspace.is_symlink():
+            workspace.mkdir(parents=True, exist_ok=True)
 
     if not company:
-        sys.stderr.write("install: company name is required (pass as argument or via --company)\n")
-        return 2
+        company = derive_company_name(workspace)
 
     cleaned = re.sub(r"[^A-Za-z0-9]", "", company)
     if not cleaned or not re.match(r"[A-Za-z]", cleaned):
@@ -100,15 +112,6 @@ def main(argv=None):
         return 1
 
     command_name = company_arg if (company_arg and re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", company_arg)) else cleaned.lower()
-
-    if workspace is None:
-        target_dir = Path.home() / cleaned.lower()
-        if not target_dir.exists() and not target_dir.is_symlink():
-            target_dir.mkdir(parents=True, exist_ok=True)
-        workspace = target_dir.resolve()
-    else:
-        if not workspace.exists() and not workspace.is_symlink():
-            workspace.mkdir(parents=True, exist_ok=True)
 
     if args.runtime == "hermes" and not _has_git_root(workspace):
         try:

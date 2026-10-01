@@ -84,8 +84,5 @@ if ! command -v python3 >/dev/null 2>&1; then
   fi
 fi
 
-if [[ ! -t 0 && -r /dev/tty ]]; then
-  exec </dev/tty
-fi
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$source_root${PYTHONPATH:+:$PYTHONPATH}" exec python3 -B -m thesystem.install_cli "$@"
