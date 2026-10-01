@@ -31,7 +31,3 @@ self-improvement mechanism. However, the protocol agents follow to do this must 
 charge of agents. I've noticed agents are not good (by default) when trying to generalize their 
 reflections from mistakes, effectivelly bloating their own memory with ticket-specific learnings. 
 Until a clear protocol is designed and battle-tested, the feedback loop must remain in charge of humans. 
-
-## Local MVP status
-
-The intended workflow is in [the user manual](MANUAL.md).
