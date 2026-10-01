@@ -25,18 +25,18 @@ platforms:
     enabled: true
     extra:
       port: 8644
-      secret: "your-webhook-secret-here"
+      secret: "${WEBHOOK_SECRET}"
 ```
 
 Omitting `host` uses the dual-stack default and listens on both IPv4 and IPv6.
 Set a specific address only when you intentionally want to restrict the bind.
 
 ### Option 3: Environment variables
-Add to `${HERMES_HOME:-~/.hermes}/.env`:
+Add to `$HERMES_HOME/.env`:
 ```bash
 WEBHOOK_ENABLED=true
 WEBHOOK_PORT=8644
-WEBHOOK_SECRET=your-webhook-secret-here
+WEBHOOK_SECRET=YOUR_WEBHOOK_SECRET
 ```
 
 After configuration, start (or restart) the gateway:
@@ -212,5 +212,5 @@ If webhooks aren't working:
 2. **Is the webhook server listening?** `curl http://localhost:8644/health` should return `{"status": "ok"}`
 3. **Check gateway logs:** `grep webhook ~/.hermes/logs/gateway.log | tail -20`
 4. **Signature mismatch?** Verify the secret in your service matches the one from `hermes webhook list`. GitHub sends `X-Hub-Signature-256`, GitLab sends `X-Gitlab-Token`.
-5. **Firewall/NAT?** The webhook URL must be reachable from the service. For local development, use a tunnel (ngrok, cloudflared).
+5. **Firewall/NAT?** The webhook URL must be reachable from the service. For local development, use a secure reverse proxy or port forwarder.
 6. **Wrong event type?** Check `--events` filter matches what the service sends. Use `hermes webhook test <name>` to verify the route works.

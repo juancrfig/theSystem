@@ -74,8 +74,8 @@ so to recolor *only* tool calls (the classic "change the gold `●`") set `ui_to
    ```
    The gateway's skin watcher notices the change and **repaints every surface live
    within ~a second** — CLI, TUI, and desktop — and the skin appears in
-   Appearance / `Cmd-K` / `/skin`. You apply it; do NOT tell the user to run
-   `/skin` (they still can, but it's your job). The writer emits valid YAML — a
+   Appearance / `Cmd-K` / `/skin`. Apply the setting directly rather than asking the user to run
+   `/skin` manually (they still can, but applying it for them is preferred). The writer emits valid YAML — a
    hand-edit can corrupt the file and break the live gateway (including `/`).
 4. **Confirm the new look landed** and tell the user how to revert: run
    `hermes config set display.skin default` (or they can `/skin default`).

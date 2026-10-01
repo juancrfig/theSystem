@@ -189,7 +189,7 @@ class ProvisioningTests(unittest.TestCase):
             version = json.loads(subprocess.check_output(
                 [str(python), "-c", "import json,sys; print(json.dumps(list(sys.version_info[:2])))"], text=True
             ))
-            write_review_paths([version, [str(hermes_site)]])
+            write_review_paths([version, [str(hermes_site)]], purelib=purelib)
             precedence = subprocess.run([str(python), "-c", "import fixture_precedence; print(fixture_precedence.VALUE)"],
                                         check=True, text=True, capture_output=True)
             self.assertEqual(precedence.stdout.strip(), "review")

@@ -83,11 +83,11 @@ def diagnose_workspace(root, expected_settings, required_toolsets):
     }
 
 
-def write_review_paths(metadata):
+def write_review_paths(metadata, purelib=None):
     version, paths = metadata
     if version != list(sys.version_info[:2]):
         raise ValueError("Review environment Python differs from Hermes; recreate .agents/memory-review and rerun provisioning.")
-    target = Path(sysconfig.get_path("purelib")) / "hermes-runtime.pth"
+    target = (Path(purelib) if purelib is not None else Path(sysconfig.get_path("purelib"))) / "hermes-runtime.pth"
     # Local review packages must take precedence over Hermes dependencies.
     target.write_text("import site; " + "; ".join(f"site.addsitedir({path!r})" for path in paths) + "\n", encoding="utf-8")
 

@@ -27,7 +27,7 @@ a UTF-8 BOM (Notepad does this). Re-save as UTF-8 without BOM;
 `SYSTEMROOT`/`WINDIR`/`COMSPEC` (Python's `socket` needs `SYSTEMROOT` to find
 `mswsock.dll`), not a broken Winsock LSP. The `_WINDOWS_ESSENTIAL_ENV_VARS`
 allowlist in `tools/code_execution_env.py` covers it; if you still hit it,
-echo `os.environ` inside an `execute_code` block to confirm `SYSTEMROOT` is set.
+inspect `os.environ.get("SYSTEMROOT")` inside an `execute_code` block to confirm it is set.
 
 ### Testing on Windows
 

@@ -34,14 +34,14 @@ Automatic carveouts (always fetched live, never cached):
 - failed responses and keyless-rescue-served responses
 
 Developing a site tested over the PUBLIC internet (Vercel/Netlify
-preview, ngrok/cloudflared tunnel, staging domain)? Public DNS isn't
+preview, development tunnel, staging domain)? Public DNS isn't
 auto-carved-out — list the host in config.yaml:
 
 ```yaml
 web:
   cache_exempt_hosts:      # always fetched live; effective immediately
     - mysite.vercel.app
-    - "*.ngrok-free.app"
+    - "*.tunnel.dev"
     - mysite.dev           # suffix match: also covers preview.mysite.dev
 ```
 
@@ -60,7 +60,7 @@ grep -i "failed to send\|error" ~/.hermes/logs/gateway.log | tail -20
 ```
 
 Common gateway problems:
-- **Gateway dies on SSH logout**: Enable linger: `sudo loginctl enable-linger $USER`
+- **Gateway dies on SSH logout**: Enable linger: `loginctl enable-linger $USER`
 - **Gateway dies on WSL2 close**: WSL2 requires `systemd=true` in `/etc/wsl.conf` for systemd services to work. Without it, gateway falls back to `nohup` (dies when session closes).
 - **Gateway crash loop**: Reset the failed state: `systemctl --user reset-failed hermes-gateway`
 
