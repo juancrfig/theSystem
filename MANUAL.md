@@ -38,10 +38,10 @@ Or from a local checkout:
 ./install
 ```
 
-This installs theSystem into your home directory (`~/.local/bin/thesystem`, `~/.local/share/thesystem`), initializes the default workspace at `~/workspace`, and registers the workspace command alias `workspace`. It presets all defaults internally without requiring flags:
+This installs theSystem into your home directory (`~/.local/bin/thesystem`, `~/.local/share/thesystem`), initializes the default workspace at `~/workspace`, and registers the workspace command alias using your company name (default: `workspace`). It presets defaults internally:
 - It does not install an agent runtime or configure a model by default (`--runtime none`).
 - It seeds essential context files without overwriting existing files ([ADR 0002](docs/adr/0002-seed-missing-workspace-context-files.md)).
-- It runs non-interactively without prompting.
+- It prompts for your company name interactively (wizard style).
 
 The installer accepts optional parameters to customize configuration:
 
@@ -50,7 +50,8 @@ The installer accepts optional parameters to customize configuration:
 | `-w`, `--workspace PATH` | `~/workspace` | Select the installation workspace. |
 | `-c`, `--company NAME` | `workspace` | Name the workspace-bound command. |
 | `-r`, `--runtime {none,hermes}` | `none` | Install infrastructure only (`none`) or configure Hermes wiring (`hermes`). |
-| `--interactive` | disabled | Prompt for configuration interactively. |
+| `--non-interactive` | disabled | Run non-interactively without prompting. |
+| `--interactive` | enabled | Prompt for configuration interactively (default). |
 | `--help` | | Show command usage without installing. |
 
 **Success:** the command reports completion with runtime `none` and the workspace path. Completion confirms deployment only; run `thesystem doctor --workspace "$HOME/workspace" --runtime none` to inspect installed distribution readiness. `Ready` does not establish authenticated agent operation.

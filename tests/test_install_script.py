@@ -59,26 +59,31 @@ class InstallScriptTests(unittest.TestCase):
         self.assertFalse((workspace_dir / "thesystem").exists())
         self.assertFalse((workspace_dir / "the_system_orchestrator.py").exists())
 
-    def test_prompts_company_name_and_creates_lowercase_folder_at_home(self):
-        result = self.run_installer("--interactive", input_text="acme\n")
+    def test_prompts_company_name_and_creates_command_for_workspace(self):
+        result = self.run_installer(input_text="acme\n")
         self.assertEqual(result.returncode, 0, result.stderr)
 
-        acme_dir = self.home / "acme"
-        self.assertTrue(acme_dir.is_dir())
+        workspace_dir = self.home / "workspace"
+        self.assertTrue(workspace_dir.is_dir())
         acme_cmd = self.home / ".local/bin/acme"
         self.assertTrue(acme_cmd.is_file())
-        self.assertTrue((acme_dir / "GLOSSARY.md").is_file())
-        self.assertFalse((acme_dir / "thesystem").exists())
-        self.assertFalse((acme_dir / "the_system_orchestrator.py").exists())
+        self.assertIn(f"THESYSTEM_WORKSPACE={str(workspace_dir)!r}", acme_cmd.read_text())
+        self.assertTrue((workspace_dir / "GLOSSARY.md").is_file())
+        self.assertFalse((workspace_dir / "thesystem").exists())
+        self.assertFalse((workspace_dir / "the_system_orchestrator.py").exists())
+        self.assertNotIn("ADR 0002", result.stdout)
+        self.assertNotIn("Running readiness diagnostics", result.stdout)
+        self.assertNotIn('{"checks":', result.stdout)
 
-    def test_prompts_mixed_case_company_creates_lowercase_folder(self):
-        result = self.run_installer("--interactive", input_text="AcmeCorp\n")
+    def test_prompts_mixed_case_company_creates_lowercase_command(self):
+        result = self.run_installer(input_text="AcmeCorp\n")
         self.assertEqual(result.returncode, 0, result.stderr)
 
-        acme_dir = self.home / "acmecorp"
-        self.assertTrue(acme_dir.is_dir())
+        workspace_dir = self.home / "workspace"
+        self.assertTrue(workspace_dir.is_dir())
         acme_cmd = self.home / ".local/bin/acmecorp"
         self.assertTrue(acme_cmd.is_file())
+        self.assertIn(f"THESYSTEM_WORKSPACE={str(workspace_dir)!r}", acme_cmd.read_text())
 
     def test_infrastructure_install_proves_prerequisite_alias_and_context_seeding(self):
         # Workspace initially has no GLOSSARY.md

@@ -1,9 +1,12 @@
 """CLI entry point for the standalone theSystem workspace installer."""
 import argparse
+from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
 import re
+import select
 import subprocess
 import sys
 
@@ -36,10 +39,13 @@ def parse_args(argv=None):
     )
     parser.add_argument("-p", "--profile", help="Hermes profile name (default: active profile or 'master')")
     parser.add_argument(
-        "--non-interactive", dest="non_interactive", action="store_true", default=None,
-        help="Run non-interactively (default)",
+        "--non-interactive", dest="non_interactive", action="store_true", default=False,
+        help="Run non-interactively without prompting",
     )
-    parser.add_argument("--interactive", dest="non_interactive", action="store_false", help="Run interactively and prompt for configuration")
+    parser.add_argument(
+        "--interactive", dest="non_interactive", action="store_false",
+        help="Run interactively and prompt for configuration (default)",
+    )
     parser.add_argument("--experimental", action="store_true", help="Include experimental rules")
     parser.add_argument("--json", action="store_true", help="Output doctor report as JSON")
     return parser.parse_args(argv)
@@ -52,10 +58,52 @@ def derive_company_name(workspace: Path) -> str:
     return "workspace"
 
 
+def prompt_company_name(default: str = "workspace") -> str:
+    prompt_text = "Company name: "
+    if sys.stdout.isatty():
+        if sys.stdin.isatty():
+            try:
+                sys.stdout.write(prompt_text)
+                sys.stdout.flush()
+                entered = sys.stdin.readline().strip()
+                return entered or default
+            except (EOFError, KeyboardInterrupt):
+                sys.stderr.write("\ninstall: aborted\n")
+                raise
+
+        try:
+            r, _, _ = select.select([sys.stdin], [], [], 0)
+            if r:
+                line = sys.stdin.readline()
+                if line and line.strip():
+                    return line.strip()
+        except (OSError, ValueError):
+            pass
+
+        try:
+            with open("/dev/tty", "r") as tty_in:
+                sys.stdout.write(prompt_text)
+                sys.stdout.flush()
+                entered = tty_in.readline().strip()
+                return entered or default
+        except (OSError, IOError):
+            pass
+
+    try:
+        r, _, _ = select.select([sys.stdin], [], [], 0)
+        if r:
+            line = sys.stdin.readline()
+            if line and line.strip():
+                return line.strip()
+    except (OSError, ValueError):
+        pass
+
+    return default
+
+
 def main(argv=None):
     args = parse_args(argv)
-    interactive = args.non_interactive is False
-    non_interactive = args.non_interactive if args.non_interactive is not None else not interactive
+    non_interactive = args.non_interactive
 
     workspace_arg = args.workspace or args.workspace_pos
     company_arg = args.company or args.company_pos
@@ -74,28 +122,14 @@ def main(argv=None):
     if company_arg:
         company = company_arg.strip()
 
-    if interactive and not company:
-        if sys.stdin.isatty():
-            try:
-                sys.stdout.write("Company name: ")
-                sys.stdout.flush()
-                entered = sys.stdin.readline().strip()
-                if entered:
-                    company = entered
-            except (EOFError, KeyboardInterrupt):
-                sys.stderr.write("\ninstall: aborted\n")
-                return 1
-        else:
-            line = sys.stdin.readline()
-            if line and line.strip():
-                company = line.strip()
+    if not non_interactive and not company:
+        try:
+            company = prompt_company_name()
+        except (EOFError, KeyboardInterrupt):
+            return 1
 
     if workspace is None:
-        if company:
-            cleaned = re.sub(r"[^A-Za-z0-9]", "", company)
-            target_dir = Path.home() / (cleaned.lower() if cleaned else "workspace")
-        else:
-            target_dir = Path.home() / "workspace"
+        target_dir = Path.home() / "workspace"
         if not target_dir.exists() and not target_dir.is_symlink():
             target_dir.mkdir(parents=True, exist_ok=True)
         workspace = target_dir.resolve()
@@ -128,7 +162,7 @@ def main(argv=None):
         # 1. Hard prerequisite: ensure the global CLI is installed
         _install_global_command(source, experimental=args.experimental)
 
-        # 2. Context seeding per ADR 0002
+        # 2. Context seeding
         seeded = _seed_missing_context_files(source, workspace)
 
         # 3. Company alias
@@ -147,12 +181,15 @@ def main(argv=None):
             print(f"✓ Installed theSystem global CLI in {Path.home() / '.local/bin/thesystem'}")
             print(f"✓ Created company alias '{command_name}' in {Path.home() / '.local/bin' / command_name}")
             if seeded:
-                print(f"✓ Seeded missing context files (ADR 0002): {', '.join(seeded)}")
+                print(f"✓ Seeded canonical files: {', '.join(seeded)}")
             print(f"✓ Configured workspace: {workspace} (runtime: {args.runtime})")
-            print("\nRunning readiness diagnostics...")
 
-        # 5. Doctor check
-        return doctor(workspace, runtime=args.runtime, profile=selected_profile)
+        if args.json:
+            return doctor(workspace, runtime=args.runtime, profile=selected_profile)
+
+        # 5. Doctor check (silent verification for standard install)
+        with redirect_stdout(io.StringIO()):
+            return doctor(workspace, runtime=args.runtime, profile=selected_profile)
 
     except LifecycleError as error:
         if args.json:
