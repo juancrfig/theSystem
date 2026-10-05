@@ -34,7 +34,7 @@ Outcome: a short wizard asks two things, then finishes:
         └── tools/
     ```
   - Runs `git init` in the workspace if it isn't already a git repo. Hermes needs this to find the skills.
-  - Links `agents/skills/` to the harness via the cross-tool symlink `.agents/skills → ../agents/skills`. Hermes doesn't need to be installed for this. If Hermes is installed, the wizard also trusts the workspace (`hermes skills trust`), because Hermes loads repo-local skills only from trusted folders.
+  - Links `agents/skills/` to the harness via the cross-tool symlink `.agents/skills → ../agents/skills`. Hermes doesn't need to be installed for this. If Hermes is installed, the wizard also trusts the workspace (`hermes skills trust`), because Hermes loads repo-local skills only from trusted folders. It also makes the workspace the main agent's working folder (`terminal.cwd`), so every main-agent session (Telegram, cron and CLI) loads the workspace skills and `AGENTS.md`.
   - If Hermes is installed, adds two Hermes personalities and selects `main` when none is selected yet. `main` is the build-mode communication style from `agents/.harness/personalities/main.md`; `casual` adds nothing, so Hermes talks normally. Switch with `/personality casual` in a chat or `hermes config set display.personality casual`; theSystem works the same in both. A reinstall refreshes `main` from the theSystem being installed and keeps the current selection. Without Hermes, this step is skipped; rerun the install after installing Hermes.
   - Starts the artifact library (F9) as an always-on user service that survives reboots. Skipped where there is no systemd user session.
   - If Hermes is installed, gives the main agent theSystem's canonical Hermes config (`agents/.harness/canonical_config.yaml`, same shape as Hermes' own `config.yaml`) and turns on its toolsets (`agents/.harness/required_toolsets.txt`) for the CLI and Telegram. Every install resets these settings to the harness files. Auxiliary models are the only thing left to configure by hand.
@@ -130,12 +130,21 @@ Not this: status or evidence commands (agents read `task.md` and the run folders
 ## F8 · Project knowledge
 
 Status: open
-Flow:
-  1. The human puts sources in `<project>/wiki/raw/`.
+Outcome: the main agent knows each project. It answers questions from the project wiki, adds knowledge from sources the human gives it, and checks the wiki's health.
+Ingest:
+  1. The human puts sources in `<project>/wiki/raw/`, or sends them in chat (link, file or pasted text); the agent saves those in `raw/`.
   2. The human asks the main agent to ingest specific files.
   3. The agent proposes: facts, obligations, open questions and contradictions (each citing its source), plus the exact pages, index and log entries it would change.
-  4. The human approves. Only then does the agent write the wiki.
-Rules: knowledge is per project only. Uses the `ingest` and `llm-wiki` skills. No commands.
+  4. The human approves the list as a whole (not item by item). Only then does the agent write the wiki.
+Answer: when the human asks about a project, the main agent reads its wiki first and answers with citations. It says when the wiki has no answer. It may offer to save a valuable answer as a page, with approval.
+Health check: on request, the agent reports broken links, orphan and missing pages, stale and contested pages. Fixes go through the same approval.
+Rules:
+  - Knowledge is per project only. Uses the `ingest` and `llm-wiki` skills. No commands.
+  - Raw sources are never edited and never committed. Citations name no file or path: each describes its source and who said what, so it stands on its own, e.g. "Teams meeting 'Q4 planning' held 2026-10-01 with 3 participants. Ana López said the limit stays at 5,000 EUR."
+  - A superseded page moves to `_archive/` and leaves the index; it is not deleted.
+  - Contradictions: the agent recommends replacing the old claim (the newer source usually wins) or keeping both. Kept contradictions stay on the page, marked contested, until a human resolves them.
+  - When the human changes the proposal or adds information, the agent shows the revised proposal and asks again.
+Proof: in a sample project, ingest a meeting transcript and an email that contradicts it; approve; then send a third source in chat that contradicts the wiki, change the proposal to keep both, approve. Check that raw files are unchanged and uncommitted, citations name no paths, the contested page is marked, and each ingest is one commit. Ask a question the wiki answers and one it does not. Run a health check on a wiki with a broken link: it reports and changes nothing.
 
 ## F9 · Artifact library
 

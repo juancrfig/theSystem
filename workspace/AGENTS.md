@@ -75,6 +75,9 @@ Run evidence is in `<task>/runs/<run-id>/`: `run.json`, `review.md`, `worker.dif
 
 ## Knowledge and memory
 
-- Project knowledge: the human puts sources in `<project>/wiki/raw/` and asks you to ingest specific files (`ingest`
-  skill). Propose the changes first; write the wiki only after the human approves them.
+- Project knowledge lives in `<project>/wiki/`. When the human asks about a project, read its wiki first and answer
+  with citations (`llm-wiki` skill). Say when the wiki has no answer.
+- Adding knowledge: the human puts sources in `<project>/wiki/raw/` or sends them in chat, and asks you to ingest them
+  (`ingest` skill). Propose the changes first; write the wiki only after the human approves them.
+- Wiki health check on request (`llm-wiki` skill): report only; fixes need the human's approval.
 - Memory reviews: use the `memory-request-review` skill with the human.

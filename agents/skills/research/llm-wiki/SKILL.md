@@ -1,6 +1,6 @@
 ---
 name: llm-wiki
-description: "Karpathy's LLM Wiki: build/query interlinked markdown KB."
+description: "Use when answering from, capturing into, or checking a project wiki. Ingest flow is the ingest skill."
 version: 2.1.0
 author: Hermes Agent
 license: MIT
@@ -128,10 +128,10 @@ Adapt to the user's domain. The schema constrains agent behavior and ensures con
 - When updating a page, always bump the `updated` date
 - Every new page must be added to `index.md` under the correct section
 - Every action must be appended to `log.md`
-- **Provenance markers:** On pages that synthesize 3+ sources, append `^[raw/articles/source-file.md]`
-  at the end of paragraphs whose claims come from a specific source. This lets a reader trace each
-  claim back without re-reading the whole raw file. Optional on single-source pages where the
-  `sources:` frontmatter is enough.
+- **Provenance:** Every claim cites its source in words, never as a file name or path: what the source
+  is, when, who took part, and who said what (e.g. "Teams meeting 'Q4 planning' held 2026-10-01 with
+  3 participants. Ana López said the limit stays at 5,000 EUR."). Raw files are not committed, so a
+  path would point to nothing.
 
 ## Frontmatter
   ```yaml
@@ -141,7 +141,7 @@ Adapt to the user's domain. The schema constrains agent behavior and ensures con
   updated: YYYY-MM-DD
   type: entity | concept | comparison | query | summary
   tags: [from taxonomy below]
-  sources: [raw/articles/source-name.md]
+  sources: ["Teams meeting 'Q4 planning', 2026-10-01"]   # described, never paths
   # Optional quality signals:
   confidence: high | medium | low        # how well-supported the claims are
   contested: true                        # set when the page has unresolved contradictions
@@ -152,22 +152,6 @@ Adapt to the user's domain. The schema constrains agent behavior and ensures con
 `confidence` and `contested` are optional but recommended for opinion-heavy or fast-moving
 topics. Lint surfaces `contested: true` and `confidence: low` pages for review so weak claims
 don't silently harden into accepted wiki fact.
-
-### raw/ Frontmatter
-
-Raw sources ALSO get a small frontmatter block so re-ingests can detect drift:
-
-```yaml
----
-source_url: https://example.com/article   # original URL, if applicable
-ingested: YYYY-MM-DD
-sha256: <hex digest of the raw content below the frontmatter>
----
-```
-
-The `sha256:` lets a future re-ingest of the same URL skip processing when content is unchanged,
-and flag drift when it has changed. Compute over the body only (everything after the closing
-`---`), not the frontmatter itself.
 
 ## Tag Taxonomy
 [Define 10-20 top-level tags for the domain. Add new tags here BEFORE using them.]
@@ -263,18 +247,16 @@ a `_meta/topic-map.md` that groups pages by theme for faster navigation.
 
 When the user provides a source (URL, file, paste), integrate it into the wiki:
 
-① **Capture the raw source:**
+① **Capture the raw source** (when the human sends it in chat: a link, a file or pasted text). If the
+   project is unclear, ask which one. Then run the `ingest` skill on the saved file:
    - URL → use `web_extract` to get markdown, save to `raw/articles/`
    - PDF → use `web_extract` (handles PDFs), save to `raw/papers/`
    - Pasted text → save to appropriate `raw/` subdirectory
    - Name the file descriptively: `raw/articles/karpathy-llm-wiki-2026.md`
-   - **Add raw frontmatter** (`source_url`, `ingested`, `sha256` of the body).
-     On re-ingest of the same URL: recompute the sha256, compare to the stored value —
-     skip if identical, flag drift and update if different. This is cheap enough to
-     do on every re-ingest and catches silent source changes.
+   - Never add frontmatter or any other change to a raw file, once saved.
 
-② **Discuss takeaways** with the user — what's interesting, what matters for
-   the domain. (Skip this in automated/cron contexts — proceed directly.)
+② **Get approval** — follow the `ingest` skill: show the full list of proposed
+   changes and write nothing until the human approves the list as a whole.
 
 ③ **Check what already exists** — search index.md and use `search_files` to find
    existing pages for mentioned entities/concepts. This is the difference between
@@ -288,8 +270,8 @@ When the user provides a source (URL, file, paste), integrate it into the wiki:
    - **Cross-reference:** Every new or updated page must link to at least 2 other
      pages via `[[wikilinks]]`. Check that existing pages link back.
    - **Tags:** Only use tags from the taxonomy in SCHEMA.md
-   - **Provenance:** On pages synthesizing 3+ sources, append `^[raw/articles/source.md]`
-     markers to paragraphs whose claims trace to a specific source.
+   - **Provenance:** Every claim cites its source in words (see SCHEMA conventions),
+     never as a raw file path.
    - **Confidence:** For opinion-heavy, fast-moving, or single-source claims, set
      `confidence: medium` or `low` in frontmatter. Don't mark `high` unless the
      claim is well-supported across multiple sources.
@@ -315,14 +297,16 @@ When the user asks a question about the wiki's domain:
 ③ **Read the relevant pages** using `read_file`.
 ④ **Synthesize an answer** from the compiled knowledge. Cite the wiki pages
    you drew from: "Based on [[page-a]] and [[page-b]]..."
-⑤ **File valuable answers back** — if the answer is a substantial comparison,
-   deep dive, or novel synthesis, create a page in `queries/` or `comparisons/`.
-   Don't file trivial lookups — only answers that would be painful to re-derive.
-⑥ **Update log.md** with the query and whether it was filed.
+⑤ **Offer to file valuable answers back** — if the answer is a substantial comparison,
+   deep dive, or novel synthesis, offer to save it as a page in `queries/` or `comparisons/`.
+   Write it only after the human approves. Don't offer trivial lookups.
+⑥ **Say when the wiki has no answer.** Do not fill gaps from memory; name the missing
+   knowledge as a possible source to ingest.
 
 ### 3. Lint
 
-When the user asks to lint, health-check, or audit the wiki:
+When the user asks to lint, health-check, or audit the wiki. The check only reads and reports;
+fixes are proposed as one list and written only after the human approves it:
 
 ① **Orphan pages:** Find pages with no inbound `[[wikilinks]]` from other pages.
 ```python
@@ -354,21 +338,16 @@ wiki = "<WIKI_PATH>"
    only a single source but has no confidence field set — these are candidates
    for either finding corroboration or demoting to `confidence: medium`.
 
-⑧ **Source drift:** For each file in `raw/` with a `sha256:` frontmatter, recompute
-   the hash and flag mismatches. Mismatches indicate the raw file was edited
-   (shouldn't happen — raw/ is immutable) or ingested from a URL that has since
-   changed. Not a hard error, but worth reporting.
+⑧ **Page size:** Flag pages over 200 lines — candidates for splitting.
 
-⑨ **Page size:** Flag pages over 200 lines — candidates for splitting.
+⑨ **Tag audit:** List all tags in use, flag any not in the SCHEMA.md taxonomy.
 
-⑩ **Tag audit:** List all tags in use, flag any not in the SCHEMA.md taxonomy.
+⑩ **Log rotation:** If log.md exceeds 500 entries, rotate it.
 
-⑪ **Log rotation:** If log.md exceeds 500 entries, rotate it.
+⑪ **Report findings** with specific file paths and suggested actions, grouped by
+   severity (broken links > orphans > contested pages > stale content > style issues).
 
-⑫ **Report findings** with specific file paths and suggested actions, grouped by
-   severity (broken links > orphans > source drift > contested pages > stale content > style issues).
-
-⑬ **Append to log.md:** `## [YYYY-MM-DD] lint | N issues found`
+⑫ **Log only approved fixes:** when the human approves fixes, write them and append one log line.
 
 ## Working with the Wiki
 
@@ -495,8 +474,8 @@ vault in Obsidian on your laptop/phone — changes appear within seconds.
   first, then use them.
 - **Keep pages scannable** — a wiki page should be readable in 30 seconds. Split pages over
   200 lines. Move detailed analysis to dedicated deep-dive pages.
-- **Ask before mass-updating** — if an ingest would touch 10+ existing pages, confirm
-  the scope with the user first.
+- **Never write before approval** — every ingest shows its full list of changes and waits
+  for the human to approve it as a whole, whatever its size.
 - **Rotate the log** — when log.md exceeds 500 entries, rename it `log-YYYY.md` and start fresh.
   The agent should check log size during lint.
 - **Handle contradictions explicitly** — don't silently overwrite. Note both claims with dates,

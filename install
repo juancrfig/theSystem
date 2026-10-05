@@ -77,6 +77,9 @@ fi
 # Trust the workspace so Hermes loads its skills (.agents/skills). Hermes ignores repo-local skills until trusted.
 if command -v hermes >/dev/null 2>&1; then
   hermes skills trust "$workspace" >/dev/null 2>&1 || true
+  # The main agent works in terminal.cwd. Pointing it at the workspace makes every main-agent session (Telegram,
+  # cron and CLI, even `hermes chat --in <elsewhere>`) load the workspace skills and AGENTS.md.
+  hermes config set terminal.cwd "$workspace" >/dev/null 2>&1 || true
 fi
 
 # Hermes personalities: `main` is the build-mode communication rule, `casual` adds nothing (plain Hermes).

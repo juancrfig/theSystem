@@ -97,6 +97,11 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(self.install().returncode, 0)
         self.assertIn(["skills", "trust", str((self.home / "workspace").resolve())], self.calls(log))
 
+    def test_messaging_sessions_start_in_the_workspace(self):
+        log = self.fake_hermes()
+        self.assertEqual(self.install().returncode, 0)
+        self.assertEqual(self.config_sets(log)["terminal.cwd"], str((self.home / "workspace").resolve()))
+
     def test_worker_and_reviewer_profiles_are_created_empty_once(self):
         log = self.fake_hermes(profiles=("reviewer",))
         self.assertEqual(self.install().returncode, 0)
