@@ -92,6 +92,11 @@ class InstallTests(unittest.TestCase):
         self.assertIn("delegation", enables[0])
         self.assertIn("computer_use", enables[0])
 
+    def test_workspace_is_trusted_so_hermes_loads_its_skills(self):
+        log = self.fake_hermes()
+        self.assertEqual(self.install().returncode, 0)
+        self.assertIn(["skills", "trust", str((self.home / "workspace").resolve())], self.calls(log))
+
     def test_worker_and_reviewer_profiles_are_created_empty_once(self):
         log = self.fake_hermes(profiles=("reviewer",))
         self.assertEqual(self.install().returncode, 0)

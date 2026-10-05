@@ -74,6 +74,11 @@ if [[ ! -e "$workspace/.agents/skills" && ! -L "$workspace/.agents/skills" ]]; t
   ln -s ../agents/skills "$workspace/.agents/skills"
 fi
 
+# Trust the workspace so Hermes loads its skills (.agents/skills). Hermes ignores repo-local skills until trusted.
+if command -v hermes >/dev/null 2>&1; then
+  hermes skills trust "$workspace" >/dev/null 2>&1 || true
+fi
+
 # Hermes personalities: `main` is the build-mode communication rule, `casual` adds nothing (plain Hermes).
 # Switch with `/personality casual` in chat or `hermes config set display.personality casual`.
 # Skipped when Hermes isn't installed; rerun the installer after installing it.
