@@ -9,6 +9,7 @@ Anything not in this map is not wanted.
 
 - Wizard offers to clone an existing repo as the workspace.
 - Auto-merge when the reviewer approves. This replaces `pre-done`.
+- Explainer videos: on request, the main agent makes a narrated, 3Blue1Brown-style video that explains a topic. Narration uses ElevenLabs or a free alternative that runs locally.
 
 ---
 
@@ -34,6 +35,7 @@ Outcome: a short wizard asks two things, then finishes:
   - Runs `git init` in the workspace if it isn't already a git repo. Hermes needs this to find the skills.
   - Links `agents/skills/` to the harness via the cross-tool symlink `.agents/skills → ../agents/skills`. Hermes doesn't need to be installed for this. When Hermes first runs in the workspace, it shows a notice and you trust the folder once.
   - If Hermes is installed, adds two Hermes personalities and selects `main` when none is selected yet. `main` is the build-mode communication style from `agents/.harness/personalities/main.md`; `casual` adds nothing, so Hermes talks normally. Switch with `/personality casual` in a chat or `hermes config set display.personality casual`; theSystem works the same in both. A reinstall refreshes `main` from the workspace file and keeps the current selection. Without Hermes, this step is skipped; rerun the install after installing Hermes.
+  - Starts the artifact library (F9) as an always-on user service that survives reboots. Skipped where there is no systemd user session.
 Not this: the wizard asks nothing else, doesn't install Hermes, and says nothing about the harness.
 Proof: on a fresh Ubuntu machine, run the install, accept the defaults, then check that the tree above exists, `umbrella` runs, and Hermes lists the skills in `agents/skills/`.
 
@@ -130,3 +132,14 @@ Flow:
   3. The agent proposes: facts, obligations, open questions and contradictions (each citing its source), plus the exact pages, index and log entries it would change.
   4. The human approves. Only then does the agent write the wiki.
 Rules: knowledge is per project only. Uses the `ingest` and `llm-wiki` skills. No commands.
+
+## F9 · Artifact library
+
+Status: wanted
+Reach: open `http://localhost:8765` on the server. The installer starts it (F1).
+Outcome: one minimal page lists every HTML artifact the agents made, so the human can browse and review them:
+  - Recent first, then grouped by project and by ticket, with a filter box.
+  - Artifacts live in `<project>/tickets/<ticket>/artifacts/`, `<project>/artifacts/`, or `docs/artifacts/` for workspace-wide work.
+  - The `main` personality saves every artifact there and replies with its link.
+Not this: no Tailscale, SSH tunnels or remote access (localhost only), no database, no commands, no editing from the page.
+Proof: save an HTML file in a ticket's `artifacts/`, open `http://localhost:8765`, check it is listed under its project and ticket, and click it open.

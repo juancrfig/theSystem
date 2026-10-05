@@ -86,6 +86,30 @@ if command -v hermes >/dev/null 2>&1 && [[ -f "$main_style" ]]; then
   fi
 fi
 
+# Artifact library (F9): an always-on user service serving the workspace's HTML artifacts on localhost.
+# Skipped without a systemd user session. Linger keeps it running after reboots without a login.
+if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+  unit_dir="$HOME/.config/systemd/user"
+  mkdir -p "$unit_dir"
+  cat > "$unit_dir/thesystem-artifacts.service" <<EOF
+[Unit]
+Description=theSystem artifact library (http://localhost:8765)
+
+[Service]
+Environment=THESYSTEM_WORKSPACE=$workspace
+Environment=PYTHONPATH=$share_dir
+ExecStart=/usr/bin/env python3 -m thesystem.artifacts
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+EOF
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  systemctl --user enable thesystem-artifacts.service >/dev/null 2>&1 || true
+  systemctl --user restart thesystem-artifacts.service >/dev/null 2>&1 || true
+  loginctl enable-linger "${USER:-$(id -un)}" >/dev/null 2>&1 || true
+fi
+
 cat > "$launcher" <<EOF
 #!/bin/sh
 # theSystem launcher for the $company workspace

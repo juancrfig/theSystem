@@ -91,6 +91,24 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.home / ".hermes").exists())
 
+    def test_artifact_library_service_is_installed_and_started(self):
+        bin_dir = self.home / "fakebin"
+        bin_dir.mkdir()
+        log = self.home / "systemctl.log"
+        for name in ("systemctl", "loginctl"):
+            stub = bin_dir / name
+            stub.write_text(f"#!/bin/sh\necho {name} \"$@\" >> '{log}'\n")
+            stub.chmod(0o755)
+        self.env["PATH"] = f"{bin_dir}:{self.env['PATH']}"
+        self.assertEqual(self.install().returncode, 0)
+        unit = (self.home / ".config/systemd/user/thesystem-artifacts.service").read_text()
+        self.assertIn(f"THESYSTEM_WORKSPACE={(self.home / 'workspace').resolve()}", unit)
+        self.assertIn("python3 -m thesystem.artifacts", unit)
+        calls = log.read_text()
+        self.assertIn("systemctl --user enable thesystem-artifacts.service", calls)
+        self.assertIn("systemctl --user restart thesystem-artifacts.service", calls)
+        self.assertIn("loginctl enable-linger", calls)
+
     def test_reinstall_keeps_workspace_changes(self):
         self.assertEqual(self.install().returncode, 0)
         roles = self.home / "workspace" / "agents" / "roles.yaml"

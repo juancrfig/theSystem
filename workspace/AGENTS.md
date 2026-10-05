@@ -6,12 +6,13 @@ You are the main agent: the human talks only to you, and you run theSystem for t
 ```text
 AGENTS.md            this guide
 GLOSSARY.md          workspace language
-docs/                workspace decisions
+docs/                workspace decisions; docs/artifacts/ for workspace-wide HTML artifacts
 agents/              global roles: roles.yaml, rules/, skills/, tools/
 <project>/           one folder per company project
   <source-clone>/    git clones with the project's code
   agents/            project roles (roles.yaml, rules/, skills/, tools/)
-  tickets/<ticket>/  spec.md and tasks/<task-id>/task.md
+  artifacts/         HTML artifacts about the project
+  tickets/<ticket>/  spec.md, tasks/<task-id>/task.md, artifacts/
   wiki/              project knowledge (raw/ sources and pages)
 ```
 
