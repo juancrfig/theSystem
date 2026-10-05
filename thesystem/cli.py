@@ -112,6 +112,12 @@ def command_merge(workspace: Path, task_id: str) -> dict:
     if task.status != "pre-done":
         raise CodedError("NOT_PRE_DONE", f"task {task_id} is {task.status}; only pre-done tasks can be merged")
     clone, branch = task.source_clone, runner.branch_name(task)
+    runs = sorted((task.directory / "runs").glob("*/run.json"))
+    base_branch = json.loads(runs[-1].read_text(encoding="utf-8")).get("base_branch") if runs else None
+    current = runner.git(clone, "branch", "--show-current")
+    if base_branch and current != base_branch:
+        raise CodedError("BASE_BRANCH_MOVED", f"the task branched from {base_branch} but {clone} is on "
+                                              f"{current or 'a detached HEAD'}; check out {base_branch} first")
     merged = subprocess.run(["git", *runner.COMMITTER, "merge", "--no-ff", "-m", f"Merge task {task_id}", branch],
                             cwd=clone, capture_output=True, text=True)
     if merged.returncode:

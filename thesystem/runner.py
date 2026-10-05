@@ -94,11 +94,13 @@ class Run:
         reviewer_context.add(roles.Context(rules=worker_context.rules))
 
         discard_worktree(self.workspace, task)
+        base_branch = _current_branch(clone)
         base = git(clone, "rev-parse", "HEAD")
+        clone_status = git(clone, "status", "--porcelain")
         work = worktree_path(self.workspace, task)
         work.parent.mkdir(parents=True, exist_ok=True)
         git(clone, "worktree", "add", "-b", branch_name(task), str(work), base)
-        self.save(status="running", source_clone=str(clone), base_commit=base,
+        self.save(status="running", source_clone=str(clone), base_branch=base_branch, base_commit=base,
                   branch=branch_name(task), worktree=str(work),
                   roles={"worker": task.roles, "reviewer": task.reviewer_roles})
         self.log(f"worker starting in {work}")
@@ -106,6 +108,7 @@ class Run:
         worker = self._agent("worker", work, self._worker_prompt(worker_context))
         if worker["error"]:
             raise CodedError("WORKER_FAILED", worker["error"])
+        self._check_isolation(work, base, base_branch, clone_status)
         git(work, "add", "-A")
         if git(work, "status", "--porcelain"):
             git(work, *COMMITTER, "commit", "-q", "-m", f"{task.id}: worker run {self.id}")
@@ -132,6 +135,28 @@ class Run:
             raise CodedError("REVIEWER_NO_VERDICT", "the reviewer did not end with VERDICT: PASS or VERDICT: FAIL")
         self.save(verdict=verdicts[-1].upper())
         return "pre-done" if verdicts[-1].upper() == "PASS" else "changes-requested"
+
+    def _check_isolation(self, work: Path, base: str, base_branch: str, clone_status: str) -> None:
+        """Fail the run when the worker left its worktree: switched branch, committed, or touched the source clone.
+
+        The clone may only have gained merges made by `merge` for other tasks while this one ran.
+        """
+        problems = []
+        if _current_branch(work, missing="detached HEAD") != branch_name(self.task):
+            problems.append(f"the worktree is no longer on {branch_name(self.task)}")
+        if git(work, "rev-parse", "HEAD") != base:
+            problems.append("the worker moved the worktree's HEAD (commit, reset or checkout)")
+        clone = self.task.source_clone
+        if _current_branch(clone, missing="detached HEAD") != base_branch:
+            problems.append(f"the source clone is no longer on {base_branch}")
+        foreign = [line for line in git(clone, "log", "--first-parent", "--format=%cn %s", f"{base}..HEAD").splitlines()
+                   if not re.fullmatch(r"theSystem Merge task \S+", line)]
+        if foreign:
+            problems.append(f"the source clone gained commits that are not task merges: {foreign}")
+        if git(clone, "status", "--porcelain") != clone_status:
+            problems.append("files changed in the source clone")
+        if problems:
+            raise CodedError("ISOLATION_BROKEN", "; ".join(problems))
 
     def _worker_prompt(self, context: roles.Context) -> str:
         return "\n".join([
@@ -168,6 +193,7 @@ class Run:
         command = ["hermes", "chat", "--query-file", str(prompt_file), "--in", str(cwd),
                    "--format", "stream-json", "--yolo", "--source", "tool"]
         environment = {k: v for k, v in os.environ.items() if k != "TERMINAL_CWD"}
+        environment["HERMES_WRITE_SAFE_ROOT"] = str(cwd)  # Hermes' file tools cannot write outside the checkout
         try:
             with open(transcript, "w", encoding="utf-8") as out, open(self.directory / "orchestrator.log", "a") as err:
                 process = subprocess.run(command, cwd=cwd, stdout=out, stderr=err, timeout=AGENT_TIMEOUT,
@@ -179,6 +205,16 @@ class Run:
         text = _final_text(transcript)
         error = f"{name} exited with code {process.returncode}" if process.returncode else ""
         return {"text": text, "error": error}
+
+
+def _current_branch(checkout: Path, missing: str = "") -> str:
+    result = subprocess.run(["git", "symbolic-ref", "--short", "-q", "HEAD"], cwd=checkout, capture_output=True, text=True)
+    branch = result.stdout.strip()
+    if branch:
+        return branch
+    if missing:
+        return missing
+    raise CodedError("SOURCE_CLONE_DETACHED", f"{checkout} has no branch checked out; tasks merge into a branch")
 
 
 def _final_text(transcript: Path) -> str:

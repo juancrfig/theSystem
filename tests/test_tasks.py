@@ -19,11 +19,15 @@ import json, os, sys
 args = sys.argv[1:]
 prompt = open(args[args.index("--query-file") + 1]).read()
 cwd = args[args.index("--in") + 1]
-print(json.dumps({"type": "system", "subtype": "init", "session_id": "fake"}))
+print(json.dumps({"type": "system", "subtype": "init", "session_id": "fake",
+                  "safe_root": os.environ.get("HERMES_WRITE_SAFE_ROOT")}))
 if prompt.startswith("You are the worker"):
     mode = os.environ.get("FAKE_WORKER", "edit")
     if mode == "crash":
         sys.exit(3)
+    if mode == "switch-branch":
+        import subprocess
+        subprocess.run(["git", "checkout", "-q", "-b", "elsewhere"], cwd=cwd, check=True)
     if mode == "edit":
         with open(os.path.join(cwd, "feature.txt"), "a") as f:
             f.write("done\n")
@@ -135,6 +139,18 @@ class TaskFlowTests(WorkspaceCase):
         self.assertEqual(self.status("a"), "failed")
         record = json.loads((self.latest_run("a") / "run.json").read_text())
         self.assertEqual(record["error"]["code"], "WORKER_FAILED")
+
+    def test_worker_leaving_its_branch_is_failed(self):
+        self.add_task("a", "status: ready\nsource_clone: backend")
+        self.env["FAKE_WORKER"] = "switch-branch"
+        self.command("run")
+        self.wait_idle()
+        self.assertEqual(self.status("a"), "failed")
+        run = self.latest_run("a")
+        record = json.loads((run / "run.json").read_text())
+        self.assertEqual(record["error"]["code"], "ISOLATION_BROKEN")
+        self.assertIn(f'"safe_root": "{record["worktree"]}"', (run / "worker.jsonl").read_text(),
+                      "Hermes' file tools are confined to the worktree")
 
     def test_blocked_task_waits_for_blocker_to_be_done(self):
         self.add_task("first", "status: ready\nsource_clone: backend")
