@@ -33,7 +33,8 @@ Outcome: a short wizard asks two things, then finishes:
     ```
   - Runs `git init` in the workspace if it isn't already a git repo. Hermes needs this to find the skills.
   - Links `agents/skills/` to the harness via the cross-tool symlink `.agents/skills → ../agents/skills`. Hermes doesn't need to be installed for this. When Hermes first runs in the workspace, it shows a notice and you trust the folder once.
-Not this: the wizard asks nothing else, doesn't install or check for Hermes, and says nothing about the harness.
+  - If Hermes is installed, adds two Hermes personalities and selects `main` when none is selected yet. `main` is the build-mode communication style from `agents/.harness/personalities/main.md`; `casual` adds nothing, so Hermes talks normally. Switch with `/personality casual` in a chat or `hermes config set display.personality casual`; theSystem works the same in both. A reinstall refreshes `main` from the workspace file and keeps the current selection. Without Hermes, this step is skipped; rerun the install after installing Hermes.
+Not this: the wizard asks nothing else, doesn't install Hermes, and says nothing about the harness.
 Proof: on a fresh Ubuntu machine, run the install, accept the defaults, then check that the tree above exists, `umbrella` runs, and Hermes lists the skills in `agents/skills/`.
 
 ## F2 · Projects

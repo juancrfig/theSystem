@@ -74,6 +74,18 @@ if [[ ! -e "$workspace/.agents/skills" && ! -L "$workspace/.agents/skills" ]]; t
   ln -s ../agents/skills "$workspace/.agents/skills"
 fi
 
+# Hermes personalities: `main` is the build-mode communication rule, `casual` adds nothing (plain Hermes).
+# Switch with `/personality casual` in chat or `hermes config set display.personality casual`.
+# Skipped when Hermes isn't installed; rerun the installer after installing it.
+main_style="$workspace/agents/.harness/personalities/main.md"
+if command -v hermes >/dev/null 2>&1 && [[ -f "$main_style" ]]; then
+  hermes config set personalities.main "$(cat "$main_style")" >/dev/null || true
+  hermes config set personalities.casual "" >/dev/null || true
+  if [[ -z "$(hermes config get display.personality 2>/dev/null)" ]]; then
+    hermes config set display.personality main >/dev/null || true
+  fi
+fi
+
 cat > "$launcher" <<EOF
 #!/bin/sh
 # theSystem launcher for the $company workspace
