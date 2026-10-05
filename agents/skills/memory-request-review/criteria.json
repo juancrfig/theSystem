@@ -1,20 +1,37 @@
 {
-  "catalog_version": 1,
+  "catalog_version": 2,
   "criteria": [
     {
-      "id": "unclear-proposal",
+      "id": "rediscoverable",
       "version": 1,
-      "question": "Is this proposed change unclear to a reader who has only the proposal?",
+      "question": "Does this proposal record something the agent could find out on its own, when needed, from sources it can already reach?",
       "context": {
         "subject": "A pending Hermes memory or skill write, given as its literal payload.",
-        "purpose": "Approved advisory criterion under the MVP agreement; human decides, evaluator advises."
+        "purpose": "Memory and skills are scarce context loaded into future sessions. Copies of reachable facts waste that space, go stale, and can contradict their source.",
+        "reachable_sources": {
+          "workspace guide": "AGENTS.md (workspace layout, task workflow, statuses) and GLOSSARY.md (workspace terms).",
+          "workspace decisions": "docs/.",
+          "roles": "agents/ and <project>/agents/: roles.yaml, rules/, skills/.",
+          "project code": "<project>/<source-clone>/: code, configuration, git history, and the clone's own docs.",
+          "project knowledge": "<project>/wiki/ and <project>/artifacts/.",
+          "ticket work": "<project>/tickets/<ticket>/: spec.md, tasks/<task-id>/task.md, and run evidence in runs/<run-id>/ (reviews, diffs, transcripts).",
+          "past conversations": "Searchable Hermes session history.",
+          "live state": "Anything a tool can show on demand: files, command output, the web."
+        }
       },
       "definition": {
-        "yes": "The reader cannot determine what knowledge or procedure is being added, changed, or removed from the proposal itself.",
-        "no": "The proposed knowledge or procedure is understandable on its own."
+        "yes": "The proposal mainly restates what the agent could read from code, files, documentation, configuration, or tool output when it needs it: what something is or how it works, paths, commands, versions, structure, or current state.",
+        "no": "The proposal mainly records what no reachable source states: human preferences, corrections, or decisions; why something is deliberate; rejected alternatives; external constraints; or pitfalls learned through failure."
       },
       "exclusions": [
-        "Missing proof of correctness is not, by itself, a clarity problem."
+        "Knowledge recoverable only by repeating costly trial and error is not rediscoverable.",
+        "A short pointer to where knowledge lives is not rediscoverable when the agent would not otherwise know to look there.",
+        "Whether the recorded fact is correct is outside this criterion."
+      ],
+      "examples": [
+        "Yes: \"The backend uses PostgreSQL 15 and its config is in config/db.yaml.\"",
+        "No: \"User prefers product-impact summaries without file paths.\"",
+        "No: \"Do not use library X for PDF export: it fails on Arabic text, tried in the refunds ticket.\""
       ]
     }
   ]
