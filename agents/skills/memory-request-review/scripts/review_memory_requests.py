@@ -2,7 +2,7 @@
 """Review Hermes pending memory and skill writes without creating another queue.
 
 The script is deliberately an adapter around Hermes's native pending-write store.
-It inventories approved profiles, asks TypeSafe Jev only about the literal
+It inventories theSystem's profiles, asks TypeSafe Jev only about the literal
 staged payload of the one request being shown, renders a single ASCII panel, and delegates a human
 approve/reject decision back to Hermes's native applier.
 """
@@ -21,9 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-# master is the installed company profile. Legacy profiles remain readable so
-# upgrades do not strand pending requests created by an older distribution.
-PROFILES = ("default", "master", "implementer", "reviewer")
+# The main agent runs in Hermes' default profile; the orchestrator's agents run in worker and reviewer.
+PROFILES = ("default", "worker", "reviewer")
 SUBSYSTEMS = ("memory", "skills")
 
 
@@ -96,9 +95,6 @@ def sha256_text(text: str) -> str:
 
 
 def _profile_homes(root: Path) -> Iterable[tuple[str, Path]]:
-    if (root / "profiles" / "master").exists() and not os.environ.get("MEMORY_REVIEW_INCLUDE_LEGACY"):
-        yield "master", root / "profiles" / "master"
-        return
     yield "default", root
     for profile in PROFILES[1:]:
         home = root / "profiles" / profile
@@ -240,7 +236,8 @@ def evaluate_with_headless(request: PendingRequest, criteria: tuple[Criterion, .
               "with a concerns array. Each concern must have criterion_id and reason. "
               "List only problems supported by the proposal; if none use an empty array. "
               "Do not invent numerical scores.\n" + canonical_json(payload))
-    command = [executable, "-p", "master", "chat", "--oneshot", "--ignore-rules", "--query-file", "-",
+    # Main agent's profile and model, but no tools ("none" matches no toolset) and no workspace context.
+    command = [executable, "chat", "--oneshot", "--ignore-rules", "-t", "none", "--query-file", "-",
                "--run-budget", "55", "--max-turns", "3", "-Q"]
     if os.environ.get("HERMES_EVALUATOR_PROVIDER"):
         command.extend(["--provider", os.environ["HERMES_EVALUATOR_PROVIDER"]])
@@ -527,7 +524,8 @@ def render_panel(
                                else f"{_bar(probability)}  {probability:.2f}")
     if evaluation.status == "CONCERNS":
         question_blocks.append("Evaluator: " + evaluation.model + " (reasons, no calibrated score)")
-        question_blocks.extend(evaluation.concerns or ("No concerns returned.",))
+        for concern in evaluation.concerns or ("No concerns returned.",):
+            question_blocks.extend(_hang("• ", concern, inner))  # wrapped: a cut reason cannot be judged
     if note and evaluation.status != "RETAINED LOCALLY":
         if question_blocks:
             question_blocks.append("")

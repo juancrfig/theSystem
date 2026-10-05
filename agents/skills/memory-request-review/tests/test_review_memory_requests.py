@@ -1,9 +1,11 @@
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -69,12 +71,12 @@ class MemoryRequestReviewTests(unittest.TestCase):
         (path / f"{ident}.json").write_text(json.dumps(record), encoding="utf-8")
 
     def test_inventory_collects_all_authorized_profiles_and_subsystems(self):
-        implementer = self.home / "profiles" / "implementer"
+        worker = self.home / "profiles" / "worker"
         reviewer = self.home / "profiles" / "reviewer"
-        implementer.mkdir(parents=True)
+        worker.mkdir(parents=True)
         reviewer.mkdir(parents=True)
         self._pending("memory", "same", {"action": "add", "target": "memory", "content": "a"})
-        self._pending("skills", "same", {"action": "create", "name": "alpha", "content": "x"}, home=implementer)
+        self._pending("skills", "same", {"action": "create", "name": "alpha", "content": "x"}, home=worker)
         self._pending("memory", "other", {"action": "add", "target": "user", "content": "b"}, home=reviewer)
 
         inventory = review.inventory_pending(self.home)
@@ -82,22 +84,33 @@ class MemoryRequestReviewTests(unittest.TestCase):
         self.assertEqual(inventory.counts, {"memory": 2, "skills": 1, "unreadable": 0})
         self.assertEqual(
             [(item.profile, item.subsystem, item.pending_id) for item in inventory.requests],
-            [("default", "memory", "same"), ("implementer", "skills", "same"), ("reviewer", "memory", "other")],
+            [("default", "memory", "same"), ("reviewer", "memory", "other"), ("worker", "skills", "same")],
         )
 
-    def test_inventory_includes_installed_master_profile(self):
-        master = self.home / "profiles" / "master"
-        self._pending("memory", "company", {"action": "add", "target": "memory", "content": "company fact"}, home=master)
-        inventory = review.inventory_pending(self.home)
-        self.assertEqual([(item.profile, item.pending_id) for item in inventory.requests], [("master", "company")])
+    def test_inventory_ignores_profiles_outside_thesystem(self):
+        self._pending("memory", "other", {"action": "add", "target": "memory", "content": "x"},
+                      home=self.home / "profiles" / "personal")
+        self.assertFalse(review.inventory_pending(self.home).requests)
 
+    def test_headless_evaluator_uses_the_main_profile_without_tools(self):
+        self._pending("memory", "one", {"action": "add", "target": "memory", "content": "keep this"})
+        request = review.inventory_pending(self.home).requests[0]
+        criteria = review.load_catalog(SCRIPT.parents[1] / "criteria.json").criteria
+        calls = []
 
-    def test_company_master_excludes_unrelated_default_profile(self):
-        master=self.home/"profiles"/"master"
-        self._pending("memory", "personal", {"action":"add","content":"personal"})
-        self._pending("memory", "company", {"action":"add","content":"company"},home=master)
-        inventory=review.inventory_pending(self.home)
-        self.assertEqual([(r.profile,r.pending_id) for r in inventory.requests],[("master","company")])
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0, '{"concerns": []}', "")
+
+        with mock.patch("shutil.which", return_value="/bin/hermes"), mock.patch.object(review.subprocess, "run", fake_run):
+            result = review.evaluate_with_headless(request, criteria)
+
+        self.assertEqual(result.status, "CONCERNS")
+        long = review.Evaluation("CONCERNS", "hermes", {}, concerns=("unclear-proposal: " + "word " * 40 + "END",))
+        panel = review.render_panel(request, long, 1, 1)
+        self.assertIn("END", panel, "concern reasons are wrapped, not cut")
+        self.assertNotIn("-p", calls[0])
+        self.assertEqual(calls[0][calls[0].index("-t") + 1], "none")
 
     def test_empty_catalog_never_calls_evaluator_and_panel_marks_no_criteria(self):
         self._pending("memory", "one", {"action": "add", "target": "memory", "content": "keep this"})
@@ -257,23 +270,23 @@ class MemoryRequestReviewTests(unittest.TestCase):
         self.assertNotIn("do not apply", (self.home / "memories" / "MEMORY.md").read_text(encoding="utf-8"))
 
     def test_native_decision_isolated_to_the_reviewed_named_profile(self):
-        implementer = self.home / "profiles" / "implementer"
-        implementer.mkdir(parents=True)
+        worker = self.home / "profiles" / "worker"
+        worker.mkdir(parents=True)
         self._pending("memory", "same", {"action": "add", "target": "memory", "content": "default remains pending"})
         self._pending(
-            "memory", "same", {"action": "add", "target": "memory", "content": "implementer only"}, home=implementer,
+            "memory", "same", {"action": "add", "target": "memory", "content": "worker only"}, home=worker,
         )
         request = next(
             item for item in review.inventory_pending(self.home).requests
-            if item.profile == "implementer" and item.pending_id == "same"
+            if item.profile == "worker" and item.pending_id == "same"
         )
 
         result = review.apply_native_decision(request, "approve", request.record_sha256)
 
         self.assertTrue(result["success"])
         self.assertTrue((self.home / "pending" / "memory" / "same.json").exists())
-        self.assertFalse((implementer / "pending" / "memory" / "same.json").exists())
-        self.assertIn("implementer only", (implementer / "memories" / "MEMORY.md").read_text(encoding="utf-8"))
+        self.assertFalse((worker / "pending" / "memory" / "same.json").exists())
+        self.assertIn("worker only", (worker / "memories" / "MEMORY.md").read_text(encoding="utf-8"))
         self.assertFalse((self.home / "memories" / "MEMORY.md").exists())
 
     def test_apply_requires_matching_snapshot_and_uses_native_pending_flow(self):

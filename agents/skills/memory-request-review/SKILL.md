@@ -1,13 +1,22 @@
 ---
 name: memory-request-review
-description: "Use when reviewing pending Hermes memory or skill writes across default, implementer, and reviewer. Inventory native requests, evaluate and show one ASCII dashboard at a time, and require an explicit human decision."
+description: "Use when reviewing pending Hermes memory or skill writes. Covers the default (main agent), worker and reviewer profiles; shows one evaluated request at a time and requires an explicit human decision."
 ---
 
 # Assisted memory-request review
 
 Use this skill at the start of a new conversation to review pending writes for
-`memory` and `skills` in the company `master` profile (and legacy compatible
-profiles when present). It does not create or maintain another queue.
+`memory` and `skills` in theSystem's Hermes profiles: `default` (the main agent),
+`worker` and `reviewer`. It does not create or maintain another queue.
+
+## Evaluators
+
+Each criterion in `criteria.json` is asked about the request's literal payload by one evaluator:
+
+- **Jev** (TypeSafe System One), when `SYSTEM_ONE_API` is set in the environment or the
+  workspace `.env`. It returns a probability per criterion.
+- **Headless Hermes** otherwise: a fresh one-shot session in the main agent's profile, with no
+  tools and no workspace context. It returns concerns with reasons, never numbers.
 
 ## Authority limits
 
