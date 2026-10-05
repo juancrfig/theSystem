@@ -1,6 +1,7 @@
 # Developing theSystem
 
-`FEATURES.md` is the human-owned feature map and the only definition of what theSystem does. Do not edit it.
+`FEATURES.md` is the human-owned feature map and the only definition of what theSystem does. Edit it only with the
+human's explicit approval of the change.
 Anything not in the map is not wanted, and items under "Later" must not be built yet. Every change names the
 feature ID it serves; every test proves a feature's `Proof` line.
 

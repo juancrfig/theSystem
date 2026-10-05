@@ -1,6 +1,6 @@
 # theSystem · Feature map
 
-Human-owned. Agents must not edit this file.
+Human-owned. Agents edit this file only with the human's explicit approval.
 Every change must reference a feature ID.
 
 Anything not in this map is not wanted.
@@ -73,7 +73,7 @@ Rules:
     - runs ready tasks, in parallel when several are ready
     - holds blocked tasks until their blockers are done
     - follows dependency order
-  - Each `task.md` has front matter that the orchestrator reads to handle the task programmatically. Today's fields: project, ticket, task, source_clone, base_ref, runtime, roles, blockers, status.
+  - Each `task.md` has front matter that the orchestrator reads to handle the task programmatically. Today's fields: source_clone, roles, blockers, status.
   - Task status:
     - `blocked`: waiting on another task, or on an outside reason recorded in front matter
     - `ready`: nothing blocking it, waiting for the orchestrator
@@ -116,7 +116,7 @@ Outcome: three commands, all with JSON output, meant for agents:
   ```
   umbrella run          → start every ready task (to-tasks calls this when it finishes)
   umbrella merge <task> → pre-done → done, after the human OKs it
-  umbrella retry <task> → changes-requested or failed → ready
+  umbrella retry <task> → changes-requested, failed or pre-done → ready
   ```
 Not this: status or evidence commands (agents read `task.md` and the run folders directly), and no project, role, learning or cancel commands.
 
