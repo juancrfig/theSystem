@@ -2,11 +2,14 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from thesystem import harness  # noqa: E402
 
 
 class InstallTests(unittest.TestCase):
@@ -77,11 +80,10 @@ class InstallTests(unittest.TestCase):
         log = self.fake_hermes()
         self.assertEqual(self.install().returncode, 0)
         sets = self.config_sets(log)
-        lines = [l for l in (REPO / "agents/.harness/canonical_config.tsv").read_text().splitlines()
-                 if l and not l.startswith("#")]
-        for line in lines:
-            key, value = line.split("\t")
-            expected = json.loads(value) if value.startswith('"') else value
+        lines = list(harness.settings(harness.load(
+            (REPO / "agents/.harness/canonical_config.yaml").read_text())))
+        self.assertEqual(len(lines), 46)
+        for key, expected in lines:
             self.assertEqual(sets[key], expected, key)
         self.assertEqual(sets["approvals.mode"], "off")
         self.assertNotIn("auxiliary", " ".join(sets), "auxiliary models are left to the human")
@@ -95,6 +97,30 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(self.install().returncode, 0)
         creates = [c for c in self.calls(log) if c[:2] == ["profile", "create"]]
         self.assertEqual(creates, [["profile", "create", "worker", "--no-alias", "--no-skills"]])
+
+    def test_worker_and_reviewer_inherit_main_credentials_without_bot_tokens(self):
+        self.fake_hermes()
+        root = self.home / ".hermes"
+        root.mkdir()
+        (root / "auth.json").write_text('{"providers": {}}')
+        (root / ".env").write_text("ANTHROPIC_API_KEY=sk-test\nTELEGRAM_BOT_TOKEN=bot\nTELEGRAM_ALLOWED_USERS=1\n"
+                                   "GATEWAY_ALLOWED_USERS=1\nEXA_API_KEY=exa\n")
+        for profile in ("worker", "reviewer"):
+            (root / "profiles" / profile).mkdir(parents=True)
+        (root / "profiles/worker/auth.json").write_text("{}")  # a stale copy gets replaced by the shared store
+        self.env.pop("HERMES_HOME", None)
+        for _ in range(2):  # reinstalling keeps it the same
+            self.assertEqual(self.install().returncode, 0)
+        for profile in ("worker", "reviewer"):
+            directory = root / "profiles" / profile
+            self.assertTrue((directory / "auth.json").is_symlink())
+            self.assertTrue((directory / "auth.json").samefile(root / "auth.json"))
+            keys = (directory / ".env").read_text()
+            self.assertIn("ANTHROPIC_API_KEY=sk-test", keys)
+            self.assertIn("EXA_API_KEY=exa", keys)
+            self.assertNotIn("TELEGRAM", keys)
+            self.assertNotIn("GATEWAY_", keys)
+            self.assertEqual((directory / ".env").stat().st_mode & 0o777, 0o600)
 
     def test_hermes_gets_main_and_casual_personalities_with_main_selected(self):
         log = self.fake_hermes()

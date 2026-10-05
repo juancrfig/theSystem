@@ -1,0 +1,110 @@
+# Canonical Hermes config for the main agent (F1).
+# The installer applies every setting here on each install, so this file wins over hand edits.
+# Same shape as ~/.hermes/config.yaml. Keep to plain YAML: nested keys, scalars and "- item" lists.
+#
+# Not here on purpose: providers, models and auxiliary-model routing. The human configures those.
+# Intended capability class per auxiliary slot:
+#   frontier (best reasoning): review, curator, background_review
+#   balanced (bounded judgment): goal_judge, mcp
+#   flash (fast and cheap): monitor, title_generation, vision, compression, approval,
+#     tts_audio_tags, skills_hub, profile_describer, delegation
+#   deferred until adopted: memory_query_rewrite, moa_reference, moa_aggregator
+#   unassigned (not used manually): triage_specifier, kanban_decomposer
+
+database:
+  journal_mode: wal
+
+compression:
+  enabled: true
+  progress_notices: false
+  threshold: 0.5
+  threshold_tokens: 150000
+  target_ratio: 0.2
+  protect_last_n: 15
+  min_tail_user_messages: 5
+  max_attempts: 3
+  proactive_prune_tokens: 0
+  micro_compact: false
+  protect_first_n: 0
+  abort_on_summary_failure: true
+  idle_compact_after_seconds: 0
+
+tool_loop_guardrails:
+  warnings_enabled: true
+  hard_stop_enabled: true
+  warn_after:
+    exact_failure: 2
+    same_tool_failure: 3
+    idempotent_no_progress: 2
+  hard_stop_after:
+    exact_failure: 5
+    same_tool_failure: 8
+    idempotent_no_progress: 5
+  loop_caps:
+    max_subagents: 10
+
+goals:
+  max_turns: 90
+
+display:
+  show_reasoning: false
+  interim_assistant_messages: false
+
+approvals:
+  # The main agent works without approval prompts. The deny list still blocks force pushes,
+  # piping downloads into a shell, and deleting ~/.hermes.
+  mode: "off"
+  deny:
+    - "git push --force*"
+    - "git push -f*"
+    - "git push * --force*"
+    - "git push * -f*"
+    - "*curl*|*sh*"
+    - "*curl*|*bash*"
+    - "*wget*|*sh*"
+    - "*wget*|*bash*"
+    - "rm *~/.hermes*"
+    - "rm */.hermes*"
+    - "*[;&|] rm *~/.hermes*"
+    - "*[;&|] rm */.hermes*"
+    - "git push *--mirror*"
+    - "git push *--prune*"
+
+delegation:
+  max_iterations: 250
+
+security:
+  # With approvals off, Tirith's pre-execution scan must be available: fail closed, never silently skip it.
+  # Assumes a Tirith-supported Linux, WSL or macOS machine.
+  tirith_enabled: true
+  tirith_fail_open: false
+
+kanban:
+  # Planning stays in the main-agent interview (to-spec, to-tasks). No auto-decomposing of rough cards.
+  auto_decompose: false
+
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  write_approval: true
+
+skills:
+  write_approval: true
+
+prompt_caching:
+  cache_ttl: "1h"
+
+telemetry:
+  shared_metrics:
+    enabled: false
+
+curator:
+  enabled: true
+  interval_hours: 168
+  min_idle_hours: 2
+  stale_after_days: 30
+  archive_after_days: 90
+  consolidate: true
+  prune_builtins: false
+
+timezone: America/Bogota

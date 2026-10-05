@@ -77,7 +77,8 @@ fi
 # Hermes personalities: `main` is the build-mode communication rule, `casual` adds nothing (plain Hermes).
 # Switch with `/personality casual` in chat or `hermes config set display.personality casual`.
 # Skipped when Hermes isn't installed; rerun the installer after installing it.
-harness="$workspace/agents/.harness"
+# Hermes reads the harness from the theSystem being installed, so every install brings its canonical version.
+harness="$source_root/agents/.harness"
 main_style="$harness/personalities/main.md"
 if command -v hermes >/dev/null 2>&1 && [[ -f "$main_style" ]]; then
   hermes config set personalities.main "$(cat "$main_style")" >/dev/null || true
@@ -89,12 +90,11 @@ fi
 
 # Main agent: canonical Hermes config and toolsets from the harness. Every install resets these keys, so the
 # harness files win over hand edits. Auxiliary models are not touched; the human configures them.
-if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/canonical_config.tsv" ]]; then
-  while IFS=$'\t' read -r key value; do
-    [[ -z "$key" || "$key" == \#* ]] && continue
-    [[ "$value" == \"*\" ]] && value=${value:1:${#value}-2}  # JSON string -> plain text for `config set`
-    hermes config set "$key" "$value" >/dev/null || true
-  done < "$harness/canonical_config.tsv"
+if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/canonical_config.yaml" ]]; then
+  PYTHONPATH="$share_dir" python3 -m thesystem.harness settings "$harness/canonical_config.yaml" \
+  | while IFS=$'\t' read -r key value; do
+      hermes config set "$key" "$value" >/dev/null || true
+    done
 fi
 if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/required_toolsets.txt" ]]; then
   mapfile -t toolsets < <(grep -v '^\s*#' "$harness/required_toolsets.txt" | grep -v '^\s*$')
@@ -104,12 +104,21 @@ if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/required_toolsets.txt" ]
     done
   fi
 fi
-# Worker and reviewer profiles (F4): created empty; their configuration comes later.
+# Worker and reviewer profiles (F4): created empty; their configuration comes later. They inherit the main
+# agent's credentials: the login store is shared (a link, so OAuth refreshes stay valid for every profile),
+# and API keys are copied on each install without messaging-channel credentials such as bot tokens.
 if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/canonical_profiles.txt" ]]; then
+  hermes_root="${HERMES_HOME:-$HOME/.hermes}"
   while read -r profile; do
     [[ -z "$profile" || "$profile" == \#* ]] && continue
     hermes profile show "$profile" >/dev/null 2>&1 \
       || hermes profile create "$profile" --no-alias --no-skills >/dev/null 2>&1 || true
+    profile_dir="$hermes_root/profiles/$profile"
+    [[ -d "$profile_dir" ]] || continue
+    if [[ -f "$hermes_root/auth.json" && ! "$profile_dir/auth.json" -ef "$hermes_root/auth.json" ]]; then
+      ln -sfn "$hermes_root/auth.json" "$profile_dir/auth.json"
+    fi
+    PYTHONPATH="$share_dir" python3 -m thesystem.harness keys "$hermes_root/.env" "$profile_dir/.env" || true
   done < "$harness/canonical_profiles.txt"
 fi
 
