@@ -125,10 +125,7 @@ fi
 # Main agent: canonical Hermes config and toolsets from the harness. Every install resets these keys, so the
 # harness files win over hand edits. Auxiliary models are not touched; the human configures them.
 if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/canonical_config.yaml" ]]; then
-  PYTHONPATH="$share_dir" python3 -m thesystem.harness settings "$harness/canonical_config.yaml" \
-  | while IFS=$'\t' read -r key value; do
-      hermes config set "$key" "$value" >/dev/null || true
-    done
+  PYTHONPATH="$share_dir" python3 -m thesystem.harness apply "$harness/canonical_config.yaml" "${HERMES_HOME:-$HOME/.hermes}"
 fi
 if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/required_toolsets.txt" ]]; then
   mapfile -t toolsets < <(grep -v '^\s*#' "$harness/required_toolsets.txt" | grep -v '^\s*$')

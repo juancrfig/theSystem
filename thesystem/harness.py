@@ -1,5 +1,7 @@
 """Installer helpers for the Hermes harness (F1). Standard library only: the installer can't rely on PyYAML.
 
+  python3 -m thesystem.harness apply <canonical_config.yaml> [<hermes_root>]
+      Applies canonical config directly to <hermes_root>/config.yaml (default $HERMES_HOME or ~/.hermes).
   python3 -m thesystem.harness settings <canonical_config.yaml>
       Prints one `<dot.key>\t<value>` line per setting, ready for `hermes config set`.
   python3 -m thesystem.harness keys <main .env> <profile .env>
@@ -36,8 +38,11 @@ def _strip_comment(text: str) -> str:
 
 
 def _scalar(text: str):
-    if text.startswith('"'):
-        return json.loads(text)
+    if text.startswith(('[', '{', '"')):
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
     if text.startswith("'"):
         return text[1:-1].replace("''", "'")
     if text in ("true", "false"):
@@ -101,6 +106,73 @@ def settings(config: dict, prefix: str = ""):
             yield path, json.dumps(value)
 
 
+def _format_scalar(v):
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, str):
+        if v.lower() in ("yes", "no", "on", "off", "true", "false", "null", "~"):
+            return json.dumps(v)
+        if "\n" in v:
+            return "|\n" + "\n".join("  " + l for l in v.splitlines())
+        if any(c in v for c in ":{}[]#&*!|>'\"%@`"):
+            return json.dumps(v)
+        return v
+    return json.dumps(v)
+
+
+def dump_yaml(data: dict, indent: int = 0) -> str:
+    lines = []
+    prefix = " " * indent
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if isinstance(v, dict):
+                if not v:
+                    lines.append(f"{prefix}{k}: {{}}")
+                else:
+                    lines.append(f"{prefix}{k}:")
+                    lines.append(dump_yaml(v, indent + 2))
+            elif isinstance(v, list):
+                if not v:
+                    lines.append(f"{prefix}{k}: []")
+                else:
+                    lines.append(f"{prefix}{k}:")
+                    for item in v:
+                        if isinstance(item, (dict, list)):
+                            item_lines = dump_yaml(item, indent + 4).splitlines()
+                            lines.append(f"{prefix}  - " + item_lines[0].lstrip())
+                            lines.extend(item_lines[1:])
+                        else:
+                            lines.append(f"{prefix}  - {_format_scalar(item)}")
+            else:
+                lines.append(f"{prefix}{k}: {_format_scalar(v)}")
+    return "\n".join(lines)
+
+
+def set_nested(cfg: dict, path: str, value) -> None:
+    parts = path.split(".")
+    curr = cfg
+    for part in parts[:-1]:
+        if part not in curr or not isinstance(curr[part], dict):
+            curr[part] = {}
+        curr = curr[part]
+    curr[parts[-1]] = value
+
+
+def apply(canonical_path: Path, hermes_root: Path) -> None:
+    config_path = hermes_root / "config.yaml"
+    cfg = load(config_path.read_text(encoding="utf-8")) if config_path.is_file() else {}
+    canonical = load(canonical_path.read_text(encoding="utf-8"))
+    for key, value in settings(canonical):
+        val = _scalar(value)
+        set_nested(cfg, key, val)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(dump_yaml(cfg) + "\n", encoding="utf-8")
+
+
 def provider_keys(env_text: str) -> str:
     """The main agent's .env without messaging-channel credentials or settings."""
     kept = []
@@ -113,6 +185,11 @@ def provider_keys(env_text: str) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["apply"] and len(argv) in (2, 3):
+        canonical_path = Path(argv[1])
+        hermes_root = Path(argv[2]) if len(argv) == 3 else Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+        apply(canonical_path, hermes_root)
+        return 0
     if argv[:1] == ["settings"] and len(argv) == 2:
         for key, value in settings(load(Path(argv[1]).read_text(encoding="utf-8"))):
             if "\t" in value or "\n" in value:
