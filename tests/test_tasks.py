@@ -19,6 +19,9 @@ import json, os, sys
 args = sys.argv[1:]
 prompt = open(args[args.index("--query-file") + 1]).read()
 cwd = args[args.index("--in") + 1]
+profile = args[args.index("-p") + 1]
+if profile != ("worker" if prompt.startswith("You are the worker") else "reviewer"):
+    sys.exit(9)  # each agent must run in its own Hermes profile
 print(json.dumps({"type": "system", "subtype": "init", "session_id": "fake",
                   "safe_root": os.environ.get("HERMES_WRITE_SAFE_ROOT")}))
 if prompt.startswith("You are the worker"):

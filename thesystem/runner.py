@@ -190,7 +190,7 @@ class Run:
         prompt_file = self.directory / f"{name}-prompt.md"
         prompt_file.write_text(prompt, encoding="utf-8")
         transcript = self.directory / f"{name}.jsonl"
-        command = ["hermes", "chat", "--query-file", str(prompt_file), "--in", str(cwd),
+        command = ["hermes", "-p", name, "chat", "--query-file", str(prompt_file), "--in", str(cwd),
                    "--format", "stream-json", "--yolo", "--source", "tool"]
         environment = {k: v for k, v in os.environ.items() if k != "TERMINAL_CWD"}
         environment["HERMES_WRITE_SAFE_ROOT"] = str(cwd)  # Hermes' file tools cannot write outside the checkout

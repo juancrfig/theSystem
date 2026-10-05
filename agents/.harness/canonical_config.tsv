@@ -1,5 +1,11 @@
-# Canonical Hermes config entries for installer provisioning.
+# Canonical Hermes config for the main agent. The installer applies every line on each install (F1).
 # Format: <dot.key.path>\t<json-value>
+# Not here on purpose: providers, models and auxiliary-model routing. The human configures those.
+# Intended aux classes: review, curator, background_review = frontier; goal_judge, mcp = balanced;
+# monitor, title_generation, vision, compression, approval and similar side tasks = flash.
+# approvals.mode off + deny list: the main agent works autonomously; the list blocks force pushes,
+# piping downloads into a shell, and deleting ~/.hermes. Tirith fails closed so that layer never silently vanishes.
+# kanban.auto_decompose false: planning stays in the main-agent interview (to-spec, to-tasks).
 database.journal_mode	"wal"
 compression.enabled	true
 compression.progress_notices	false

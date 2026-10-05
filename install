@@ -77,13 +77,40 @@ fi
 # Hermes personalities: `main` is the build-mode communication rule, `casual` adds nothing (plain Hermes).
 # Switch with `/personality casual` in chat or `hermes config set display.personality casual`.
 # Skipped when Hermes isn't installed; rerun the installer after installing it.
-main_style="$workspace/agents/.harness/personalities/main.md"
+harness="$workspace/agents/.harness"
+main_style="$harness/personalities/main.md"
 if command -v hermes >/dev/null 2>&1 && [[ -f "$main_style" ]]; then
   hermes config set personalities.main "$(cat "$main_style")" >/dev/null || true
   hermes config set personalities.casual "" >/dev/null || true
   if [[ -z "$(hermes config get display.personality 2>/dev/null)" ]]; then
     hermes config set display.personality main >/dev/null || true
   fi
+fi
+
+# Main agent: canonical Hermes config and toolsets from the harness. Every install resets these keys, so the
+# harness files win over hand edits. Auxiliary models are not touched; the human configures them.
+if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/canonical_config.tsv" ]]; then
+  while IFS=$'\t' read -r key value; do
+    [[ -z "$key" || "$key" == \#* ]] && continue
+    [[ "$value" == \"*\" ]] && value=${value:1:${#value}-2}  # JSON string -> plain text for `config set`
+    hermes config set "$key" "$value" >/dev/null || true
+  done < "$harness/canonical_config.tsv"
+fi
+if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/required_toolsets.txt" ]]; then
+  mapfile -t toolsets < <(grep -v '^\s*#' "$harness/required_toolsets.txt" | grep -v '^\s*$')
+  if (( ${#toolsets[@]} )); then
+    for platform in cli telegram; do
+      hermes tools enable --platform "$platform" "${toolsets[@]}" >/dev/null 2>&1 || true
+    done
+  fi
+fi
+# Worker and reviewer profiles (F4): created empty; their configuration comes later.
+if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/canonical_profiles.txt" ]]; then
+  while read -r profile; do
+    [[ -z "$profile" || "$profile" == \#* ]] && continue
+    hermes profile show "$profile" >/dev/null 2>&1 \
+      || hermes profile create "$profile" --no-alias --no-skills >/dev/null 2>&1 || true
+  done < "$harness/canonical_profiles.txt"
 fi
 
 # Artifact library (F9): an always-on user service serving the workspace's HTML artifacts on localhost.

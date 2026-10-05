@@ -1,4 +1,5 @@
 """F1 · Install theSystem."""
+import json
 import os
 import subprocess
 import tempfile
@@ -52,22 +53,48 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((workspace / "AGENTS.md").read_text(), "mine\n")
         self.assertTrue((workspace / "GLOSSARY.md").is_file())
 
-    def fake_hermes(self, personality=""):
-        """A `hermes` stub on PATH that logs `config set` calls and answers `config get`."""
+    def fake_hermes(self, personality="", profiles=()):
+        """A `hermes` stub on PATH that logs every call, answers `config get` and knows *profiles*."""
         bin_dir = self.home / "fakebin"
         bin_dir.mkdir(exist_ok=True)
         log = self.home / "hermes.log"
         stub = bin_dir / "hermes"
-        stub.write_text("#!/bin/sh\n"
-                        f"if [ \"$2\" = get ]; then printf '%s\\n' '{personality}'; exit 0; fi\n"
-                        f"printf '%s\\0' \"$3\" \"$4\" >> '{log}'\n")
+        stub.write_text("#!/usr/bin/env python3\nimport json, sys\na = sys.argv[1:]\n"
+                        f"open({str(log)!r}, 'a').write(json.dumps(a) + '\\n')\n"
+                        f"if a[:2] == ['config', 'get']: print({personality!r})\n"
+                        f"if a[:2] == ['profile', 'show'] and a[2] not in {list(profiles)!r}: sys.exit(1)\n")
         stub.chmod(0o755)
         self.env["PATH"] = f"{bin_dir}:{self.env['PATH']}"
         return log
 
+    def calls(self, log):
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
     def config_sets(self, log):
-        fields = log.read_text().split("\0")[:-1] if log.exists() else []
-        return dict(zip(fields[::2], fields[1::2]))
+        return {c[2]: c[3] for c in self.calls(log) if c[:2] == ["config", "set"]}
+
+    def test_main_agent_gets_the_whole_canonical_config_and_toolsets(self):
+        log = self.fake_hermes()
+        self.assertEqual(self.install().returncode, 0)
+        sets = self.config_sets(log)
+        lines = [l for l in (REPO / "agents/.harness/canonical_config.tsv").read_text().splitlines()
+                 if l and not l.startswith("#")]
+        for line in lines:
+            key, value = line.split("\t")
+            expected = json.loads(value) if value.startswith('"') else value
+            self.assertEqual(sets[key], expected, key)
+        self.assertEqual(sets["approvals.mode"], "off")
+        self.assertNotIn("auxiliary", " ".join(sets), "auxiliary models are left to the human")
+        enables = [c for c in self.calls(log) if c[:2] == ["tools", "enable"]]
+        self.assertEqual({c[3] for c in enables}, {"cli", "telegram"})
+        self.assertIn("delegation", enables[0])
+        self.assertIn("computer_use", enables[0])
+
+    def test_worker_and_reviewer_profiles_are_created_empty_once(self):
+        log = self.fake_hermes(profiles=("reviewer",))
+        self.assertEqual(self.install().returncode, 0)
+        creates = [c for c in self.calls(log) if c[:2] == ["profile", "create"]]
+        self.assertEqual(creates, [["profile", "create", "worker", "--no-alias", "--no-skills"]])
 
     def test_hermes_gets_main_and_casual_personalities_with_main_selected(self):
         log = self.fake_hermes()

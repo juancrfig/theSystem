@@ -10,6 +10,7 @@ Anything not in this map is not wanted.
 - Wizard offers to clone an existing repo as the workspace.
 - Auto-merge when the reviewer approves. This replaces `pre-done`.
 - Explainer videos: on request, the main agent makes a narrated, 3Blue1Brown-style video that explains a topic. Narration uses ElevenLabs or a free alternative that runs locally.
+- Configuration for the `worker` and `reviewer` profiles: their own variations of the main agent's canonical config, applied by the installer.
 
 ---
 
@@ -36,6 +37,8 @@ Outcome: a short wizard asks two things, then finishes:
   - Links `agents/skills/` to the harness via the cross-tool symlink `.agents/skills → ../agents/skills`. Hermes doesn't need to be installed for this. When Hermes first runs in the workspace, it shows a notice and you trust the folder once.
   - If Hermes is installed, adds two Hermes personalities and selects `main` when none is selected yet. `main` is the build-mode communication style from `agents/.harness/personalities/main.md`; `casual` adds nothing, so Hermes talks normally. Switch with `/personality casual` in a chat or `hermes config set display.personality casual`; theSystem works the same in both. A reinstall refreshes `main` from the workspace file and keeps the current selection. Without Hermes, this step is skipped; rerun the install after installing Hermes.
   - Starts the artifact library (F9) as an always-on user service that survives reboots. Skipped where there is no systemd user session.
+  - If Hermes is installed, gives the main agent theSystem's canonical Hermes config (`agents/.harness/canonical_config.tsv`) and turns on its toolsets (`agents/.harness/required_toolsets.txt`) for the CLI and Telegram. Every install resets these settings to the harness files. Auxiliary models are the only thing left to configure by hand.
+  - If Hermes is installed, creates empty `worker` and `reviewer` Hermes profiles (`agents/.harness/canonical_profiles.txt`) when they don't exist yet. The orchestrator runs workers and reviewers in them (F4).
 Not this: the wizard asks nothing else, doesn't install Hermes, and says nothing about the harness.
 Proof: on a fresh Ubuntu machine, run the install, accept the defaults, then check that the tree above exists, `umbrella` runs, and Hermes lists the skills in `agents/skills/`.
 
@@ -77,6 +80,7 @@ Rules:
     - holds blocked tasks until their blockers are done
     - follows dependency order
   - Each `task.md` has front matter that the orchestrator reads to handle the task programmatically. Today's fields: source_clone, roles, blockers, status.
+  - The worker runs in the `worker` Hermes profile and the reviewer in the `reviewer` profile.
   - Task status:
     - `blocked`: waiting on another task, or on an outside reason recorded in front matter
     - `ready`: nothing blocking it, waiting for the orchestrator
