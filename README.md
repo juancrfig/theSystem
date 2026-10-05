@@ -2,19 +2,18 @@
 
 A framework to reliably build high-quality software by leveraging AI agents
 
-Install theSystem (defaults to infrastructure-only at `~/workspace`):
+Install theSystem on Ubuntu (asks for the workspace location and the company name, which becomes the command):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash
 ```
 
-The public command is `thesystem`; run it without arguments or with `--help` to see usage.
+What theSystem does is defined in [FEATURES.md](FEATURES.md).
 
 # Infrastructure
 
 - **[Hermes Harness](https://hermes-agent.nousresearch.com/docs)**
 - **[llm-wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)**
-- **[OpenTelemetry](https://opentelemetry.io)**
 
 # The Four Problems
 

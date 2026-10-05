@@ -1,7 +1,0 @@
-roles:
-  worker:
-    - base
-    - worker
-  reviewer:
-    - base
-    - reviewer

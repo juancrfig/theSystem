@@ -1,28 +1,18 @@
 # Global agent configuration
 
-This directory holds workspace-wide agent guidance and role declarations. Project-specific guidance lives under `<project>/agents/`.
-
-## Role entries
-
-Each tier may contain `rules/`, `skills/`, `tools/`, `utils/`, and `roles.yaml`. Roles reference items in their own tier. A project role is named `<project>/<role>`.
-
-The following illustrates the shape of a role entry; names are examples:
+Seeded into a workspace's `agents/`. `roles.yaml` declares the global roles; `rules/`, `skills/` and `tools/` hold
+what they reference. Project roles live in `<project>/agents/` with the same layout, and replace a global role
+with the same name.
 
 ```yaml
 # agents/roles.yaml
 worker:
   rules:
-    - rules/no-secrets.md
+    - rules/comments-state-why-not-what.md   # relative to this agents/ folder
   skills:
-    - skills/tdd/
+    - skills/tdd
   tools:
-    - tools/jira.tool.yaml
-  utils:
-    - utils/dummy-script.sh
-    - utils/dummy-template.md
-  clis:
-    - git
     - npm
-  mcp_servers:
-    - foo
 ```
+
+The reviewer of a task always receives the worker's rules as well as its own.

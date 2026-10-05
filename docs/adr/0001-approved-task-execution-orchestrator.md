@@ -1,30 +1,27 @@
-# ADR 0001: Keep approved-task execution under theSystem's orchestrator
+# ADR 0001: Run approved tasks with theSystem's own orchestrator
 
-- **Status:** Accepted
+- **Status:** Accepted (revised 2026-10-05 to match FEATURES.md)
 - **Date:** 2026-09-26
 
 ## Context
 
-theSystem's differentiating requirement is not a durable task board; it is a bounded, auditable execution of each human-approved task. Its intended contract gives the orchestrator deterministic ownership of validation, worker/reviewer sequencing, isolation checks, Git operations, terminal states, and immutable run evidence. A run is one pass; the human decides whether findings justify another run. A task is done when its branch has been merged.
+theSystem's core is the automatic execution of approved tasks: each task gets a worker run and an independent
+review, with the full evidence kept so the human can diagnose failures (FEATURES.md F4, F6).
 
-Hermes Kanban provides durable tasks, dependencies, atomic claims, dispatch, attempt history, and review transitions. But its ordinary dispatch does not itself enforce theSystem's explicit human-approval boundary or container/overlay isolation contract. Its review lifecycle uses separate implementation and reviewer runs and can route requested changes back to the worker. The documented non-Hermes CLI/container worker lane is not yet a paved integration. Kanban completion also does not itself mean a branch has been merged.
-
-Relevant design evidence: [`AGENTS.md`](../../AGENTS.md), [tracer-bullet orchestrator run](https://github.com/juancrfig/theSystem/issues/6), and [dogfood theSystem](https://github.com/juancrfig/theSystem/issues/12). Hermes references: [Kanban](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban) and [worker lanes](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban-worker-lanes).
+Hermes Kanban provides durable tasks, dependencies, dispatch and review transitions. But its review lifecycle
+routes requested changes straight back to the worker, while theSystem stops so the human can improve the roles
+before a retry. Kanban completion also does not mean a branch has been merged, which is theSystem's meaning of
+done.
 
 ## Decision
 
-Build and use theSystem's deterministic orchestrator as the sole execution authority for approved tasks. Do not use Hermes Kanban as theSystem's task lifecycle authority, and do not add a Kanban layer in front of the orchestrator for now. Keep task approval, run state, and completion evidence in one authoritative system.
+theSystem's orchestrator is the only execution authority for tasks, and each task's `task.md` is its single
+record. Do not put Hermes Kanban in front of or beside it.
 
-Reconsider Kanban only after the orchestrator has been used on representative work and run evidence shows that coordination across tasks—not execution containment, worker/reviewer verification, or run reliability—is a material bottleneck. Any reconsideration must preserve one source of truth and explicitly prove the required approval and execution guarantees before adopting Kanban or a hybrid.
-
-## Rejected alternatives
-
-- **Hermes Kanban as execution authority:** rejected because its default lifecycle does not provide theSystem's required admission, single-pass review, isolation, and merged-task completion semantics without substantial custom work.
-- **Kanban plus theSystem both controlling the same tasks:** rejected because duplicate dispatch and independently maintained lifecycle state create reconciliation and accidental-execution risks.
+Reconsider Kanban only if real use shows that coordinating many tasks, not executing and reviewing one, is the
+bottleneck. Any reconsideration must keep one source of truth.
 
 ## Consequences
 
-- TheSystem must implement and validate its own deterministic execution path; local operational probes do not establish every contract guarantee or make it a production substitute for Kanban.
-- Historical contained agent runs, review evidence, and unverified guarantees are recorded in [MVP evidence on GitHub](https://github.com/juancrfig/theSystem/issues/27#issuecomment-5908905757). This ADR does not claim full acceptance.
-- Hermes Kanban may still be used for unrelated work, but it is not authoritative for theSystem-approved tasks.
-- No separate Kanban-integration ticket is created now. The reconsideration trigger is evidence from real orchestrator use, not a commitment to adopt Kanban.
+- theSystem maintains its own small dispatcher (dependency order, parallel ready tasks) and run evidence.
+- Hermes Kanban may still be used for unrelated work, but it is never authoritative for theSystem tasks.

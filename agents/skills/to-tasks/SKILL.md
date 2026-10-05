@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Break a plan, spec, or conversation into a set of **tickets**: tracer-bullet vertical slices, each declaring the tickets that **block** it.
 
-For global workspace work and development of theSystem, publish approved planning/ticket records to the official GitHub tracker defined in the root `AGENTS.md`; do not create local or scratch ticket artifacts. That documented policy selects GitHub without requiring the user to name it again. For company/product projects, follow their documented tracker and use local drafts only where that policy permits them; do not publish to another external tracker without explicit authorization.
+For development of theSystem itself, publish approved planning/ticket records to the GitHub tracker named in the theSystem repository's `AGENTS.md`; do not create local or scratch ticket artifacts. For company/product projects in a theSystem workspace, write workspace tasks (below) unless the project documents another tracker; do not publish to an external tracker without explicit authorization.
 
 ## Process
 
@@ -61,7 +61,8 @@ Iterate until the user approves the breakdown.
 
 Create the approved tickets in the user-authorized location. The tickets are the same either way; only the representation of blocking edges changes:
 
-- **Local files** → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's "Blocked by" lists the numbers/titles it depends on. Use the per-ticket file template below: one ticket per file, never a single combined file.
+- **A company project in a theSystem workspace** → write one `task.md` per ticket as described in [Workspace task anatomy](#workspace-task-anatomy), then start them with the workspace command's `run`.
+- **Local files** (anywhere else) → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's "Blocked by" lists the numbers/titles it depends on. Use the per-ticket file template below: one ticket per file, never a single combined file.
 - **A real issue tracker** → only when explicitly named by the user, publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking / sub-issue relationship where it has one; otherwise set each ticket's "Blocked by" to the blocking issues. Apply labels only when the user or project documentation specifies them.
 
 Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom.
@@ -72,21 +73,21 @@ Do NOT close or modify any parent issue.
 
 For a workspace using the ticket tree in [Workspace ticket layout](references/ticket-layout.md), each task lives in `<project>/tickets/<ticket>/tasks/<task-id>/task.md`. This is a task file, not the parent `ticket.md` or a scratch-ticket draft.
 
-The following illustrates its YAML front matter; names are examples:
+The user approving the breakdown in step 4 is the only approval: every task you write is approved and will run. The task id (its folder name) must be unique in the workspace. The orchestrator reads this YAML front matter; names are examples:
 
 ```yaml
 ---
-status: proposed
-source_clone: dummmyRepo
-roles:
-  - payments/APIs
+status: ready              # `blocked` when it has blockers; the orchestrator keeps it up to date
+source_clone: backend      # folder of the git clone inside the project
+roles: [worker]            # the worker's roles, from agents/roles.yaml or <project>/agents/roles.yaml
+reviewer_roles: [reviewer]
 blockers:
-  - task: create-refund-model
-  - external: "Waiting for a coworker to do something"
+  - task: create-refund-model                       # waits until that task is done
+  - external: "Waiting for a coworker to do something" # waits until this line is removed
 ---
 ```
 
-The YAML front matter is followed by the task description and acceptance criteria. Follow `MANUAL.md` for approval and status semantics; drafting a task does not approve execution.
+The front matter is followed by the task description and acceptance criteria; the worker and the reviewer receive exactly this text. After writing all the tasks, run the workspace command's `run` (the command name is in the workspace `AGENTS.md`) to start them.
 
 <local-ticket-template>
 
@@ -95,8 +96,6 @@ The YAML front matter is followed by the task description and acceptance criteri
 **What to build:** the end-to-end behaviour this ticket makes work, from the user's perspective, not a layer-by-layer implementation list.
 
 **Blocked by:** the numbers/titles of the tickets that gate this one, or "None (can start immediately)".
-
-**Status:** ready-for-agent
 
 - [ ] Acceptance criterion 1
 - [ ] Acceptance criterion 2

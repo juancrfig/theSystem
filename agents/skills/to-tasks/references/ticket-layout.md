@@ -1,6 +1,6 @@
 # Workspace ticket layout
 
-For company/product projects using the workspace ticket tree, work records live under `<project>/tickets/`, keyed by ticket. Global workspace work and development of theSystem use GitHub exclusively, as defined in the root `AGENTS.md`; never create root `tickets/` or local planning/ticket artifacts for that scope. The layout below applies only to company/product execution records, not the global workspace's development tracker.
+For company/product projects in a theSystem workspace, work records live under `<project>/tickets/`, keyed by ticket. Development of theSystem itself uses GitHub Issues, as defined in the theSystem repository's `AGENTS.md`.
 
 ```text
 <project>/tickets/<ticket>/
@@ -8,9 +8,14 @@ For company/product projects using the workspace ticket tree, work records live 
   spec.md                            to-spec: the plan for the whole ticket
   tasks/<task-id>/
     task.md                          YAML front matter plus task instructions and acceptance criteria
-    runs/<run-id>/
-      run.json                       the run's terminal state
-      learnings-review.json          the human's decision on each learning
+    runs/<run-id>/                   written by the orchestrator, one folder per run
+      run.json                       status, timings, branch, worktree, error
+      review.md                      the reviewer's findings and verdict
+      worker.diff                    the worker's change
+      worker.jsonl, reviewer.jsonl   full agent transcripts
+      worker-prompt.md, reviewer-prompt.md
+      worker-context/, reviewer-context/   the exact rules and skills each agent had
+      orchestrator.log
 ```
 
-This layout describes durable workspace records, not scratch-ticket drafts or an external tracker's representation. It does not select a tracker or authorize creation, execution, or changes to run records. Follow the project's documented tracker and `MANUAL.md` for workflow, approval, and record ownership.
+Task ids (the `<task-id>` folder names) are unique across the workspace. Only the orchestrator writes `runs/` and changes a task's `status` once it is running.

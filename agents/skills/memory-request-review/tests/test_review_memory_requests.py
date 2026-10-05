@@ -289,5 +289,39 @@ class MemoryRequestReviewTests(unittest.TestCase):
         self.assertIn("native approved", (self.home / "memories" / "MEMORY.md").read_text(encoding="utf-8"))
 
 
+PREPARE_SCRIPT = SCRIPT.with_name("prepare_environment.py")
+PREPARE_SPEC = importlib.util.spec_from_file_location("memory_review_prepare", PREPARE_SCRIPT)
+prepare = importlib.util.module_from_spec(PREPARE_SPEC)
+PREPARE_SPEC.loader.exec_module(prepare)
+
+
+class PrepareEnvironmentTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_published_runtime_command_becomes_a_path_probe(self):
+        bootstrap = "import sys; sys.path.insert(0, '/src'); " + prepare.ENTRY_MARKER
+        published = self.root / "runtime.json"
+        published.write_text(json.dumps(["/py/bin/python3", "-I", "-c", bootstrap]))
+        launcher = self.root / "hermes"
+        launcher.write_text(f"#!/bin/sh\ncat '{published}'\n")
+        launcher.chmod(0o755)
+        python, probe = prepare.hermes_runtime(str(launcher))
+        self.assertEqual(python, "/py/bin/python3")
+        self.assertEqual(probe[:3], ["/py/bin/python3", "-I", "-c"])
+        self.assertNotIn(prepare.ENTRY_MARKER, probe[3])
+        self.assertIn("sys.path.insert(0, '/src')", probe[3])
+
+    def test_bridge_adds_existing_unique_directories_only(self):
+        site_dir = self.root / "site"
+        site_dir.mkdir()
+        target = prepare.write_bridge(str(self.root), [str(site_dir), str(site_dir), str(self.root / "missing")])
+        self.assertEqual(target.read_text(), f"import site; site.addsitedir({str(site_dir)!r})\n")
+
+
 if __name__ == "__main__":
     unittest.main()

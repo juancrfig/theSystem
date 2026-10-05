@@ -30,15 +30,13 @@ Do not replace every removed detail with a pointer. Add a context-file pointer o
 scope-wide discovery that the existing navigation or skill workflow does not already provide.
 
 For example, a workspace `AGENTS.md` needs to identify `<project>/tickets/` as the home of work
-records, but not enumerate `ticket.md`, `spec.md`, task front matter, run records, or learning-review
-files. The detailed tree belongs in a shared authoring reference, loaded by the specification and
+records, but not enumerate `ticket.md`, `spec.md`, task front matter, or run records. The detailed tree belongs in a shared authoring reference, loaded by the specification and
 task skills. A root pointer to that reference is redundant when those skills already require it.
 Likewise, a role-entry example belongs with agent configuration, not workspace-wide navigation.
 
 Do not add a sentence such as "This file is limited to workspace navigation." The document's
-content makes that clear, and this skill owns the convention. A `MANUAL.md` entry identifies the
-human-owned functional contract; review status, availability labels, and discrepancy handling
-belong in the manual. A glossary entry identifies the glossary without telling readers to use its
+content makes that clear, and this skill owns the convention. A `FEATURES.md` entry identifies the
+human-owned feature map. A glossary entry identifies the glossary without telling readers to use its
 terms. A configuration-directory entry need not repeat its nested `AGENTS.md` or instruct readers
 when to load it. Keep only pointers that add discovery, not instructions inferable from the index.
 

@@ -5,7 +5,7 @@ description: Use when reviewing selected project wiki/raw sources for human-appr
 
 # Ingest selected project sources
 
-Build on the project-local `llm-wiki` conventions. Never use a personal/global wiki as a fallback. Resolve the registered company project first and operate only within its `wiki/` directory.
+Build on the project-local `llm-wiki` conventions. Never use a personal/global wiki as a fallback. Resolve the project folder (a folder directly inside the workspace) first and operate only within its `wiki/` directory.
 
 ## Prepare a proposal, without writing knowledge
 

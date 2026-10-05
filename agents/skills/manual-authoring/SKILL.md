@@ -6,7 +6,7 @@ experimental: true
 
 # Human-first manuals
 
-Produce `MANUAL.md`: the human-owned functional contract and practical guide to using the system. This experimental skill is opt-in.
+Produce `MANUAL.md`: the practical guide to using a product. When the scope has a `FEATURES.md`, that human-owned feature map is the functional contract; the manual explains it and never redefines it. This experimental skill is opt-in.
 
 ## Establish the contract
 

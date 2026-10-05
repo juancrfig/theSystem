@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
 
-Follow the tracker policy in the root `AGENTS.md` and the relevant project's guidance (same policy as `to-tasks`). Global workspace and theSystem development specifications belong in GitHub Issues or comments, never local files or a scratch tracker. Company/product projects retain their documented tracker. Use `needs-triage` until scope, criteria, dependencies, and prerequisites are verified; writing a specification does not authorize execution.
+Follow the same tracker policy as `to-tasks`. Specifications for theSystem's own development belong in its GitHub Issues, never local files or a scratch tracker. For a company project in a theSystem workspace, write the spec to `<project>/tickets/<ticket>/spec.md` unless the project documents another tracker. Writing a specification does not authorize execution; the human approves work when they confirm the `to-tasks` breakdown.
 
 ## Process
 
@@ -18,7 +18,7 @@ Follow the tracker policy in the root `AGENTS.md` and the relevant project's gui
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then publish it to the scope's documented tracker. For global workspace/theSystem work, update the canonical GitHub issue rather than creating a duplicate or local file; read back the exact record and verify its content. Apply `ready-for-agent` only after readiness is verified, otherwise use `needs-triage`.
+3. Write the spec using the template below, then save it where the tracker policy above says. For theSystem's own development, update the canonical GitHub issue rather than creating a duplicate; read back the exact record and verify its content.
 
 <spec-template>
 

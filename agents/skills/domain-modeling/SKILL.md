@@ -15,7 +15,8 @@ for vocabulary is not this skill; this skill is for changing the model, not just
 
 Load `writing-docs` and read its [context-files.md](../writing-docs/context-files.md) before changing
 glossaries or navigation. That reference owns workspace/project placement. Read the applicable
-glossary or glossary map, the relevant `MANUAL.md` contract, and ADRs before proposing changes.
+glossary or glossary map, the feature map (`FEATURES.md`) when the scope has one, and ADRs before
+proposing changes.
 
 The workspace is not a single source repository. Identify the owning project from workspace
 navigation and the source clone's location, not merely the current working directory. If ownership
@@ -36,7 +37,7 @@ A documentation reorganization or naming update does not authorize changing theS
 mechanisms or architecture. Before changing execution authority, isolation, role composition,
 approval boundaries, tracker ownership, or run/evidence storage, explain the proposed change and
 obtain explicit approval. Recording an ADR does not itself authorize implementing its decision.
-Do not alter `MANUAL.md`'s functional expectations merely to fit current code.
+Do not edit `FEATURES.md`: it is human-owned, and code is changed to fit it, not the reverse.
 
 ## During the session
 

@@ -9,17 +9,17 @@ When configuring or bootstrapping `theSystem` in an existing company workspace, 
 
 If an existing workspace is configured without `GLOSSARY.md`, agents operating in the workspace lack authoritative definitions for these core operational concepts. Conversely, performing a blanket distribution copy into an existing workspace introduces two major hazards:
 1. It risks clobbering existing human-authored workspace files (e.g., a company's custom `AGENTS.md` or domain documents).
-2. It litters the company workspace root with `theSystem`'s own internal implementation code (`thesystem/` package, `bin/`, `the_system_orchestrator.py`).
+2. It litters the company workspace root with `theSystem`'s own implementation code (the `thesystem/` package).
 
 ## Decision
 
 Adopt the principle: **"Seed missing context files only, never overwrite existing."**
 
 1. **Centralized System Binaries and Code:**
-   The implementation code for `theSystem` resides centrally under `~/.local/share/thesystem`, and public entry points/aliases reside on PATH under `~/.local/bin/` (`thesystem` and company aliases). System implementation packages are not duplicated into the user workspace root.
+   The implementation code for `theSystem` resides centrally under `~/.local/share/thesystem`, and the company command resides on PATH under `~/.local/bin/`. System implementation packages are not duplicated into the user workspace root.
 
 2. **Selective Context Seeding:**
-   During workspace installation and configuration:
+   During installation:
    - Essential workspace-level context files (such as canonical `GLOSSARY.md`) are inspected.
    - If an essential context file does not exist in the workspace, `theSystem` seeds it from canonical templates so agents have full operational vocabulary.
    - If the file already exists (or contains user-defined modifications), `theSystem` strictly preserves it and never overwrites it.

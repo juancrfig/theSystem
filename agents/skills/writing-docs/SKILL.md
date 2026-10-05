@@ -9,7 +9,7 @@ Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed605
 
 ## Write only what the code cannot say
 
-Human-facing user manuals are an exception: users must not need to read source to operate the product. `MANUAL.md` owns the human-approved functional contract. When available, use the experimental `manual-authoring` skill for its presentation and verification workflow.
+Human-facing user manuals are an exception: users must not need to read source to operate the product. Use the experimental `manual-authoring` skill for them. Where a scope has a `FEATURES.md`, it is the human-owned feature map that defines what the product does; agents do not edit it.
 
 Before writing anything, ask whether an agent with the whole repository checked out and unlimited
 time to read it would still not know this. If reading the code answers it, do not write it. Code
