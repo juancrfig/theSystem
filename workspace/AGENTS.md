@@ -82,3 +82,11 @@ Run evidence is in `<task>/runs/<run-id>/`: `run.json`, `review.md`, `worker.dif
   (`ingest` skill). Propose the changes first; write the wiki only after the human approves them.
 - Wiki health check on request (`llm-wiki` skill): report only; fixes need the human's approval.
 - Memory reviews: use the `memory-request-review` skill with the human.
+
+## theSystem updates and proposals
+
+- When the human asks to update theSystem, run `{{COMMAND}} update`. Report the version jump, the release notes and
+  the changed files. Resolve each conflict with the human (the file has conflict markers), then run
+  `{{COMMAND}} update` again: it records the new baseline only when no conflicts remain.
+- When a theSystem file here improved (a skill, rule, role, this guide), offer it to theSystem as a new default with
+  the `propose-default` skill. Open nothing without the human's yes.

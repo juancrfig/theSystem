@@ -7,11 +7,12 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
 
-from thesystem import runner, tasks
+from thesystem import runner, tasks, update
 from thesystem.errors import CodedError
 
 MAX_PARALLEL = int(os.environ.get("THESYSTEM_MAX_PARALLEL", "2"))
@@ -21,6 +22,7 @@ usage: {prog} <command>
   run           start every ready task (to-tasks calls this when it finishes)
   merge <task>  merge a pre-done task into its source clone; the task becomes done
   retry <task>  send a changes-requested, failed or pre-done task back to run again
+  update        install the latest theSystem release and merge its files into the workspace
 
 Task state lives in each task.md; run evidence in <task>/runs/<run-id>/.
 """
@@ -140,6 +142,57 @@ def command_retry(workspace: Path, task_id: str) -> dict:
     return {"status": "ok", "task": task_id, "dispatcher": started["dispatcher"]}
 
 
+def command_update(workspace: Path) -> dict:
+    company = os.environ.get("THESYSTEM_COMMAND")
+    if not company:
+        raise CodedError("USAGE", "no company command configured; run update through the installed command")
+    clone = Path(os.environ.get("THESYSTEM_CLONE") or Path.home() / "theSystem")
+    current = update.baseline(workspace)
+    from_tag = current[0]["tag"] if current else None
+    report = {"status": "ok", "up_to_date": False, "from": from_tag, "to": from_tag, "release_notes": [],
+              "updated": [], "added": [], "removed": [], "merged": [], "conflicts": [], "baseline_recorded": False}
+    waiting = update.pending(workspace)
+    if waiting:
+        # The conflicts of the last update come first: until they are resolved, the baseline must stay the old
+        # release, or an unresolved conflict would later look like a local edit.
+        left = update.unresolved(workspace, waiting["conflicts"])
+        if not left:
+            update.promote_pending(workspace)
+        return {**report, "to": waiting["tag"], "conflicts": left, "baseline_recorded": not left}
+    if not (clone / ".git").exists():
+        raise CodedError("NO_CLONE", f"no theSystem clone at {clone}; run the installer again")
+    update.git(clone, "fetch", "--quiet", "--tags", "--force", "origin")
+    tags = update.release_tags(clone)
+    if not tags:
+        raise CodedError("NO_RELEASE", "theSystem has no release yet")
+    latest = tags[-1]
+    if from_tag == latest:
+        return {**report, "up_to_date": True}
+    package_root = str(Path(__file__).resolve().parents[1])
+    with tempfile.TemporaryDirectory() as release:
+        update.export(clone, latest, Path(release))
+        # The release's own installer re-applies the silent steps and replaces the installed program, so the
+        # merge below already runs the new release's code.
+        installed = subprocess.run(
+            ["bash", str(Path(release) / "install"), "--release", latest, "--update"], capture_output=True,
+            text=True, stdin=subprocess.DEVNULL,
+            env={**os.environ, "THESYSTEM_WORKSPACE": str(workspace), "THESYSTEM_COMPANY": company,
+                 "THESYSTEM_CLONE": str(clone)})
+        if installed.returncode:
+            raise CodedError("INSTALL_FAILED", (installed.stderr or installed.stdout).strip())
+        merged = subprocess.run(
+            [sys.executable, "-m", "thesystem.update", "merge", "--source", release, "--workspace", str(workspace),
+             "--company", company, "--release", latest, "--clone", str(clone), *(["--from", from_tag] if from_tag else [])],
+            capture_output=True, text=True, cwd=package_root, env={**os.environ, "PYTHONPATH": package_root})
+    try:
+        result = json.loads(merged.stdout)
+    except json.JSONDecodeError:
+        raise CodedError("MERGE_FAILED", (merged.stderr or merged.stdout).strip()) from None
+    if result.get("status") != "ok":
+        raise CodedError(result.get("code", "MERGE_FAILED"), result.get("message", ""))
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     prog = os.environ.get("THESYSTEM_COMMAND", "thesystem")
     parser = argparse.ArgumentParser(prog=prog, add_help=False)
@@ -159,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "run" and not args.task:
             result = command_run(workspace)
+        elif args.command == "update" and not args.task:
+            result = command_update(workspace)
         elif args.command in ("merge", "retry") and args.task:
             result = (command_merge if args.command == "merge" else command_retry)(workspace, args.task)
         else:

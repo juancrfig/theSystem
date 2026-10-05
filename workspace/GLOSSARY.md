@@ -24,3 +24,9 @@ _Avoid_: task, issue.
 _Avoid_: ticket, issue, sub-ticket.
 
 **Run**: one attempt at a task: the worker, then the reviewer. A task can have several runs.
+
+**Release**: a numbered, published version of theSystem that servers install and update to.
+
+**Baseline**: the release a workspace was installed or last updated from.
+
+**Proposal**: a pull request from a workspace that offers a local improvement as a new theSystem default.

@@ -19,7 +19,7 @@ class InstallTests(unittest.TestCase):
 
     def install(self, **answers):
         env = {**self.env, **answers}
-        return subprocess.run(["bash", str(REPO / "install")], env=env, capture_output=True, text=True,
+        return subprocess.run(["bash", str(REPO / "install"), "--dev"], env=env, capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, start_new_session=True)  # no /dev/tty: defaults apply
 
     def test_defaults_create_workspace_command_git_and_skills_link(self):

@@ -22,6 +22,8 @@ Outcome: a short wizard asks two things, then finishes:
   1. Workspace location. Default `~/workspace`.
   2. Company name. Default `umbrella`. This becomes the main command for using theSystem.
   After the prompts, without asking or mentioning it:
+  - Clones theSystem to `~/theSystem`, or reuses the clone already there, and installs the latest release (F10) from it. The release is read straight from git, so the clone's checked-out branch and working files are never touched. `install --dev` installs the working tree of the clone it runs from instead; it is for theSystem development and tests.
+  - Records the workspace's baseline (F10): the release tag and a copy of the files that release shipped.
   - Creates the workspace structure:
     ```
     ~/workspace/
@@ -119,11 +121,12 @@ Use: the main agent loads evidence lazily, starting with the reviewer's findings
 ## F7 · The `umbrella` command
 
 Status: open
-Outcome: three commands, all with JSON output, meant for agents:
+Outcome: four commands, all with JSON output, meant for agents:
   ```
   umbrella run          → start every ready task (to-tasks calls this when it finishes)
   umbrella merge <task> → pre-done → done, after the human OKs it
   umbrella retry <task> → changes-requested, failed or pre-done → ready
+  umbrella update       → install the latest theSystem release and merge it into the workspace (F10)
   ```
 Not this: status or evidence commands (agents read `task.md` and the run folders directly), and no project, role, learning or cancel commands.
 
@@ -156,3 +159,39 @@ Outcome: one minimal page lists every HTML artifact the agents made, so the huma
   - The `main` personality saves every artifact there and replies with its link.
 Not this: no Tailscale, SSH tunnels or remote access (localhost only), no database, no commands, no editing from the page.
 Proof: save an HTML file in a ticket's `artifacts/`, open `http://localhost:8765`, check it is listed under its project and ticket, and click it open.
+
+## F10 · Shared improvements
+
+Status: wanted
+Meaning: improvements made in one workspace reach theSystem, and theSystem's improvements reach every workspace.
+  - Up: the main agent offers a workspace improvement as a new theSystem default (a proposal).
+  - Down: `umbrella update` brings a workspace to the latest release, keeping its local edits.
+Releases:
+  - Numbered GitHub Releases, `vMAJOR.MINOR.PATCH`. Installs and updates use the latest release, never unreleased work on `master`.
+  - PATCH for fixes and small skill or rule improvements, MINOR for new features or new skills, MAJOR for changes that break existing workspaces.
+  - When the owner asks for a release, the main agent proposes the number and the notes (written by GitHub from the merged pull requests, grouped by label). The owner confirms; the main agent publishes the tag and the GitHub Release.
+  - Our own development keeps pushing straight to `master`. Only proposals use pull requests.
+Baseline:
+  - theSystem owns exactly the files seeded from the repo's `workspace/` (into the workspace root) and `agents/` (into the workspace `agents/`). Project folders, `.thesystem/` and Hermes memory are never included.
+  - The workspace records the release it was installed or last updated from in `.thesystem/baseline/`: the tag and a copy of the files that release shipped, after the install's substitutions (`{{COMMAND}}` becomes the company command).
+  - One clone per server, `~/theSystem`, serves installs, updates and proposals.
+Update (`umbrella update`, run by the owner in a terminal or by the main agent in chat):
+  1. Re-applies the wizard's silent steps from the new release: installed program, canonical Hermes settings, toolsets, personalities, profiles and the artifact library service.
+  2. Merges every theSystem file: baseline (base), workspace file (local) and new release file (theirs), with git's file merge.
+     - unchanged locally → take the new version; unchanged upstream → keep the local file
+     - both changed → merge; on a clash, write conflict markers and report a conflict
+     - new upstream file → add it; a different local file at that path is a conflict
+     - removed upstream → remove it if unchanged locally; if changed locally, conflict and keep it
+     - removed locally → stays removed if unchanged upstream; if changed upstream, conflict
+  3. Every non-conflicting file is updated even when others conflict. The main agent resolves conflicts with the owner in chat. The new baseline is recorded only when no conflict markers remain: until then each run of `umbrella update` reports the open conflicts again.
+  - Output (JSON): from and to versions, the release notes in between (GitHub Releases, or the tag annotations when GitHub can't be reached), files updated, added, removed and merged, conflicts, and whether the baseline was recorded.
+  - Already on the latest release with nothing pending: reports "up to date" and changes nothing.
+  - No baseline yet (installed before baselines existed): identical files are adopted silently, differing files are conflicts showing both versions, and the baseline is recorded once they are resolved.
+Proposals (`propose-default` skill, at any time, inside or outside a memory review):
+  - Candidates are theSystem files that differ from the baseline: changed, added in global `agents/`, or deleted.
+  - One pull request per improvement, labeled (`skills`, `rules`, `roles`, `wizard`, `orchestrator`, `fix`), with a "what and why" description.
+  - Written in terms of theSystem's own files: `{{COMMAND}}` instead of the company command.
+  - Before opening it, the main agent checks the change for company information (client, project and people names, internal URLs, secrets) and shows the owner anything flagged. The pull request opens only after the owner says yes.
+  - Opened from its own branch in a temporary git worktree of `~/theSystem` based on `master`, so the clone's checkout is never disturbed.
+Not this: automatic or scheduled updates, "you are behind" checks, proposing Hermes memory, personal skills or anything in a project folder, or carrying Hermes settings changed by hand with `hermes config set`.
+Proof: in a temporary repo with release tags standing in for GitHub, install, publish a new release that changes, adds and removes files, edit the workspace on both sides, run `umbrella update`, and check the merged files, the reported conflicts, the release notes and that the baseline is recorded only after the conflicts are resolved. Check that the clone's branch and working files are unchanged. List proposal candidates and check that changed, added and deleted files are found, project folders and `.thesystem/` are ignored, and `{{COMMAND}}` is restored.

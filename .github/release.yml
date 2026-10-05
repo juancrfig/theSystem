@@ -1,0 +1,17 @@
+# GitHub groups the generated release notes (gh release create --generate-notes) by these pull request labels.
+changelog:
+  categories:
+    - title: Skills
+      labels: [skills]
+    - title: Rules
+      labels: [rules]
+    - title: Roles
+      labels: [roles]
+    - title: Wizard
+      labels: [wizard]
+    - title: Orchestrator
+      labels: [orchestrator]
+    - title: Fixes
+      labels: [fix]
+    - title: Other changes
+      labels: ["*"]

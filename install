@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# theSystem installer (feature F1 in FEATURES.md).
+# theSystem installer (features F1 and F10 in FEATURES.md).
 #   curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash
-# THESYSTEM_WORKSPACE and THESYSTEM_COMPANY answer the two prompts without asking.
+# Installs the latest theSystem release from the server's clone (~/theSystem, cloned when missing). The release is
+# read straight from git, so the clone's branch and working files are never touched.
+#   install --dev   installs the working tree this script is in instead (theSystem development and tests).
+# THESYSTEM_WORKSPACE and THESYSTEM_COMPANY answer the two prompts without asking. THESYSTEM_REPO and
+# THESYSTEM_CLONE choose where theSystem is cloned from and to.
+# --release <tag> and --update are internal: the release's own installer runs with them.
 set -euo pipefail
 
 fail() { printf 'install: %s\n' "$1" >&2; exit 1; }
@@ -9,17 +14,47 @@ for tool in python3 git; do
   command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"
 done
 
-source_root=""
+dev=0 release="" update=0
+while (( $# )); do
+  case $1 in
+    --dev) dev=1 ;;
+    --release) [[ $# -ge 2 ]] || fail "--release needs a tag"; release=$2; shift ;;
+    --update) update=1 ;;
+    *) fail "unknown option: $1" ;;
+  esac
+  shift
+done
+clone="${THESYSTEM_CLONE:-$HOME/theSystem}"
+
+here=""
 if [[ -n "${BASH_SOURCE[0]:-}" && -f "$(dirname "${BASH_SOURCE[0]}")/thesystem/cli.py" ]]; then
-  source_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-else
-  command -v curl >/dev/null 2>&1 || fail "curl is required"
-  download=$(mktemp -d)
-  trap 'rm -rf "$download"' EXIT
-  curl -fsSL "https://codeload.github.com/juancrfig/theSystem/tar.gz/refs/heads/${THESYSTEM_BRANCH:-master}" \
-    | tar -xz -C "$download" || fail "could not download theSystem"
-  source_root=$(find "$download" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+  here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 fi
+
+# Bootstrap (also what the piped one-liner runs): make sure the clone exists, then hand over to the latest
+# release's own installer, so a server never gets unreleased work from master.
+if (( ! dev )) && [[ -z "$release" ]]; then
+  if [[ -e "$clone" ]]; then
+    git -C "$clone" rev-parse --git-dir >/dev/null 2>&1 || fail "$clone exists but is not a git clone of theSystem"
+    git -C "$clone" fetch --quiet --tags --force origin || fail "could not fetch theSystem releases into $clone"
+  else
+    git clone --quiet "${THESYSTEM_REPO:-https://github.com/juancrfig/theSystem.git}" "$clone" \
+      || fail "could not clone theSystem into $clone"
+  fi
+  tag=$(git -C "$clone" tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+  [[ -n "$tag" ]] || fail "theSystem has no release yet; run install --dev from a clone to install its working tree"
+  release_dir=$(mktemp -d)
+  trap 'rm -rf "$release_dir"' EXIT
+  git -C "$clone" archive "$tag" | tar -x -C "$release_dir" || fail "could not read release $tag"
+  status=0
+  # stdin is the rest of this script when piped into bash; the release's installer must not swallow it. The
+  # prompts read the terminal directly.
+  THESYSTEM_CLONE="$clone" bash "$release_dir/install" --release "$tag" </dev/null || status=$?
+  exit "$status"
+fi
+[[ -n "$here" ]] || fail "--dev and --release need the installer inside a theSystem tree"
+source_root=$here
+release=${release:-dev}
 
 ask() {
   local preset=$1 question=$2 default=$3 answer=""
@@ -44,7 +79,7 @@ if [[ -e "$launcher" ]] && ! grep -q 'theSystem launcher' "$launcher"; then
   fail "$launcher already exists and is not a theSystem command"
 fi
 
-# The installed code is replaced on every install; the workspace is only ever added to.
+# The installed code is replaced on every install; workspace files change only through `update` (F10).
 mkdir -p "$bin_dir" "$(dirname "$share_dir")"
 rm -rf "$share_dir"
 mkdir -p "$share_dir"
@@ -52,21 +87,12 @@ cp -R "$source_root/thesystem" "$share_dir/thesystem"
 
 mkdir -p "$workspace/docs" "$workspace/agents/rules" "$workspace/agents/skills"
 workspace=$(cd "$workspace" && pwd -P)
-seed() {
-  local from=$1 to=$2 file
-  (cd "$from" && find . \( -type f -o -type l \) -print) | while IFS= read -r file; do
-    file=${file#./}
-    if [[ ! -e "$to/$file" && ! -L "$to/$file" ]]; then
-      mkdir -p "$(dirname "$to/$file")"
-      cp -P "$from/$file" "$to/$file"
-      if [[ "$file" == AGENTS.md && "$to" == "$workspace" ]]; then
-        sed -i "s/{{COMMAND}}/$company/g" "$to/$file"
-      fi
-    fi
-  done
-}
-seed "$source_root/workspace" "$workspace"
-seed "$source_root/agents" "$workspace/agents"
+# Only missing files are added; existing ones are the human's. A clean install records its baseline (F10).
+# An update merges the files itself once this script is done, so it skips seeding.
+if (( ! update )); then
+  PYTHONPATH="$share_dir" python3 -m thesystem.update seed --source "$source_root" --workspace "$workspace" \
+    --company "$company" --release "$release"
+fi
 
 [[ -e "$workspace/.git" ]] || git -C "$workspace" init -q
 if [[ ! -e "$workspace/.agents/skills" && ! -L "$workspace/.agents/skills" ]]; then
@@ -157,7 +183,7 @@ fi
 cat > "$launcher" <<EOF
 #!/bin/sh
 # theSystem launcher for the $company workspace
-THESYSTEM_WORKSPACE='$workspace' THESYSTEM_COMMAND='$company' PYTHONPATH='$share_dir' exec python3 -m thesystem.cli "\$@"
+THESYSTEM_WORKSPACE='$workspace' THESYSTEM_COMMAND='$company' THESYSTEM_CLONE='$clone' PYTHONPATH='$share_dir' exec python3 -m thesystem.cli "\$@"
 EOF
 chmod +x "$launcher"
 
