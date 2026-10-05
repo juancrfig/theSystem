@@ -42,10 +42,6 @@ class Task:
     def roles(self) -> list[str]:
         return _names(self.fields.get("roles")) or ["worker"]
 
-    @property
-    def reviewer_roles(self) -> list[str]:
-        return _names(self.fields.get("reviewer_roles")) or ["reviewer"]
-
     def set_status(self, status: str) -> None:
         if status not in STATUSES:
             raise ValueError(status)

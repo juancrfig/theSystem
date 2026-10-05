@@ -50,7 +50,6 @@ Task front matter, read by the orchestrator:
 status: ready            # the orchestrator keeps this up to date
 source_clone: backend    # folder inside the project
 roles: [worker]          # the worker's roles
-reviewer_roles: [reviewer]
 blockers:
   - task: create-refund-model        # waits until that task is done
   - external: "Waiting for API keys" # waits until you remove this line
@@ -59,7 +58,8 @@ blockers:
 
 Status: `blocked`, `ready`, `running`, `changes-requested` (reviewer said no), `failed` (theSystem broke),
 `pre-done` (reviewer approved; waiting for the human), `done` (merged). Task ids (folder names) are unique in the
-workspace. The reviewer always receives the worker's rules as well as its own.
+workspace. The reviewer always uses the `reviewer` role (override it in `<project>/agents/roles.yaml`) plus the
+worker's rules.
 
 ## Reviewing results with the human
 

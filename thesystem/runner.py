@@ -90,7 +90,7 @@ class Run:
         if not (clone / ".git").exists():
             raise CodedError("SOURCE_CLONE_INVALID", f"{clone} is not a git clone")
         worker_context = roles.resolve(self.workspace, task.project, task.roles)
-        reviewer_context = roles.resolve(self.workspace, task.project, task.reviewer_roles)
+        reviewer_context = roles.resolve(self.workspace, task.project, ["reviewer"])
         reviewer_context.add(roles.Context(rules=worker_context.rules))
 
         discard_worktree(self.workspace, task)
@@ -102,7 +102,7 @@ class Run:
         git(clone, "worktree", "add", "-b", branch_name(task), str(work), base)
         self.save(status="running", source_clone=str(clone), base_branch=base_branch, base_commit=base,
                   branch=branch_name(task), worktree=str(work),
-                  roles={"worker": task.roles, "reviewer": task.reviewer_roles})
+                  roles={"worker": task.roles, "reviewer": ["reviewer"]})
         self.log(f"worker starting in {work}")
 
         worker = self._agent("worker", work, self._worker_prompt(worker_context))

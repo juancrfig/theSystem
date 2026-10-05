@@ -80,7 +80,6 @@ The user approving the breakdown in step 4 is the only approval: every task you 
 status: ready              # `blocked` when it has blockers; the orchestrator keeps it up to date
 source_clone: backend      # folder of the git clone inside the project
 roles: [worker]            # the worker's roles, from agents/roles.yaml or <project>/agents/roles.yaml
-reviewer_roles: [reviewer]
 blockers:
   - task: create-refund-model                       # waits until that task is done
   - external: "Waiting for a coworker to do something" # waits until this line is removed
