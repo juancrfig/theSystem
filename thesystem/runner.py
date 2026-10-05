@@ -17,6 +17,8 @@ from thesystem import roles
 from thesystem.errors import CodedError
 from thesystem.tasks import Task
 
+# Hermes treats an empty -t as "all toolsets"; an unknown name selects none, so a role without tools gets no tools.
+NO_TOOLS = "none"
 AGENT_TIMEOUT = int(os.environ.get("THESYSTEM_AGENT_TIMEOUT", "3600"))
 VERDICT = re.compile(r"^\s*VERDICT:\s*(PASS|FAIL)\b", re.I | re.M)
 COMMITTER = ["-c", "user.name=theSystem", "-c", "user.email=thesystem@localhost"]
@@ -102,10 +104,11 @@ class Run:
         git(clone, "worktree", "add", "-b", branch_name(task), str(work), base)
         self.save(status="running", source_clone=str(clone), base_branch=base_branch, base_commit=base,
                   branch=branch_name(task), worktree=str(work),
-                  roles={"worker": task.roles, "reviewer": ["reviewer"]})
+                  roles={"worker": task.roles, "reviewer": ["reviewer"]},
+                  toolsets={"worker": worker_context.toolsets, "reviewer": reviewer_context.toolsets})
         self.log(f"worker starting in {work}")
 
-        worker = self._agent("worker", work, self._worker_prompt(worker_context))
+        worker = self._agent("worker", work, self._worker_prompt(worker_context), worker_context.toolsets)
         if worker["error"]:
             raise CodedError("WORKER_FAILED", worker["error"])
         self._check_isolation(work, base, base_branch, clone_status)
@@ -123,7 +126,8 @@ class Run:
         review_dir = self.workspace / ".thesystem" / "reviews" / self.id
         git(clone, "worktree", "add", "--detach", str(review_dir), commit)
         try:
-            reviewer = self._agent("reviewer", review_dir, self._reviewer_prompt(reviewer_context, base))
+            reviewer = self._agent("reviewer", review_dir, self._reviewer_prompt(reviewer_context, base),
+                                   reviewer_context.toolsets)
         finally:
             subprocess.run(["git", "worktree", "remove", "--force", str(review_dir)], cwd=clone, capture_output=True)
         findings = reviewer["text"].strip()
@@ -186,12 +190,12 @@ class Run:
             roles.materialize(context, self.directory / "reviewer-context"),
         ])
 
-    def _agent(self, name: str, cwd: Path, prompt: str) -> dict:
+    def _agent(self, name: str, cwd: Path, prompt: str, toolsets: list[str]) -> dict:
         prompt_file = self.directory / f"{name}-prompt.md"
         prompt_file.write_text(prompt, encoding="utf-8")
         transcript = self.directory / f"{name}.jsonl"
         command = ["hermes", "-p", name, "chat", "--query-file", str(prompt_file), "--in", str(cwd),
-                   "--format", "stream-json", "--yolo", "--source", "tool"]
+                   "--format", "stream-json", "--yolo", "--source", "tool", "-t", ",".join(toolsets) or NO_TOOLS]
         environment = {k: v for k, v in os.environ.items() if k != "TERMINAL_CWD"}
         environment["HERMES_WRITE_SAFE_ROOT"] = str(cwd)  # Hermes' file tools cannot write outside the checkout
         try:

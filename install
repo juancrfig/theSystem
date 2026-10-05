@@ -50,7 +50,7 @@ rm -rf "$share_dir"
 mkdir -p "$share_dir"
 cp -R "$source_root/thesystem" "$share_dir/thesystem"
 
-mkdir -p "$workspace/docs" "$workspace/agents/rules" "$workspace/agents/skills" "$workspace/agents/tools"
+mkdir -p "$workspace/docs" "$workspace/agents/rules" "$workspace/agents/skills"
 workspace=$(cd "$workspace" && pwd -P)
 seed() {
   local from=$1 to=$2 file

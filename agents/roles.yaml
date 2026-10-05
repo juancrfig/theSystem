@@ -1,6 +1,9 @@
 # Global roles. Paths are relative to this agents/ folder.
 # The reviewer of a task always receives the worker's rules as well as its own.
 worker:
+  tools:
+    - terminal
+    - file
   rules:
     - rules/api-contract-tests-use-producer-evidence.md
     - rules/comments-state-why-not-what.md
@@ -8,5 +11,8 @@ worker:
     - rules/overlays-escape-clipping-ancestors.md
     - rules/second-order-thinking-checks.md
 reviewer:
+  tools:
+    - terminal
+    - file
   skills:
     - skills/code-review

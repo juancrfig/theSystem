@@ -1,5 +1,7 @@
 """Roles: named selections of rules, skills and tools, declared globally or per project.
 
+Tools are Hermes toolsets (`terminal`, `file`, `web`, `browser`, ...): Hermes gives the agent only those.
+
 Global roles live in `<workspace>/agents/roles.yaml`, project roles in
 `<project>/agents/roles.yaml`. A project role replaces a global role with the
 same name. Paths inside a role are relative to the `agents/` folder that declares it.
@@ -25,6 +27,10 @@ class Context:
         for name in ("rules", "skills", "tools"):
             mine = getattr(self, name)
             mine.extend(item for item in getattr(other, name) if item not in mine)
+
+    @property
+    def toolsets(self) -> list[str]:
+        return list(self.tools)
 
 
 def _declared(agents_dir: Path) -> dict:
@@ -79,9 +85,5 @@ def materialize(context: Context, destination: Path) -> str:
             target = destination / "skills" / source.name
             shutil.copytree(source, target, dirs_exist_ok=True)
             sections.append(f"- {source.name}: {target / 'SKILL.md'}")
-        sections.append("")
-    if context.tools:
-        sections.append("# Tools available\n")
-        sections.extend(f"- {tool}" for tool in context.tools)
         sections.append("")
     return "\n".join(sections)

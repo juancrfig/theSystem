@@ -30,11 +30,10 @@ Outcome: a short wizard asks two things, then finishes:
     ├── docs/
     └── agents/
         ├── rules/
-        ├── skills/
-        └── tools/
+        └── skills/
     ```
   - Runs `git init` in the workspace if it isn't already a git repo. Hermes needs this to find the skills.
-  - Links `agents/skills/` to the harness via the cross-tool symlink `.agents/skills → ../agents/skills`. Hermes doesn't need to be installed for this. If Hermes is installed, the wizard also trusts the workspace (`hermes skills trust`), because Hermes loads repo-local skills only from trusted folders. It also makes the workspace the main agent's working folder (`terminal.cwd`), so every main-agent session (Telegram, cron and CLI) loads the workspace skills and `AGENTS.md`.
+  - Links `agents/skills/` to the harness via the cross-tool symlink `.agents/skills → ../agents/skills`. Hermes doesn't need to be installed for this. If Hermes is installed, the wizard also trusts the workspace (`hermes skills trust`), because Hermes loads repo-local skills only from trusted folders. It also makes the workspace the main agent's working folder (`terminal.cwd`), so every main-agent session (Telegram, cron and CLI) loads the workspace skills and `AGENTS.md`. theSystem ships no `hermes-agent` skill: a workspace copy would shadow the one Hermes bundles and keeps current with `hermes update`.
   - If Hermes is installed, adds two Hermes personalities and selects `main` when none is selected yet. `main` is the build-mode communication style from `agents/.harness/personalities/main.md`; `casual` adds nothing, so Hermes talks normally. Switch with `/personality casual` in a chat or `hermes config set display.personality casual`; theSystem works the same in both. A reinstall refreshes `main` from the theSystem being installed and keeps the current selection. Without Hermes, this step is skipped; rerun the install after installing Hermes.
   - Starts the artifact library (F9) as an always-on user service that survives reboots. Skipped where there is no systemd user session.
   - If Hermes is installed, gives the main agent theSystem's canonical Hermes config (`agents/.harness/canonical_config.yaml`, same shape as Hermes' own `config.yaml`) and turns on its toolsets (`agents/.harness/required_toolsets.txt`) for the CLI and Telegram. Every install resets these settings to the harness files. Auxiliary models are the only thing left to configure by hand.
@@ -61,12 +60,13 @@ Rules:
 ## F3 · Roles
 
 Status: open (in progress)
-Meaning: a role is a named selection of rules, skills, tools, CLIs and MCP servers (see GLOSSARY.md).
+Meaning: a role is a named selection of rules, skills and tools (see GLOSSARY.md).
 Rules:
   - Global roles live in `agents/roles.yaml`. Project roles live in `<project>/agents/roles.yaml`.
   - A project role overrides a global role with the same name.
   - No commands. The main agent edits the roles files directly.
   - `to-tasks` picks each task's roles and lists them in the task's front matter.
+  - `tools` lists Hermes toolsets (`terminal`, `file`, `web`, `browser`, ...). The agent gets only those, enforced by Hermes. A role without `tools` gets no tools. CLIs are not declared: whatever is installed can run. MCP servers are not part of roles yet.
 
 ## F4 · Tasks
 

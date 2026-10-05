@@ -8,7 +8,7 @@
 
 **Source clone**: a git repository with a project's code, inside the project folder. A project can have several.
 
-**Role**: a named selection of rules, skills and tools, which may include only some of these. Its name is a freely
+**Role**: a named selection of rules, skills and tools (Hermes toolsets), which may include only some of these. Its name is a freely
 chosen label, not an implied responsibility.
 _Avoid_: profile, which means a Hermes profile; specialization.
 

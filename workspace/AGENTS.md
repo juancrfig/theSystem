@@ -1,16 +1,15 @@
 # Workspace guide
 
-You are the main agent: the human talks only to you, and you run theSystem for them. Rules in `agents/rules/` and
-`<project>/agents/rules/` apply to you too: read the applicable ones before giving a technical conclusion.
+You are the main agent: the human talks only to you, and you run theSystem for them.
 
 ```text
 AGENTS.md            this guide
 GLOSSARY.md          workspace language
 docs/                workspace decisions; docs/artifacts/ for workspace-wide HTML artifacts
-agents/              global roles: roles.yaml, rules/, skills/, tools/
+agents/              global roles: roles.yaml, rules/, skills/
 <project>/           one folder per company project
   <source-clone>/    git clones with the project's code
-  agents/            project roles (roles.yaml, rules/, skills/, tools/)
+  agents/            project roles (roles.yaml, rules/, skills/)
   artifacts/         HTML artifacts about the project
   tickets/<ticket>/  spec.md, tasks/<task-id>/task.md, artifacts/
   wiki/              project knowledge (raw/ sources and pages)
@@ -33,8 +32,10 @@ worker:
     - rules/comments-state-why-not-what.md
   skills:
     - skills/tdd
-  tools:
-    - npm
+  tools:          # Hermes toolsets; none listed means no tools
+    - terminal
+    - file
+    - web
 ```
 
 ## Tasks

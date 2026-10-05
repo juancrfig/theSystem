@@ -23,7 +23,8 @@ profile = args[args.index("-p") + 1]
 if profile != ("worker" if prompt.startswith("You are the worker") else "reviewer"):
     sys.exit(9)  # each agent must run in its own Hermes profile
 print(json.dumps({"type": "system", "subtype": "init", "session_id": "fake",
-                  "safe_root": os.environ.get("HERMES_WRITE_SAFE_ROOT")}))
+                  "safe_root": os.environ.get("HERMES_WRITE_SAFE_ROOT"),
+                  "toolsets": args[args.index("-t") + 1] if "-t" in args else None}))
 if prompt.startswith("You are the worker"):
     mode = os.environ.get("FAKE_WORKER", "edit")
     if mode == "crash":
@@ -201,6 +202,22 @@ class EvidenceAndRolesTests(WorkspaceCase):
         self.assertTrue((run / "worker-context" / "rules" / "project.md").is_file())
         self.assertIn("project rule text", (run / "reviewer-prompt.md").read_text(),
                       "the reviewer gets the worker's rules")
+
+    def test_roles_tools_are_the_hermes_toolsets_each_agent_gets(self):
+        (self.ws / "agents" / "roles.yaml").write_text(textwrap.dedent("""\
+            worker:
+              tools: [terminal, file, web]
+            reviewer: {}
+            """))
+        self.add_task("a", "status: ready\nsource_clone: backend\nroles: [worker]")
+        self.command("run")
+        self.wait_idle()
+        run = self.latest_run("a")
+        init = lambda name: json.loads((run / f"{name}.jsonl").read_text().splitlines()[0])
+        self.assertEqual(init("worker")["toolsets"], "terminal,file,web")
+        self.assertEqual(init("reviewer")["toolsets"], "none", "no tools listed: no tools")
+        record = json.loads((run / "run.json").read_text())
+        self.assertEqual(record["toolsets"], {"worker": ["terminal", "file", "web"], "reviewer": []})
 
     def test_unknown_role_fails_the_run(self):
         self.add_task("a", "status: ready\nsource_clone: backend\nroles: [nobody]")

@@ -26,7 +26,7 @@ class InstallTests(unittest.TestCase):
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
         workspace = self.home / "workspace"
-        for path in ("AGENTS.md", "GLOSSARY.md", "docs", "agents/rules", "agents/skills", "agents/tools",
+        for path in ("AGENTS.md", "GLOSSARY.md", "docs", "agents/rules", "agents/skills",
                      "agents/roles.yaml", ".git"):
             self.assertTrue((workspace / path).exists(), path)
         link = workspace / ".agents" / "skills"
@@ -39,6 +39,13 @@ class InstallTests(unittest.TestCase):
         command = subprocess.run(["umbrella"], env=self.env, capture_output=True, text=True)
         self.assertEqual(command.returncode, 0, command.stderr)
         self.assertIn("run", command.stdout)
+
+    def test_hermes_agent_skill_is_not_shipped_so_the_bundled_one_stays_current(self):
+        # A workspace copy would shadow the hermes-agent skill that Hermes bundles and updates.
+        names = {line.split(":", 1)[1].strip().strip('"')
+                 for skill in (REPO / "agents" / "skills").rglob("SKILL.md")
+                 for line in skill.read_text().splitlines() if line.startswith("name:")}
+        self.assertNotIn("hermes-agent", names)
 
     def test_answers_choose_location_and_command_name(self):
         result = self.install(THESYSTEM_WORKSPACE=str(self.home / "acme-ws"), THESYSTEM_COMPANY="acme")
