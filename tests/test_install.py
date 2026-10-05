@@ -86,7 +86,10 @@ class InstallTests(unittest.TestCase):
     def test_main_agent_gets_the_whole_canonical_config_and_toolsets(self):
         log = self.fake_hermes()
         self.assertEqual(self.install().returncode, 0)
-        sets = self.config_sets(log)
+        config_file = self.home / ".hermes/config.yaml"
+        self.assertTrue(config_file.is_file())
+        cfg = harness.load(config_file.read_text())
+        sets = dict(harness.settings(cfg))
         lines = list(harness.settings(harness.load(
             (REPO / "agents/.harness/canonical_config.yaml").read_text())))
         self.assertEqual(len(lines), 46)

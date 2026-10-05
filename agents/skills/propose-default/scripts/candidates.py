@@ -109,7 +109,7 @@ def main() -> int:
     parser.add_argument("action", choices=("list", "apply"))
     parser.add_argument("--repo", type=Path)
     parser.add_argument("paths", nargs="*")
-    args = parser.parse_args()
+    args = parser.parse_intermixed_args()
     workspace = Path(args.workspace).expanduser().resolve()
     if args.action == "list":
         print(json.dumps({"status": "ok", "candidates": candidates(workspace)}, indent=2))
