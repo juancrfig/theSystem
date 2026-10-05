@@ -74,5 +74,6 @@ Run evidence is in `<task>/runs/<run-id>/`: `run.json`, `review.md`, `worker.dif
 
 ## Knowledge and memory
 
-- Project knowledge: the human puts sources in `<project>/wiki/raw/` and asks you to ingest them (`ingest` skill).
+- Project knowledge: the human puts sources in `<project>/wiki/raw/` and asks you to ingest specific files (`ingest`
+  skill). Propose the changes first; write the wiki only after the human approves them.
 - Memory reviews: use the `memory-request-review` skill with the human.
