@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -55,7 +56,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
         sys.path.remove(str(self.runtime))
         self.tmp.cleanup()
 
-    def _pending(self, subsystem, ident, payload, *, home=None):
+    def _pending(self, subsystem, ident, payload, *, home=None, created_at=10):
         target_home = home or self.home
         path = target_home / "pending" / subsystem
         path.mkdir(parents=True, exist_ok=True)
@@ -65,7 +66,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
             "action": payload.get("action", ""),
             "summary": "test request",
             "origin": "foreground",
-            "created_at": 10,
+            "created_at": created_at,
             "payload": payload,
         }
         (path / f"{ident}.json").write_text(json.dumps(record), encoding="utf-8")
@@ -95,7 +96,7 @@ class MemoryRequestReviewTests(unittest.TestCase):
     def test_headless_evaluator_uses_the_main_profile_without_tools(self):
         self._pending("memory", "one", {"action": "add", "target": "memory", "content": "keep this"})
         request = review.inventory_pending(self.home).requests[0]
-        criteria = review.load_catalog(SCRIPT.parents[1] / "criteria.json").criteria
+        criteria = review.load_catalog(SCRIPT.parents[1] / "criteria.json").criteria[:1]
         calls = []
 
         def fake_run(command, **kwargs):
@@ -111,6 +112,77 @@ class MemoryRequestReviewTests(unittest.TestCase):
         self.assertIn("END", panel, "concern reasons are wrapped, not cut")
         self.assertNotIn("-p", calls[0])
         self.assertEqual(calls[0][calls[0].index("-t") + 1], "none")
+
+    def _skill(self, name, text, *, mtime=None):
+        skill = self.home / "skills" / "category" / name
+        skill.mkdir(parents=True, exist_ok=True)
+        (skill / "SKILL.md").write_text(text, encoding="utf-8")
+        if mtime is not None:
+            os.utime(skill / "SKILL.md", (mtime, mtime))
+        return skill
+
+    def _skill_patch(self, old):
+        return {"action": "batch", "operations": [
+            {"action": "patch", "name": "alpha", "old_string": old, "new_string": "new text"}]}
+
+    def test_staleness_flags_old_text_missing_from_the_current_skill(self):
+        self._skill("alpha", "# Alpha\n\nKeep   this line.\n", mtime=5)
+        self._pending("skills", "present", self._skill_patch("Keep this\nline."))
+        self._pending("skills", "gone", self._skill_patch("A line someone rewrote."))
+        requests = {item.pending_id: item for item in review.inventory_pending(self.home).requests}
+        self.assertEqual(review.staleness(requests["present"]), ())
+        self.assertEqual(review.staleness(requests["gone"]), ("old-text-missing",))
+
+    def test_staleness_flags_a_target_edited_after_the_request(self):
+        self._skill("alpha", "Keep this line.\n", mtime=50)
+        self._pending("skills", "older", self._skill_patch("Keep this line."), created_at=20)
+        request = review.inventory_pending(self.home).requests[0]
+        self.assertEqual(review.staleness(request), ("target-changed",))
+
+    def test_staleness_reads_old_text_from_the_target_memory_file(self):
+        memories = self.home / "memories"
+        memories.mkdir()
+        (memories / "USER.md").write_text("User likes tea.\n", encoding="utf-8")
+        os.utime(memories / "USER.md", (5, 5))
+        self._pending("memory", "m", {"action": "replace", "target": "user", "old_text": "likes coffee",
+                                      "content": "User likes water."})
+        request = review.inventory_pending(self.home).requests[0]
+        self.assertEqual(review.staleness(request), ("old-text-missing",))
+
+    def test_staleness_accepts_old_text_written_by_an_earlier_operation_in_the_batch(self):
+        self._skill("alpha", "Base.\n", mtime=5)
+        self._pending("skills", "s", {"action": "batch", "operations": [
+            {"action": "patch", "name": "alpha", "old_string": "Base.", "new_string": "Base. Added."},
+            {"action": "patch", "name": "alpha", "old_string": "Added.", "new_string": "Changed."},
+        ]})
+        self.assertEqual(review.staleness(review.inventory_pending(self.home).requests[0]), ())
+
+    def test_panel_shows_staleness(self):
+        self._skill("alpha", "Current text.\n", mtime=5)
+        self._pending("skills", "s", self._skill_patch("Old text."))
+        request = review.inventory_pending(self.home).requests[0]
+        evaluation = review.Evaluation("NO CRITERIA", "", {})
+        panel = review.render_panel(request, evaluation, 1, 1, staleness=review.staleness(request))
+        self.assertIn("Old text no longer present", panel)
+
+    def test_sweep_auto_rejects_only_requests_whose_old_text_is_gone(self):
+        self._skill("alpha", "Current text.\n", mtime=50)
+        self._pending("skills", "gone", self._skill_patch("Old text."), created_at=20)
+        self._pending("skills", "changed", self._skill_patch("Current text."), created_at=20)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            exit_code = review.main(["sweep", "--home-root", str(self.home)])
+
+        self.assertEqual(exit_code, 0)
+        swept = json.loads(output.getvalue())["auto_rejected"]
+        self.assertEqual([row["id"] for row in swept], ["gone"])
+        self.assertTrue(swept[0]["success"])
+        self.assertEqual(swept[0]["target"], "skill:alpha")
+        self.assertFalse((self.home / "pending" / "skills" / "gone.json").exists())
+        self.assertTrue((self.home / "pending" / "skills" / "changed.json").exists(), "target-changed alone is kept")
+        self.assertEqual((self.home / "skills" / "category" / "alpha" / "SKILL.md").read_text(), "Current text.\n")
+        decision = review.load_review_state(self.home)["decisions"][0]
+        self.assertEqual((decision["decided_by"], decision["reason"]), ("auto", "old-text-missing"))
 
     def test_empty_catalog_never_calls_evaluator_and_panel_marks_no_criteria(self):
         self._pending("memory", "one", {"action": "add", "target": "memory", "content": "keep this"})

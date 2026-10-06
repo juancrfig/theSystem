@@ -465,6 +465,7 @@ def _questions(evaluation: Evaluation, catalog: Catalog) -> list[tuple[str, floa
 
 def render_panel(
     request: PendingRequest, evaluation: Evaluation, position: int, total: int, catalog: Catalog | None = None,
+    staleness: tuple[str, ...] = (),
 ) -> str:
     catalog = catalog or Catalog(1, ())
     inner = _WIDTH - 4
@@ -515,6 +516,10 @@ def render_panel(
         rows.append(rule("├", "┤"))
     note = _verdict_note(evaluation)
     question_blocks: list[str] = []
+    for flag in staleness:
+        question_blocks.extend(_hang("⚠ ", _STALENESS_TEXT.get(flag, flag), inner))
+    if staleness:
+        question_blocks.append("")
     questions = _questions(evaluation, catalog)
     for index, (question, probability) in enumerate(questions):
         if index > 0:
@@ -562,6 +567,81 @@ def render_panel(
     return "\n".join(rows)
 
 
+_STALENESS_TEXT = {
+    "old-text-missing": "Old text no longer present: the target no longer contains text this request replaces or deletes.",
+    "target-changed": "Target changed after this request: it was edited after the request was made; check it still applies.",
+}
+
+
+def _skill_roots(request: PendingRequest) -> list[Path]:
+    local = request.home / "skills"
+    if request.profile == "default":
+        try:  # Hermes's own precedence: trusted project skills (the workspace) first, then local, then external
+            from agent.skill_utils import get_skill_search_roots
+            return [Path(path) for _tier, path in get_skill_search_roots(local)]
+        except Exception:
+            pass
+    return [local]
+
+
+def _find_skill_dir(request: PendingRequest, name: str) -> Path | None:
+    for root in _skill_roots(request):
+        if root.is_dir():
+            for skill_md in sorted(root.rglob("SKILL.md")):
+                if skill_md.parent.name == name:
+                    return skill_md.parent
+    return None
+
+
+def _squash(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _latest_mtime(path: Path) -> float:
+    if path.is_file():
+        return path.stat().st_mtime
+    return max((item.stat().st_mtime for item in path.rglob("*") if item.is_file()), default=0.0)
+
+
+def staleness(request: PendingRequest) -> tuple[str, ...]:
+    """Local, read-only facts about whether a request still fits its target. Never sent to Jev.
+
+    old-text-missing: a replace/delete names text the current target (or an earlier operation
+    of the same batch) does not contain. target-changed: the target was edited after the
+    request was made. Whitespace is ignored because Hermes matches old text fuzzily.
+    """
+    created_at = float(request.record.get("created_at", 0) or 0)
+    targets: list[Path] = []
+    missing = False
+    written: dict[Path, str] = {}
+    for raw in _payload_operations(request.payload):
+        if not isinstance(raw, dict):
+            continue
+        if request.subsystem == "memory":
+            target = request.home / "memories" / ("USER.md" if raw.get("target", request.payload.get("target")) == "user" else "MEMORY.md")
+            path, base = target, target
+        else:
+            name = raw.get("name") or request.payload.get("name")
+            base = _find_skill_dir(request, str(name)) if name else None
+            if base is None:
+                continue
+            path = base / str(raw.get("file_path") or "SKILL.md")
+        if base not in targets:
+            targets.append(base)
+        old = str(raw.get("old_text", raw.get("old_string", "")) or "")
+        new = str(raw.get("content", raw.get("new_string", raw.get("file_content", ""))) or "")
+        if old:
+            current = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+            if _squash(old) not in _squash(current + "\n" + written.get(path, "")):
+                missing = True
+        if new:
+            written[path] = written.get(path, "") + "\n" + new
+    flags = ["old-text-missing"] if missing else []
+    if created_at and any(target.exists() and _latest_mtime(target) > created_at for target in targets):
+        flags.append("target-changed")
+    return tuple(flags)
+
+
 def _tree_digest(path: Path) -> str:
     digest = hashlib.sha256()
     if not path.exists():
@@ -580,7 +660,11 @@ def _destination_digest(request: PendingRequest) -> str:
     if request.subsystem == "memory":
         filename = "USER.md" if request.payload.get("target") == "user" else "MEMORY.md"
         return _tree_digest(request.home / "memories" / filename)
-    return _tree_digest(request.home / "skills")
+    digest = hashlib.sha256()
+    for root in _skill_roots(request):  # workspace skills live outside the profile's own skills dir
+        digest.update(str(root).encode("utf-8"))
+        digest.update(_tree_digest(root).encode("utf-8"))
+    return digest.hexdigest()
 
 
 def _apply_native_decision_at_home(
@@ -689,13 +773,42 @@ def ensure_review_runtime() -> None:
         os.execv(interpreter, [interpreter, str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
+def sweep(inventory: Inventory, home_root: Path) -> list[dict[str, Any]]:
+    """Reject, without the human, every request whose old text is gone from its target.
+
+    The human approved this one automatic rule: such a request cannot apply cleanly.
+    `target-changed` alone never triggers it, since approving one request flags the others.
+    """
+    swept: list[dict[str, Any]] = []
+    for request in inventory.requests:
+        if "old-text-missing" not in staleness(request):
+            continue
+        try:
+            result = apply_native_decision(request, "reject", request.record_sha256)
+        except ReviewError as exc:
+            result = {"success": False, "error": str(exc)}
+        state = load_review_state(home_root)
+        state.setdefault("decisions", []).append({
+            "at": time.time(), "profile": request.profile, "subsystem": request.subsystem,
+            "pending_id": request.pending_id, "record_sha256": request.record_sha256,
+            "payload_sha256": request.payload_sha256, "decision": "reject",
+            "success": bool(result.get("success")), "decided_by": "auto", "reason": "old-text-missing",
+        })
+        save_review_state(home_root, state)
+        swept.append({"profile": request.profile, "subsystem": request.subsystem, "id": request.pending_id,
+                      "target": target_label(request), "summary": str(request.record.get("summary", "")),
+                      "created_at": request.record.get("created_at"), "success": bool(result.get("success")),
+                      **({"error": result["error"]} if result.get("error") else {})})
+    return swept
+
+
 def _default_catalog_path() -> Path:
     return Path(__file__).resolve().parents[1] / "criteria.json"
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("inventory", "show", "decide", "native-apply"))
+    parser.add_argument("command", choices=("inventory", "show", "decide", "native-apply", "sweep"))
     parser.add_argument("--home-root", type=Path, default=Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")))
     parser.add_argument("--catalog", type=Path, default=_default_catalog_path())
     parser.add_argument("--position", type=int, default=1)
@@ -736,6 +849,9 @@ def main(argv: list[str] | None = None) -> int:
     if not inventory.requests:
         print("No pending requests in the authorized profiles.")
         return 0
+    if args.command == "sweep":
+        print(json.dumps({"auto_rejected": sweep(inventory, args.home_root)}, ensure_ascii=False, indent=2))
+        return 0
     if args.command == "show":
         if args.position < 1 or args.position > len(inventory.requests):
             raise ReviewError(f"position must be 1..{len(inventory.requests)}")
@@ -743,8 +859,9 @@ def main(argv: list[str] | None = None) -> int:
         catalog = load_catalog(args.catalog)
         state = load_review_state(args.home_root)
         evaluation = evaluate_one(request, catalog, args.model, state)
+        flags = staleness(request)
         save_review_state(args.home_root, state)
-        print(render_panel(request, evaluation, args.position, len(inventory.requests), catalog))
+        print(render_panel(request, evaluation, args.position, len(inventory.requests), catalog, flags))
         print(f"\nrecord_sha256: {request.record_sha256}")
         return 0
     if not args.human_decision or args.decision not in {"approve", "reject"}:

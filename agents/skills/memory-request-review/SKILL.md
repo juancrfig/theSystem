@@ -104,6 +104,25 @@ Use `--decision reject` to reject. Verify the response: `success: true`,
 If it fails or the hash changed, do not repair, recreate, or apply a variant;
 return to inventory and request a new review.
 
+## Staleness check
+
+`show` also checks, locally and read-only, whether the request still fits its target, and
+shows a warning above the scores:
+
+- **Old text no longer present**: a replace or delete names text the current skill or memory
+  file no longer contains. Hermes cannot apply it cleanly, or that part was already rewritten.
+- **Target changed after this request**: the target was edited after the request was made.
+  Any edit counts, so this means "check carefully", not "outdated".
+
+**Automatic rejection (human-approved rule):** run `sweep` at the start of every review
+session, before showing any request. It rejects every request with *Old text no longer
+present* and prints one line per rejection (target, summary, created_at); report that list to
+the human. *Target changed* alone never triggers it, because approving one request flags every
+other request for the same skill. Sweep decisions are logged with `decided_by: auto`.
+
+These are facts, not criteria: they are never sent to Jev. The check cannot tell whether a
+request is still true about the code; only the human or a reader of the code can.
+
 ## Criterion learning
 
 The questions sent to Jev live only in:

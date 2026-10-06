@@ -89,7 +89,9 @@ memory:
   write_approval: true
 
 skills:
-  write_approval: true
+  # Only memory is gated: it is loaded into every turn. Skills load only when invoked, keep a
+  # ledger with rollback, and the curator maintains agent-created ones.
+  write_approval: false
 
 prompt_caching:
   cache_ttl: "1h"

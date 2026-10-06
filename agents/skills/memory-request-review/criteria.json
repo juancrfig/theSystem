@@ -1,9 +1,9 @@
 {
-  "catalog_version": 2,
+  "catalog_version": 5,
   "criteria": [
     {
       "id": "rediscoverable",
-      "version": 1,
+      "version": 2,
       "question": "Does this proposal record something the agent could find out on its own, when needed, from sources it can already reach?",
       "context": {
         "subject": "A pending Hermes memory or skill write, given as its literal payload.",
@@ -12,6 +12,7 @@
           "workspace guide": "AGENTS.md (workspace layout, task workflow, statuses) and GLOSSARY.md (workspace terms).",
           "workspace decisions": "docs/.",
           "roles": "agents/ and <project>/agents/: roles.yaml, rules/, skills/.",
+          "agent skills": "Skills installed in the agent's Hermes profile (~/.hermes/skills/), loaded by name when relevant.",
           "project code": "<project>/<source-clone>/: code, configuration, git history, and the clone's own docs.",
           "project knowledge": "<project>/wiki/ and <project>/artifacts/.",
           "ticket work": "<project>/tickets/<ticket>/: spec.md, tasks/<task-id>/task.md, and run evidence in runs/<run-id>/ (reviews, diffs, transcripts).",
@@ -32,6 +33,36 @@
         "Yes: \"The backend uses PostgreSQL 15 and its config is in config/db.yaml.\"",
         "No: \"User prefers product-impact summaries without file paths.\"",
         "No: \"Do not use library X for PDF export: it fails on Arabic text, tried in the refunds ticket.\""
+      ]
+    },
+    {
+      "id": "wrong-home",
+      "version": 2,
+      "question": "Does this proposal put content into memory or a skill that belongs in a different kind of artifact?",
+      "context": {
+        "subject": "A pending Hermes memory or skill write, given as its literal payload.",
+        "purpose": "Each kind of knowledge has one owner. Skills hold reusable procedures and their pitfalls; memory holds compact facts that apply to every session. Content stored elsewhere duplicates or hides its real owner.",
+        "other_homes": {
+          "ADR or decision ledger": "A decision, its trade-offs, and rejected alternatives (docs/adr/, decisions ledger).",
+          "project or ticket": "Work status: what is pending, in progress, or next, and for which project (<project>/tickets/, task status).",
+          "rule": "A requirement backed by a real incident (agents/rules/).",
+          "feature map": "What the product does (FEATURES.md, human-owned).",
+          "project wiki": "Cross-cutting project knowledge (<project>/wiki/).",
+          "session history": "What was done, when, and in which session."
+        }
+      },
+      "definition": {
+        "yes": "The proposal mainly records decision history, a changelog, product scope, project knowledge, or work status, rather than a procedure the agent should follow or a durable fact about the human or environment.",
+        "no": "The proposal mainly adds an instruction, procedure, pitfall, preference, or durable fact that fits the target it is written to."
+      },
+      "exclusions": [
+        "A one-line reason attached to an instruction, so the agent knows why it applies, is not decision history.",
+        "Whether the content is rediscoverable or correct is outside this criterion.",
+        "A trailing status clause (\"design is pending\") inside an otherwise durable fact counts as yes for that part; say which part belongs elsewhere."
+      ],
+      "examples": [
+        "Yes: \"We chose TSV over YAML for the canonical config because a parallel YAML copy drifted; variations are deferred to Later.\"",
+        "No: \"Before applying the canonical config to the real host, diff each key and tell the user the changes that matter.\""
       ]
     }
   ]
