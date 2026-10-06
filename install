@@ -9,7 +9,47 @@
 # --release <tag> and --update are internal: the release's own installer runs with them.
 set -euo pipefail
 
-fail() { printf 'install: %s\n' "$1" >&2; exit 1; }
+# Progress: one line per step, with a spinner while it runs when the output is a terminal, so a slow step never
+# looks frozen. Without a terminal (tests, `update`) only the finished lines are printed.
+spin_pid="" spin_label="" release_dir="" warnings=()
+if [[ "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" =~ [Uu][Tt][Ff]-?8 ]]; then
+  frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) mark_ok="✓" mark_failed="✗"
+else
+  frames=('|' '/' '-' '\') mark_ok="+" mark_failed="x"
+fi
+
+step() {
+  end_step
+  spin_label=$1
+  [[ -t 1 ]] || return 0
+  printf '\e[?25l'
+  # Stops by itself if the installer dies without cleaning up.
+  ( while kill -0 $$ 2>/dev/null; do
+      for frame in "${frames[@]}"; do printf '\r  %s %s' "$frame" "$spin_label"; sleep 0.1; done
+    done ) &
+  spin_pid=$!
+}
+
+end_step() {
+  [[ -n "$spin_label" ]] || return 0
+  if [[ -n "$spin_pid" ]]; then
+    kill "$spin_pid" 2>/dev/null || true
+    wait "$spin_pid" 2>/dev/null || true
+    spin_pid=""
+    printf '\r\e[K\e[?25h'
+  fi
+  printf '  %s %s\n' "${1:-$mark_ok}" "$spin_label"
+  spin_label=""
+}
+
+cleanup() {
+  local status=$?
+  if (( status )); then end_step "$mark_failed"; else end_step; fi
+  [[ -z "$release_dir" ]] || rm -rf "$release_dir"
+}
+trap cleanup EXIT
+
+fail() { end_step "$mark_failed"; printf 'install: %s\n' "$1" >&2; exit 1; }
 for tool in python3 git; do
   command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"
 done
@@ -34,6 +74,8 @@ fi
 # Bootstrap (also what the piped one-liner runs): make sure the clone exists, then hand over to the latest
 # release's own installer, so a server never gets unreleased work from master.
 if (( ! dev )) && [[ -z "$release" ]]; then
+  printf 'theSystem installer\n'
+  step "Getting the latest theSystem release"
   if [[ -e "$clone" ]]; then
     git -C "$clone" rev-parse --git-dir >/dev/null 2>&1 || fail "$clone exists but is not a git clone of theSystem"
     git -C "$clone" fetch --quiet --tags --force origin || fail "could not fetch theSystem releases into $clone"
@@ -44,8 +86,9 @@ if (( ! dev )) && [[ -z "$release" ]]; then
   tag=$(git -C "$clone" tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
   [[ -n "$tag" ]] || fail "theSystem has no release yet; run install --dev from a clone to install its working tree"
   release_dir=$(mktemp -d)
-  trap 'rm -rf "$release_dir"' EXIT
   git -C "$clone" archive "$tag" | tar -x -C "$release_dir" || fail "could not read release $tag"
+  spin_label="Got theSystem $tag"
+  end_step
   status=0
   # stdin is the rest of this script when piped into bash; the release's installer must not swallow it. The
   # prompts read the terminal directly.
@@ -78,7 +121,14 @@ launcher="$bin_dir/$company"
 if [[ -e "$launcher" ]] && ! grep -q 'theSystem launcher' "$launcher"; then
   fail "$launcher already exists and is not a theSystem command"
 fi
+hermes=0
+command -v hermes >/dev/null 2>&1 && hermes=1
+harness="$source_root/agents/.harness"
+hermes_root="${HERMES_HOME:-$HOME/.hermes}"
+started=$SECONDS
+printf '\nInstalling theSystem %s\n' "$release"
 
+step "Setting up the workspace"
 # The installed code is replaced on every install; workspace files change only through `update` (F10).
 mkdir -p "$bin_dir" "$(dirname "$share_dir")"
 rm -rf "$share_dir"
@@ -100,62 +150,69 @@ if [[ ! -e "$workspace/.agents/skills" && ! -L "$workspace/.agents/skills" ]]; t
   ln -s ../agents/skills "$workspace/.agents/skills"
 fi
 
-# Trust the workspace so Hermes loads its skills (.agents/skills). Hermes ignores repo-local skills until trusted.
-if command -v hermes >/dev/null 2>&1; then
-  hermes skills trust "$workspace" >/dev/null 2>&1 || true
-  # The main agent works in terminal.cwd. Pointing it at the workspace makes every main-agent session (Telegram,
-  # cron and CLI, even `hermes chat --in <elsewhere>`) load the workspace skills and AGENTS.md.
-  hermes config set terminal.cwd "$workspace" >/dev/null 2>&1 || true
-fi
-
-# Hermes personalities: `main` is the build-mode communication rule, `casual` adds nothing (plain Hermes).
-# Switch with `/personality casual` in chat or `hermes config set display.personality casual`.
-# Skipped when Hermes isn't installed; rerun the installer after installing it.
-# Hermes reads the harness from the theSystem being installed, so every install brings its canonical version.
-harness="$source_root/agents/.harness"
-main_style="$harness/personalities/main.md"
-if command -v hermes >/dev/null 2>&1 && [[ -f "$main_style" ]]; then
-  hermes config set personalities.main "$(cat "$main_style")" >/dev/null || true
-  hermes config set personalities.casual "" >/dev/null || true
-  if [[ -z "$(hermes config get display.personality 2>/dev/null)" ]]; then
-    hermes config set display.personality main >/dev/null || true
-  fi
-fi
-
-# Main agent: canonical Hermes config and toolsets from the harness. Every install resets these keys, so the
-# harness files win over hand edits. Auxiliary models are not touched; the human configures them.
-if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/canonical_config.yaml" ]]; then
-  PYTHONPATH="$share_dir" python3 -m thesystem.harness apply "$harness/canonical_config.yaml" "${HERMES_HOME:-$HOME/.hermes}"
-fi
-if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/required_toolsets.txt" ]]; then
-  mapfile -t toolsets < <(grep -v '^\s*#' "$harness/required_toolsets.txt" | grep -v '^\s*$')
-  if (( ${#toolsets[@]} )); then
-    for platform in cli telegram; do
-      hermes tools enable --platform "$platform" "${toolsets[@]}" >/dev/null 2>&1 || true
-    done
-  fi
-fi
 # Worker and reviewer profiles (F4): created empty; their configuration comes later. They inherit the main
 # agent's credentials: the login store is shared (a link, so OAuth refreshes stay valid for every profile),
 # and API keys are copied on each install without messaging-channel credentials such as bot tokens.
-if command -v hermes >/dev/null 2>&1 && [[ -f "$harness/canonical_profiles.txt" ]]; then
-  hermes_root="${HERMES_HOME:-$HOME/.hermes}"
+# Profiles live in their own folders, apart from the main agent's config, so this runs alongside the main
+# agent's configuration below: every Hermes command takes a second or more to start.
+setup_profiles() {
   while read -r profile; do
     [[ -z "$profile" || "$profile" == \#* ]] && continue
-    hermes profile show "$profile" >/dev/null 2>&1 \
-      || hermes profile create "$profile" --no-alias --no-skills >/dev/null 2>&1 || true
     profile_dir="$hermes_root/profiles/$profile"
+    # Hermes keeps each profile in its folder, so an existing one costs no Hermes start.
+    [[ -d "$profile_dir" ]] || hermes profile create "$profile" --no-alias --no-skills >/dev/null 2>&1 || true
     [[ -d "$profile_dir" ]] || continue
     if [[ -f "$hermes_root/auth.json" && ! "$profile_dir/auth.json" -ef "$hermes_root/auth.json" ]]; then
       ln -sfn "$hermes_root/auth.json" "$profile_dir/auth.json"
     fi
     PYTHONPATH="$share_dir" python3 -m thesystem.harness keys "$hermes_root/.env" "$profile_dir/.env" || true
   done < "$harness/canonical_profiles.txt"
+}
+profiles_pid=""
+if (( hermes )) && [[ -f "$harness/canonical_profiles.txt" ]]; then
+  setup_profiles >/dev/null 2>&1 &
+  profiles_pid=$!
+fi
+
+if (( hermes )); then
+  step "Configuring Hermes"
+  # One pass over the main agent's config (each Hermes command takes a second or more just to start):
+  # - Trust the workspace so Hermes loads its skills (.agents/skills); Hermes ignores repo-local skills until trusted.
+  # - terminal.cwd: the main agent works there, so every main-agent session (Telegram, cron and CLI, even
+  #   `hermes chat --in <elsewhere>`) loads the workspace skills and AGENTS.md.
+  # - Personalities: `main` is the build-mode communication rule, `casual` adds nothing (plain Hermes). `main` is
+  #   selected only when none is. Switch with `/personality casual` in chat or
+  #   `hermes config set display.personality casual`.
+  # - The canonical config from the harness. Every install resets these keys, so the harness files win over hand
+  #   edits. Auxiliary models are not touched; the human configures them.
+  # Hermes reads the harness from the theSystem being installed, so every install brings its canonical version.
+  config=(--trust "$workspace" --set terminal.cwd "$workspace")
+  if [[ -f "$harness/personalities/main.md" ]]; then
+    config+=(--set personalities.main "$(cat "$harness/personalities/main.md")" --set personalities.casual ""
+             --default display.personality main)
+  fi
+  [[ -f "$harness/canonical_config.yaml" ]] && config+=(--canonical "$harness/canonical_config.yaml")
+  if ! problem=$(PYTHONPATH="$share_dir" python3 -m thesystem.harness apply "$hermes_root" "${config[@]}" 2>&1); then
+    warnings+=("${problem#install: }")
+  fi
+  if [[ -f "$harness/required_toolsets.txt" ]]; then
+    mapfile -t toolsets < <(grep -v '^\s*#' "$harness/required_toolsets.txt" | grep -v '^\s*$')
+    if (( ${#toolsets[@]} )); then
+      for platform in cli telegram; do
+        hermes tools enable --platform "$platform" "${toolsets[@]}" >/dev/null 2>&1 || true
+      done
+    fi
+  fi
+fi
+if [[ -n "$profiles_pid" ]]; then
+  step "Preparing the worker and reviewer profiles"
+  wait "$profiles_pid" || fail "could not prepare the worker and reviewer profiles"
 fi
 
 # Artifact library (F9): an always-on user service serving the workspace's HTML artifacts on localhost.
 # Skipped without a systemd user session. Linger keeps it running after reboots without a login.
 if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+  step "Starting the artifact library"
   unit_dir="$HOME/.config/systemd/user"
   mkdir -p "$unit_dir"
   cat > "$unit_dir/thesystem-artifacts.service" <<EOF
@@ -177,14 +234,18 @@ EOF
   loginctl enable-linger "${USER:-$(id -un)}" >/dev/null 2>&1 || true
 fi
 
+step "Adding the $company command"
 cat > "$launcher" <<EOF
 #!/bin/sh
 # theSystem launcher for the $company workspace
 THESYSTEM_WORKSPACE='$workspace' THESYSTEM_COMMAND='$company' THESYSTEM_CLONE='$clone' PYTHONPATH='$share_dir' exec python3 -m thesystem.cli "\$@"
 EOF
 chmod +x "$launcher"
+end_step
 
-printf '\nDone. Workspace: %s\nCommand: %s\n' "$workspace" "$company"
+for warning in "${warnings[@]}"; do printf 'install: %s\n' "$warning" >&2; done
+(( hermes )) || printf '  - Hermes not found: its setup was skipped; run the installer again after installing it.\n'
+printf '\nDone in %ss. Workspace: %s\nCommand: %s\n' "$(( SECONDS - started ))" "$workspace" "$company"
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
   *) printf 'Add %s to your PATH to use it.\n' "$bin_dir" ;;

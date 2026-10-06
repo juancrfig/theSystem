@@ -234,9 +234,13 @@ class UpdateTests(ReleaseCase):
         self.commit({"agents/.harness/personalities/main.md": "# Communication style v2\n",
                      "thesystem/__init__.py": "RELEASE = 'v0.2.0'\n"}, "v0.2.0")
         self.update()
+        # PyYAML writes the config in one pass; without it, each setting goes through `hermes config set`.
+        config = self.home / ".hermes/config.yaml"
+        written = config.read_text() if config.exists() else ""
         sets = [json.loads(line) for line in log.read_text().splitlines()]
         styles = [call[3] for call in sets if call[:3] == ["config", "set", "personalities.main"]]
-        self.assertEqual(styles[-1], "# Communication style v2")
+        self.assertTrue("main: '# Communication style v2'" in written or styles[-1:] == ["# Communication style v2"],
+                        written)
         installed = self.home / ".local/share/thesystem/thesystem/__init__.py"
         self.assertEqual(installed.read_text(), "RELEASE = 'v0.2.0'\n")
 
