@@ -101,6 +101,7 @@ Outcome: the human talks only to the main agent. The main agent:
   - shows `pre-done` tasks; the human says merge or don't merge
   - goes through `failed` and `changes-requested` tasks with the human
   - runs memory reviews with the human, using the `memory-request-review` skill
+  - Memory changes need the human's approval. Skill changes apply directly, and the Curator maintains the skills the agent creates.
 Reach: the main agent uses `umbrella` commands; the human never runs them.
 After a rejection, failure or "don't merge":
   1. The main agent and the human work out why it happened.

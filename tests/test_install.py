@@ -123,6 +123,17 @@ class InstallTests(unittest.TestCase):
         self.assertIn("computer_use", enables[0])
 
     @unittest.skipUnless(INSTALLER_HAS_YAML, "needs PyYAML to read the config")
+    def test_only_memory_changes_need_the_humans_approval(self):
+        # F5: memory loads into every turn, so the human approves it; skills apply directly and the curator
+        # maintains the agent-created ones.
+        self.fake_hermes()
+        self.assertEqual(self.install().returncode, 0)
+        sets = dict(harness.leaves(self.hermes_config()))
+        self.assertIs(sets["memory.write_approval"], True)
+        self.assertIs(sets["skills.write_approval"], False)
+        self.assertIs(sets["curator.enabled"], True)
+
+    @unittest.skipUnless(INSTALLER_HAS_YAML, "needs PyYAML to read the config")
     def test_existing_hermes_config_is_kept_and_stays_valid(self):
         # Real configs hold lists of mappings, multi-line text and comments; reinstalling must not break them.
         self.fake_hermes()
