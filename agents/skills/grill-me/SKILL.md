@@ -23,7 +23,7 @@ Format a round like so:
 
 Each round the user answers reshapes the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.
 
-Finding _facts_ is your job, never the user's. When a frontier question needs a fact from the environment, inspect it before asking. Do not block unrelated questions on that discovery. The _decisions_ are the user's: put each to them and wait.
+Finding _facts_ is your job, never the user's. When a frontier question needs a fact from the environment (code, files, tools, the web), delegate the lookup to a sub-agent instead of exploring yourself, and never ask the user for something a sub-agent could find. Give it the exact question and ask for a short answer with evidence (file paths, line numbers, links). Don't block on it: a running lookup is an unsettled prerequisite, so only the questions that depend on it wait; ask the rest of the frontier now. The _decisions_ are the user's: put each to them and wait.
 
 The session is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. Do not act on it until the user confirms you have reached a shared understanding.
 
