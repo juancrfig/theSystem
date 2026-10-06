@@ -1,4 +1,5 @@
 """F1 · Install theSystem."""
+import io
 import json
 import os
 import pty
@@ -72,7 +73,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((workspace / "AGENTS.md").read_text(), "mine\n")
         self.assertTrue((workspace / "GLOSSARY.md").is_file())
 
-    def fake_hermes(self, personality="", profiles=(), delay=0.0, main_model=None):
+    def fake_hermes(self, personality="", profiles=(), delay=0.0, main_model=None, config_root=None, failure=()):
         """A `hermes` stub on PATH that logs every call, answers `config get`, and keeps profiles in folders as
         Hermes does: *profiles* exist already, `profile create` adds one. *main_model* answers the main agent's
         `config get model.<key>`; a profile's `config get` prints nothing."""
@@ -87,6 +88,15 @@ class InstallTests(unittest.TestCase):
                         f"time.sleep({delay})\n"
                         f"open({str(log)!r}, 'a').write(json.dumps(a) + '\\n')\n"
                         f"m = {dict(main_model or {})!r}\n"
+                        f"if a[:len({failure!r})] == list({failure!r}) and {bool(failure)!r}:\n"
+                        " print('Hermes setup refused', file=sys.stderr)\n sys.exit(1)\n"
+                        f"if a == ['config', 'path']: print({str((config_root or self.home / '.hermes') / 'config.yaml')!r})\n"
+                        "if a[:2] == ['config', 'get'] and a[2] in ('terminal.cwd', 'skills.trusted_project_dirs'):\n"
+                        " import yaml\n"
+                        f" p = {str((config_root or self.home / '.hermes') / 'config.yaml')!r}\n"
+                        " value = yaml.safe_load(open(p)) if os.path.exists(p) else {}\n"
+                        " for key in a[2].split('.'): value = value.get(key, {})\n"
+                        " print(yaml.safe_dump(value).strip())\n"
                         f"if a[:3] == ['config', 'get', 'display.personality']: print({personality!r})\n"
                         f"elif a[:2] == ['config', 'get'] and a[2].startswith('model.'): print(m.get(a[2][6:], ''))\n"
                         f"if a[:2] == ['profile', 'create']: os.makedirs(os.path.join({str(profiles_dir)!r}, a[2]))\n")
@@ -100,10 +110,10 @@ class InstallTests(unittest.TestCase):
     def config_sets(self, log):
         return {c[2]: c[3] for c in self.calls(log) if c[:2] == ["config", "set"]}
 
-    def hermes_config(self):
+    def hermes_config(self, root=None):
         """The main agent's config, read with the installer's python3 (the one that wrote it)."""
         read = subprocess.run(["python3", "-c", "import json, sys, yaml; print(json.dumps(yaml.safe_load(open(sys.argv[1]))))",
-                               str(self.home / ".hermes/config.yaml")], env={"PATH": INSTALLER_PATH},
+                               str((root or self.home / ".hermes") / "config.yaml")], env={"PATH": INSTALLER_PATH},
                               capture_output=True, text=True, check=True)
         return json.loads(read.stdout)
 
@@ -164,7 +174,9 @@ class InstallTests(unittest.TestCase):
         root.mkdir()
         (root / "config.yaml").write_text("model: [unclosed\n")
         result = self.install()
-        self.assertEqual(result.returncode, 0, result.stderr)
+        if INSTALLER_HAS_YAML:
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn("Done in ", result.stdout)
         self.assertEqual((root / "config.yaml").read_text(), "model: [unclosed\n")
         if INSTALLER_HAS_YAML:
             self.assertIn("left unchanged", result.stderr)
@@ -180,6 +192,45 @@ class InstallTests(unittest.TestCase):
                          {"approvals.mode": "off", "goals.max_turns": "90", "personalities.casual": ""})
         self.assertIn(["config", "get", "display.personality"], self.calls(log))
         self.assertIn(["skills", "trust", str(self.home)], self.calls(log))
+
+    def test_required_toolset_failure_stops_installation(self):
+        self.fake_hermes(failure=("tools", "enable"))
+        result = self.install()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Hermes setup refused", result.stderr)
+        self.assertNotIn("Done in ", result.stdout)
+
+    def test_workspace_verification_rejects_an_unchanged_working_directory(self):
+        with mock.patch.object(harness.subprocess, "run", return_value=subprocess.CompletedProcess(
+                ["hermes"], 0, "/old-workspace\n", "")), mock.patch("sys.stderr", new_callable=io.StringIO) as errors:
+            self.assertEqual(harness.main(["verify", str(self.home)]), 1)
+        self.assertIn("working directory was not set", errors.getvalue())
+
+    @unittest.skipUnless(INSTALLER_HAS_YAML, "needs PyYAML to read the config")
+    def test_main_agent_configures_the_active_profile_not_the_default(self):
+        profile = self.home / ".hermes/profiles/master"
+        profile.mkdir(parents=True)
+        config = profile / "config.yaml"
+        config.write_text("terminal:\n  cwd: /old-workspace\n")
+        self.fake_hermes(config_root=profile)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        cfg = self.hermes_config(profile)
+        self.assertEqual(cfg["terminal"]["cwd"], str(self.home / "workspace"))
+        self.assertIn(str(self.home / "workspace"), cfg["skills"]["trusted_project_dirs"])
+        self.assertFalse((profile / "profiles").exists(), "profiles must not be nested inside the main profile")
+
+    def test_without_pyyaml_failed_hermes_commands_are_reported(self):
+        for command in ("trust", "set", "get"):
+            with self.subTest(command=command):
+                def run(args, **kwargs):
+                    failed = args[1:] == ["skills", "trust", str(self.home)] if command == "trust" else args[2] == command
+                    return subprocess.CompletedProcess(args, 1 if failed else 0, "", "configuration refused" if failed else "")
+                with mock.patch.object(harness, "_yaml", return_value=None), \
+                        mock.patch.object(harness.subprocess, "run", side_effect=run):
+                    with self.assertRaisesRegex(harness.ApplyError, "configuration refused"):
+                        harness.apply(self.home / ".hermes", [("terminal.cwd", str(self.home))],
+                                      [("display.personality", "main")], [self.home])
 
     @unittest.skipUnless(INSTALLER_HAS_YAML, "needs PyYAML to read the config")
     def test_workspace_is_trusted_so_hermes_loads_its_skills(self):

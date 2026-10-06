@@ -228,7 +228,14 @@ class UpdateTests(ReleaseCase):
         bin_dir.mkdir()
         log = self.home / "hermes.log"
         (bin_dir / "hermes").write_text("#!/usr/bin/env python3\nimport json, sys\n"
-                                        f"open({str(log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n")
+                                        f"open({str(log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                                        f"p = {str(self.home / '.hermes/config.yaml')!r}\n"
+                                        "a = sys.argv[1:]\n"
+                                        "if a == ['config', 'path']: print(p)\n"
+                                        "if a[:2] == ['config', 'get'] and a[2] in ('terminal.cwd', 'skills.trusted_project_dirs'):\n"
+                                        " import yaml\n value = yaml.safe_load(open(p))\n"
+                                        " for key in a[2].split('.'): value = value[key]\n"
+                                        " print(yaml.safe_dump(value).strip())\n")
         (bin_dir / "hermes").chmod(0o755)
         self.env["PATH"] = f"{bin_dir}:{self.env['PATH']}"
         self.commit({"agents/.harness/personalities/main.md": "# Communication style v2\n",

@@ -9,6 +9,8 @@
       Prints one `<dot.key>\t<value>` line per setting, ready for `hermes config set`.
   python3 -m thesystem.harness keys <main .env> <profile .env>
       Writes the main agent's keys to a profile, without messaging-channel credentials.
+  python3 -m thesystem.harness verify <workspace>
+      Checks the effective Hermes profile's working directory and workspace trust.
 """
 from __future__ import annotations
 
@@ -192,17 +194,39 @@ def apply(hermes_root: Path, changes, defaults=(), trust=(), yaml_module=None) -
     os.replace(temporary, config_path)  # a reader never sees a half-written config
 
 
-def _apply_with_cli(changes, defaults, trust) -> None:
-    def hermes(*args):
-        return subprocess.run(["hermes", *args], capture_output=True, text=True)
+def _hermes(*args):
+    try:
+        result = subprocess.run(["hermes", *args], capture_output=True, text=True)
+    except OSError as error:
+        raise ApplyError(f"could not run Hermes: {error}") from None
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
+        raise ApplyError(f"hermes {' '.join(args[:3])} failed: {detail}")
+    return result
 
+
+def _apply_with_cli(changes, defaults, trust) -> None:
     for folder in trust:
-        hermes("skills", "trust", str(folder))
+        _hermes("skills", "trust", str(folder))
     for key, value in changes:
-        hermes("config", "set", key, value if isinstance(value, str) else json.dumps(value))
+        _hermes("config", "set", key, value if isinstance(value, str) else json.dumps(value))
     for key, value in defaults:
-        if not hermes("config", "get", key).stdout.strip():
-            hermes("config", "set", key, value)
+        if not _hermes("config", "get", key).stdout.strip():
+            _hermes("config", "set", key, value)
+
+
+def verify_workspace(workspace: Path) -> None:
+    """Read the effective profile back through Hermes, not just the file we wrote (F1)."""
+    expected = str(workspace.expanduser().resolve())
+    cwd = _hermes("config", "get", "terminal.cwd").stdout.strip().splitlines()
+    if not cwd or _scalar(cwd[0]) != expected:
+        raise ApplyError(f"Hermes working directory was not set to {expected}")
+    text = _hermes("config", "get", "skills.trusted_project_dirs").stdout.strip()
+    trusted = _scalar(text)
+    if not isinstance(trusted, list):
+        trusted = [_scalar(line.strip()[2:]) for line in text.splitlines() if line.strip().startswith("- ")]
+    if expected not in trusted:
+        raise ApplyError(f"Hermes does not trust workspace skills in {expected}")
 
 
 def provider_keys(env_text: str) -> str:
@@ -217,6 +241,13 @@ def provider_keys(env_text: str) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["verify"] and len(argv) == 2:
+        try:
+            verify_workspace(Path(argv[1]))
+        except ApplyError as error:
+            print(f"install: Hermes verification failed: {error}", file=sys.stderr)
+            return 1
+        return 0
     if argv[:1] == ["apply"]:
         parser = argparse.ArgumentParser(prog="python3 -m thesystem.harness apply")
         parser.add_argument("hermes_root", type=Path)

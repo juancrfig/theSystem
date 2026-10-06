@@ -11,7 +11,7 @@ set -euo pipefail
 
 # Progress: one line per step, with a spinner while it runs when the output is a terminal, so a slow step never
 # looks frozen. Without a terminal (tests, `update`) only the finished lines are printed.
-spin_pid="" spin_label="" release_dir="" warnings=()
+spin_pid="" spin_label="" release_dir=""
 if [[ "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" =~ [Uu][Tt][Ff]-?8 ]]; then
   frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) mark_ok="✓" mark_failed="✗"
 else
@@ -150,6 +150,21 @@ if [[ ! -e "$workspace/.agents/skills" && ! -L "$workspace/.agents/skills" ]]; t
   ln -s ../agents/skills "$workspace/.agents/skills"
 fi
 
+# Hermes may select a named profile even when HERMES_HOME is unset. Ask Hermes rather than writing the
+# default profile while its CLI commands configure a different one.
+profiles_root="$hermes_root"
+if (( hermes )); then
+  if ! config_path=$(hermes config path </dev/null); then
+    fail "could not resolve the main Hermes profile"
+  fi
+  [[ "$config_path" == /*/config.yaml ]] || fail "Hermes returned an invalid config path: $config_path"
+  hermes_root=$(dirname "$config_path")
+  profiles_root="$hermes_root"
+  if [[ "$(basename "$(dirname "$hermes_root")")" == profiles ]]; then
+    profiles_root=$(dirname "$(dirname "$hermes_root")")
+  fi
+fi
+
 # Worker and reviewer profiles (F4): created empty; their configuration comes later. They inherit the main
 # agent's credentials: the login store is shared (a link, so OAuth refreshes stay valid for every profile),
 # and API keys are copied on each install without messaging-channel credentials such as bot tokens.
@@ -180,7 +195,7 @@ copy_main_model() {
 setup_profiles() {
   while read -r profile; do
     [[ -z "$profile" || "$profile" == \#* ]] && continue
-    profile_dir="$hermes_root/profiles/$profile"
+    profile_dir="$profiles_root/profiles/$profile"
     # Hermes keeps each profile in its folder, so an existing one costs no Hermes start.
     [[ -d "$profile_dir" ]] || hermes profile create "$profile" --no-alias --no-skills >/dev/null 2>&1 || true
     [[ -d "$profile_dir" ]] || continue
@@ -216,15 +231,20 @@ if (( hermes )); then
   fi
   [[ -f "$harness/canonical_config.yaml" ]] && config+=(--canonical "$harness/canonical_config.yaml")
   if ! problem=$(PYTHONPATH="$share_dir" python3 -m thesystem.harness apply "$hermes_root" "${config[@]}" 2>&1); then
-    warnings+=("${problem#install: }")
+    fail "${problem#install: }"
   fi
   if [[ -f "$harness/required_toolsets.txt" ]]; then
     mapfile -t toolsets < <(grep -v '^\s*#' "$harness/required_toolsets.txt" | grep -v '^\s*$')
     if (( ${#toolsets[@]} )); then
       for platform in cli telegram; do
-        hermes tools enable --platform "$platform" "${toolsets[@]}" >/dev/null 2>&1 || true
+        if ! problem=$(hermes tools enable --platform "$platform" "${toolsets[@]}" </dev/null 2>&1); then
+          fail "could not enable required Hermes toolsets for $platform: $problem"
+        fi
       done
     fi
+  fi
+  if ! problem=$(PYTHONPATH="$share_dir" python3 -m thesystem.harness verify "$workspace" 2>&1); then
+    fail "${problem#install: }"
   fi
 fi
 if [[ -n "$profiles_pid" ]]; then
@@ -266,7 +286,6 @@ EOF
 chmod +x "$launcher"
 end_step
 
-for warning in "${warnings[@]}"; do printf 'install: %s\n' "$warning" >&2; done
 (( hermes )) || printf '  - Hermes not found: its setup was skipped; run the installer again after installing it.\n'
 printf '\nDone in %ss. Workspace: %s\nCommand: %s\n' "$(( SECONDS - started ))" "$workspace" "$company"
 case ":$PATH:" in
