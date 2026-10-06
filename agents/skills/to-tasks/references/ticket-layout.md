@@ -1,6 +1,6 @@
 # Workspace ticket layout
 
-For company/product projects in a theSystem workspace, work records live under `<project>/tickets/`, keyed by ticket. Development of theSystem itself uses GitHub Issues, as defined in the theSystem repository's `AGENTS.md`.
+Work records live under `<project>/tickets/`, one folder per ticket.
 
 ```text
 <project>/tickets/<ticket>/

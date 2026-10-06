@@ -1,125 +1,95 @@
 ---
 name: to-tasks
-description: Break a plan, spec, or the current conversation into a set of tracer-bullet tickets, each declaring its blocking edges, published to the configured tracker (edges as text in one file per ticket locally, or native blocking links on a real tracker).
+description: Split a ticket's spec, or the current conversation, into tracer-bullet tasks with roles and blockers, then start them.
 disable-model-invocation: true
 ---
 
+Sources: [mattpocock/skills](https://github.com/mattpocock/skills) v1.3.1 `to-tickets` (MIT), adapted to theSystem.
+
 # To Tasks
 
-Break a plan, spec, or conversation into a set of **tickets**: tracer-bullet vertical slices, each declaring the tickets that **block** it.
+Split a ticket into **tasks**: tracer-bullet vertical slices that the orchestrator runs unattended. Each task names the tasks that **block** it and the roles its worker gets.
 
-For development of theSystem itself, publish approved planning/ticket records to the GitHub tracker named in the theSystem repository's `AGENTS.md`; do not create local or scratch ticket artifacts. For company/product projects in a theSystem workspace, write workspace tasks (below) unless the project documents another tracker; do not publish to an external tracker without explicit authorization.
+Tasks live in the ticket's folder. Read [Workspace ticket layout](references/ticket-layout.md) before creating or changing anything there.
 
 ## Process
 
 ### 1. Gather context
 
-Work from whatever is already in the conversation context. If the user passes a reference (a spec path, an issue number or URL) as an argument, fetch it and read its full body and comments.
+Work from the conversation and the ticket's `spec.md`. If the human names a ticket or spec, read it in full.
 
-When working with workspace ticket files, read [Workspace ticket layout](references/ticket-layout.md) before creating or changing them. This reference describes the durable record layout; it does not change the tracker or destination policy.
+If you still need to know the current code, have a sub-agent explore it when you can delegate; otherwise explore it yourself. Use the project's glossary vocabulary and respect ADRs in the area.
 
-### 2. Explore the codebase (optional)
+Look for prefactoring that makes the work easier: "make the change easy, then make the easy change".
 
-If you have not already explored the codebase, do so to understand the current state of the code. Ticket titles and descriptions should use the project's domain glossary vocabulary, and respect ADRs in the area you're touching.
-
-Look for opportunities to prefactor the code to make the implementation easier. "Make the change easy, then make the easy change."
-
-### 3. Draft vertical slices
-
-Break the work into **tracer bullet** tickets.
+### 2. Draft vertical slices
 
 <vertical-slice-rules>
 
 - Each slice cuts a narrow but COMPLETE path through every layer (schema, API, UI, tests): vertical, NOT a horizontal slice of one layer
 - A completed slice is demoable or verifiable on its own
 - Each slice is sized to fit in a single fresh context window
-- Any prefactoring should be done first
+- Any prefactoring comes first
 
 </vertical-slice-rules>
 
-Give each ticket its **blocking edges**: the other tickets that must complete before it can start. A ticket with no blockers can start immediately.
+Give each task its **blockers**: the tasks that must be done before it can start. A task with no blockers starts at once.
 
-**Wide refactors are the exception to vertical slicing.** A **wide refactor** is one mechanical change (rename a column, retype a shared symbol) whose **blast radius** fans across the whole codebase, so a single edit breaks thousands of call sites at once and no vertical slice can land green. Don't force it into a tracer bullet; sequence it as **expand–contract**. First expand: add the new form beside the old so nothing breaks. Then migrate the call sites over in batches sized by blast radius (per package, per directory), each batch its own ticket blocked by the expand, keeping CI green batch to batch because the old form still exists. Finally contract: delete the old form once no caller remains, in a ticket blocked by every migrate batch. When even the batches can't stay green alone, keep the sequence but let them share an integration branch that all block a final integrate-and-verify ticket; green is promised only there.
+**Wide refactors are the exception to vertical slicing.** A **wide refactor** is one mechanical change (rename a column, retype a shared symbol) whose **blast radius** fans across the whole codebase, so a single edit breaks thousands of call sites at once and no vertical slice can land green. Sequence it as **expand–contract**. First expand: add the new form beside the old so nothing breaks. Then migrate the call sites in batches sized by blast radius (per package, per directory), each batch its own task blocked by the expand, keeping CI green because the old form still exists. Finally contract: delete the old form in a task blocked by every migrate batch. When even the batches can't stay green alone, let them share an integration branch that all block a final integrate-and-verify task; green is promised only there.
 
-### 4. Quiz the user
+Propose each task's **roles** from the global `agents/roles.yaml` and the project's `agents/roles.yaml` (a project role replaces a global role with the same name). Every agent also gets `base` automatically, so never list it. Use `worker` when no other role fits.
 
-Present the proposed breakdown as a numbered list. For each ticket, show:
+### 3. Confirm the split with the human
 
-- **Title**: short descriptive name
-- **Blocked by**: which other tickets (if any) must complete first
-- **What it delivers**: the end-to-end behaviour this ticket makes work
+Show the split as a numbered list. For each task:
 
-Ask the user:
+- **Title**
+- **Delivers**: the end-to-end behaviour it makes work
+- **Blocked by**: the tasks that gate it, or none
+- **Roles**: the proposed roles
 
-- Does the granularity feel right? (too coarse / too fine)
-- Are the blocking edges correct: does each ticket only depend on tickets that genuinely gate it?
-- Should any tickets be merged or split further?
+Ask whether the granularity is right, whether each blocker genuinely gates its task, whether any task should be merged or split, and whether the roles fit. Iterate until the human confirms. That confirmation is the only approval: every task you write is approved and will run.
 
-Iterate until the user approves the breakdown.
+### 4. Write the tasks and start them
 
-### 5. Create the approved tickets
+Write one `<project>/tickets/<ticket>/tasks/<task-id>/task.md` per task. The task id (its folder name) is unique in the workspace. Then run the workspace command's `run` (its name is in the workspace `AGENTS.md`).
 
-Create the approved tickets in the user-authorized location. The tickets are the same either way; only the representation of blocking edges changes:
+## Task file
 
-- **A company project in a theSystem workspace** → write one `task.md` per ticket as described in [Workspace task anatomy](#workspace-task-anatomy), then start them with the workspace command's `run`.
-- **Local files** (anywhere else) → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's "Blocked by" lists the numbers/titles it depends on. Use the per-ticket file template below: one ticket per file, never a single combined file.
-- **A real issue tracker** → only when explicitly named by the user, publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking / sub-issue relationship where it has one; otherwise set each ticket's "Blocked by" to the blocking issues. Apply labels only when the user or project documentation specifies them.
-
-Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom.
-
-Do NOT close or modify any parent issue.
-
-## Workspace task anatomy
-
-For a workspace using the ticket tree in [Workspace ticket layout](references/ticket-layout.md), each task lives in `<project>/tickets/<ticket>/tasks/<task-id>/task.md`. This is a task file, not the parent `ticket.md` or a scratch-ticket draft.
-
-The user approving the breakdown in step 4 is the only approval: every task you write is approved and will run. The task id (its folder name) must be unique in the workspace. The orchestrator reads this YAML front matter; names are examples:
+The orchestrator reads the front matter; names are examples:
 
 ```yaml
 ---
 status: ready              # `blocked` when it has blockers; the orchestrator keeps it up to date
 source_clone: backend      # folder of the git clone inside the project
-roles: [worker]            # the worker's roles, from agents/roles.yaml or <project>/agents/roles.yaml
+roles: [worker]            # the roles the human confirmed
 blockers:
   - task: create-refund-model                       # waits until that task is done
   - external: "Waiting for a coworker to do something" # waits until this line is removed
 ---
 ```
 
-The front matter is followed by the task description and acceptance criteria; the worker and the reviewer receive exactly this text. After writing all the tasks, run the workspace command's `run` (the command name is in the workspace `AGENTS.md`) to start them.
+The worker and the reviewer receive only the body below the front matter: not the spec, not this conversation. Every task is **self-contained**: copy in everything the human agreed that bears on it.
 
-<local-ticket-template>
+<task-template>
 
-# <NN>: <Ticket title>
+# <Task title>
 
-**What to build:** the end-to-end behaviour this ticket makes work, from the user's perspective, not a layer-by-layer implementation list.
+**What to build:** the end-to-end behaviour this task makes work, from the user's perspective.
 
-**Blocked by:** the numbers/titles of the tickets that gate this one, or "None (can start immediately)".
-
-- [ ] Acceptance criterion 1
-- [ ] Acceptance criterion 2
-
-</local-ticket-template>
-
-<issue-template>
-
-## Parent
-
-A reference to the parent issue on the tracker (if the source was an existing issue, otherwise omit this section).
-
-## What to build
-
-The end-to-end behaviour this ticket makes work, from the user's perspective, not layer-by-layer implementation.
-
-## Acceptance criteria
+**Acceptance criteria:**
 
 - [ ] Criterion 1
 - [ ] Criterion 2
 
-## Blocked by
+**Test seams:** where the tests go, as agreed in the spec.
 
-- A reference to each blocking ticket, or "None (can start immediately)".
+**Checks:** the exact commands to run before handing off (tests, lint, type check).
 
-</issue-template>
+**Decisions and limits:** the spec decisions that bind this task, and what is out of scope for it.
 
-In either form, avoid specific file paths or code snippets: they go stale fast. Exception: if a prototype produced a snippet that encodes a decision more precisely than prose can (state machine, reducer, schema, type shape), inline it and note briefly that it came from a prototype. Trim to the decision-rich parts, not a working demo, just the important bits.
+**Start from:** the files or modules the work begins in.
+
+</task-template>
+
+Leave out a section only when it has nothing to say for this task. If a prototype produced a snippet that encodes a decision more precisely than prose (state machine, schema, type shape), inline the decision-rich part and say it came from a prototype.

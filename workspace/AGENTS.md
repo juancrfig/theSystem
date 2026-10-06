@@ -23,7 +23,7 @@ Create `tickets/`, `agents/` and `wiki/` only when they are first needed.
 ## Roles
 
 Global roles are in `agents/roles.yaml`; project roles in `<project>/agents/roles.yaml`. A project role replaces a
-global role with the same name. Edit these files directly. Paths in a role are relative to the `agents/` folder that
+global role with the same name. Every worker and reviewer also gets the `base` role, before the task's roles. Edit these files directly. Paths in a role are relative to the `agents/` folder that
 declares it:
 
 ```yaml
@@ -60,7 +60,7 @@ blockers:
 
 Status: `blocked`, `ready`, `running`, `changes-requested` (reviewer said no), `failed` (theSystem broke),
 `pre-done` (reviewer approved; waiting for the human), `done` (merged). Task ids (folder names) are unique in the
-workspace. The reviewer always uses the `reviewer` role (override it in `<project>/agents/roles.yaml`) plus the
+workspace. The reviewer always uses the `base` and `reviewer` roles (override them in `<project>/agents/roles.yaml`) plus the
 worker's rules.
 
 ## Reviewing results with the human

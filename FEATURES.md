@@ -66,6 +66,7 @@ Meaning: a role is a named selection of rules, skills and tools (see GLOSSARY.md
 Rules:
   - Global roles live in `agents/roles.yaml`. Project roles live in `<project>/agents/roles.yaml`.
   - A project role overrides a global role with the same name.
+  - Every agent also gets the `base` role, before the task's roles.
   - No commands. The main agent edits the roles files directly.
   - `to-tasks` picks each task's roles and lists them in the task's front matter.
   - `tools` lists Hermes toolsets (`terminal`, `file`, `web`, `browser`, ...). The agent gets only those, enforced by Hermes. A role without `tools` gets no tools. CLIs are not declared: whatever is installed can run. MCP servers are not part of roles yet.

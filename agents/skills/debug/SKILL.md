@@ -1,13 +1,21 @@
 ---
-name: diagnosing-bugs
-description: Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"debug this", or reports something broken/throwing/failing/slow.
+name: debug
+description: Root-cause debugging loop for bugs, failing tests and performance regressions. Use when the user says "diagnose" or "debug this", or reports something broken, throwing, failing or slow.
 ---
 
-# Diagnosing Bugs
+Sources: [mattpocock/skills](https://github.com/mattpocock/skills) v1.3.1 `diagnosing-bugs` (MIT), merged with Hermes Agent's `systematic-debugging`, adapted from [obra/superpowers](https://github.com/obra/superpowers) (MIT).
 
-A discipline for hard bugs. Skip phases only when explicitly justified.
+# Debug
+
+A discipline for bugs: find the root cause before you change any code. A fix for a symptom you don't understand hides the bug or creates a new one. Skip phases only when explicitly justified, and say which phase you skipped and why.
+
+Use it for every kind of fault: test failures, production bugs, build failures, integration problems, slow code. Use it most when the cause looks obvious, when time is short, or when a fix already failed: those are the moments when guessing is most tempting.
 
 When exploring the codebase, read the project's `GLOSSARY-MAP.md` and follow the relevant context links, or read its root `GLOSSARY.md` if there is no map, to understand the domain vocabulary. Check ADRs in the area you're touching; explore code for the module structure.
+
+When you can delegate, give the exploration in Phases 1–4 to a sub-agent: paste the symptom, the full error and the loop command into its brief, tell it to report findings and change nothing, and cap the answer at 400 words. Otherwise do the work yourself.
+
+In an unattended run (no one answers questions), wherever this skill says ask or confirm with the user, stop and put the question in your handoff instead.
 
 ## Redact
 
@@ -20,6 +28,11 @@ If the redacted output is not enough to diagnose the bug, say so and ask the use
 **This is the skill.** Everything else is mechanical. If you have a **tight** pass/fail signal for the bug (one that goes red on _this_ bug), you will find the cause; bisection, hypothesis-testing, and instrumentation all just consume it. If you don't have one, no amount of staring at code will save you.
 
 Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give up.**
+
+### Start from the evidence you already have
+
+- **Read the error completely.** The whole message, the whole stack trace, every warning before it. Note the file, line and error code. The answer is often in it.
+- **Check what changed.** Recent commits, the uncommitted diff, new dependencies, config changes. A bug that appeared after a known change points at that change and makes a bisection loop cheap.
 
 ### Ways to construct one, in roughly this order
 
@@ -85,9 +98,17 @@ Done when **every remaining element is load-bearing**: removing any one of them 
 
 Do not proceed until you have reproduced **and** minimised.
 
-## Phase 3: Hypothesise
+## Phase 3: Locate and hypothesise
 
-Generate **3–5 ranked hypotheses** before testing any of them. Single-hypothesis generation anchors on the first plausible idea.
+### Narrow down where it breaks
+
+- **Several components** (API → service → database, CI → build → deploy): run the loop once with a probe at each boundary: what goes in, what comes out, which config and environment arrive. The evidence shows which component breaks; investigate only that one.
+- **Error deep in the call stack:** trace the bad value upstream. Who called this with it, and who gave it to them? Keep going until you reach where it was first wrong. Fix there, not where it surfaced.
+- **Compare with code that works.** Find similar code in the same codebase that behaves correctly. List every difference between the two, however small; don't assume "that can't matter". If the broken code follows a pattern or a library example, read the reference completely before you judge it.
+
+### Rank hypotheses
+
+Generate **3–5 ranked hypotheses** before testing any of them. Single-hypothesis generation anchors on the first plausible idea. Rank them by likelihood and by how cheap they are to falsify.
 
 Each hypothesis must be **falsifiable**: state the prediction it makes.
 
@@ -97,13 +118,15 @@ If you cannot state the prediction, the hypothesis is a vibe: discard or sharpen
 
 **Show the ranked list to the user before testing.** They often have domain knowledge that re-ranks instantly ("we just deployed a change to #3"), or know hypotheses they've already ruled out. Cheap checkpoint, big time saver. Don't block on it; proceed with your ranking if the user is AFK.
 
+If every hypothesis is falsified and you don't know what else it could be, say "I don't understand X". Gather more evidence or ask; don't guess.
+
 ## Phase 4: Instrument
 
-Each probe must map to a specific prediction from Phase 3. **Change one variable at a time.**
+Each probe must map to a specific prediction from Phase 3. **Change one variable at a time.** If the probe falsifies the hypothesis, undo it and move to the next one; don't stack changes.
 
 Tool preference:
 
-1. **Debugger / REPL inspection** if the env supports it. One breakpoint beats ten logs.
+1. **Debugger / REPL inspection** if the env supports it. One breakpoint beats ten logs. For Python load `python-debugpy`; for Node.js load `node-inspect-debugger`.
 2. **Targeted logs** at the boundaries that distinguish hypotheses.
 3. Never "log everything and grep".
 
@@ -113,7 +136,7 @@ Tool preference:
 
 ## Phase 5: Fix + regression test
 
-Write the regression test **before the fix**, but only if there is a **correct seam** for it.
+Write the regression test **before the fix**, but only if there is a **correct seam** for it. Load `tdd` for what makes the test worth keeping.
 
 A correct seam is one where the test exercises the **real bug pattern** as it occurs at the call site. If the only available seam is too shallow (single-caller test when the bug needs multiple callers, unit test that can't replicate the chain that triggered the bug), a regression test there gives false confidence.
 
@@ -123,9 +146,15 @@ If a correct seam exists:
 
 1. Turn the minimised repro into a failing test at that seam.
 2. Watch it fail.
-3. Apply the fix.
-4. Watch it pass.
+3. Apply the fix: **one change**, at the root cause. No "while I'm here" improvements, no bundled refactoring.
+4. Watch it pass, then run the whole suite.
 5. Re-run the Phase 1 feedback loop against the original (un-minimised) scenario.
+
+### When the fix doesn't work
+
+Undo it. Don't add a second fix on top. Go back to Phase 3 with what the failure taught you.
+
+**After three failed fixes, stop fixing.** When each fix reveals a new problem in a different place, the design itself is the likely cause, not one more wrong hypothesis. Report the three attempts and what each one showed, and ask the user whether to keep fixing or rethink the design. Don't try a fourth fix without that answer.
 
 ## Phase 6: Cleanup
 
@@ -133,6 +162,18 @@ Required before declaring done:
 
 - [ ] Original repro no longer reproduces (re-run the Phase 1 loop)
 - [ ] Regression test passes (or absence of seam is documented)
+- [ ] The whole suite passes
 - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
 - [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message, so the next debugger learns
+
+## Red flags
+
+Stop and go back to Phase 1 when you catch yourself thinking:
+
+- "Quick fix for now, investigate later." / "Just try X and see."
+- "It's probably X, let me fix that." / "I see the problem."
+- "I don't fully understand, but this might work."
+- "I'll change several things and run the tests."
+- "I'll skip the test and check it by hand."
+- "One more fix" after two have already failed.

@@ -1,44 +1,34 @@
 ---
 name: retro
-description: "Conduct a retrospective on a coding session."
+description: "Conduct a retrospective on a coding session or an orchestrator run."
 disable-model-invocation: true
 ---
 
-The user has asked for a **retrospective**. You are suggesting improvements to the coding agent's **environment** to improve future runs.
+Sources: [mattpocock/skills](https://github.com/mattpocock/skills) v1.3.1 `retro` (MIT), adapted to theSystem.
+
+The human has asked for a **retrospective**. You suggest changes to the agents' **environment** (rules, skills, roles, task text, context files, checks) so future runs go better. You propose; the human decides. Change nothing until they approve each item.
 
 ## Steps
 
-1. Call the Skill tool with `writing-for-agents` for the writing style guide.
+1. Load `writing-docs`. Every candidate you propose is judged by it: whether it earns a line, where it belongs, how it is worded.
 
-2. Read the primary sources for the session the user specifies. This may mean searching through session logs on this machine. If the user doesn't specify a session, default to the current one.
+2. Read the evidence for what the human names. If they name nothing, use the current session.
+   - **An orchestrator task**: its run folders (`<task>/runs/<run-id>/`). Start with `review.md` and `worker.diff`; open the transcripts (`worker.jsonl`, `reviewer.jsonl`), the prompts and `*-context/` (the exact rules and skills each agent had) only while the cause is still unknown.
+   - **A chat session**: the session transcript.
 
-3. Look for candidates for improvement in these categories.
+   When you can delegate, have a sub-agent read the transcripts: give it the question and the files, ask for the moments that went wrong with quotes, capped at 400 words. Otherwise read them yourself.
 
-- **Navigation**: how easy was it for the agent to find the right files? Are there hidden dependencies between files? Would a **navigation pointer** make it easier? _Use when_ the session took a long time to find a piece of information.
-- **Automated checks**: are there automated checks that could catch errors the agent made? Linting, typing, tests, filesystem linters? Read the repo's own check command first (its `package.json`/build-tool `lint`/`check` scripts, its CI workflow), so a check that already exists but sits unwired or silently broken is the finding, not a reinvention. A repo with no **guardrail** (no pre-commit hook and no CI job running its lint/typecheck/test command) is itself a finding: an un-linted repo is a standing missed opportunity, not a neutral default. _Use when_ the agent made a mistake an automated check could have caught, or the repo has no guardrail at all.
-- **Coding standards**: should the **reviewer agent** be given a new rule to enforce? Should an existing rule be removed or clarified? Classify the violation first: a **mechanical** one (a fixed syntactic pattern, a banned API, an import shape, a file-location rule) gets a deterministic check, full stop: a custom rule in the repo's own linter, a new pre-commit hook, or a new CI job, whichever the repo's language and existing guardrail make cheapest. Default to building the check over writing the rule. Reserve `CODING_STANDARDS.md` for genuine **judgement calls** (cross-file consistency, "matches the surrounding style," anything no guardrail could ever substitute for). _Use when_ the reviewer agent failed to catch a mistake.
-- **Global AGENTS.md**: are there any steering instructions that should be moved to coding standards (or automated checks) instead? _Use when_ the AGENTS.md file is particularly large - in the repo OR the user's global scope.
-- **Tool economy**: did the agent make expensive tool calls that could be streamlined? Is there any custom tooling (CLI's, MCP's) that is particularly token-inefficient? _Use when_ the agent made an expensive tool call.
-- **No-ops**: look for instructions in steering files that don't modify the agent's behavior. _Use when_ the steering files are large and unwieldy.
-- **Information access**: look for opportunities to increase the agent's access to information. Teeing dev server logs, readonly access to third-party services. _Use when_ a crucial piece of information was not available to the agent.
+3. Find candidates in these categories. Each candidate cites the evidence (file and quote) that shows the problem.
 
-4. Present these candidates to the user, in order of severity.
+   - **Automated checks**: could a linter, type check, test, hook or CI job have caught the mistake? Look for the clone's existing check commands first: an existing check that is unwired or broken is the finding, not a new one. A clone with no guardrail at all (no hook and no CI running its checks) is itself a finding. A check is a change to the company's code, so it is a proposal like any other. _Use when_ the agent made a mistake a tool could detect.
+   - **Rules**: should a rule be added, clarified or removed? Classify the mistake first. A **mechanical** one (a banned API, an import shape, a file location, a format) gets an automated check, not a rule. A **judgement call** gets a rule in `agents/rules/` (global) or `<project>/agents/rules/`, in the format of `agents/rules/AGENTS.md`, and the role that should follow it lists it. Workers and reviewers both receive the role's rules. _Use when_ the worker made the mistake or the reviewer missed it.
+   - **Task text**: the worker sees only `task.md`. Was an agreed seam, check command, constraint or decision missing from it? The fix belongs in `to-tasks` or `to-spec`. _Use when_ the worker guessed at something the human had already decided.
+   - **Skills and roles**: did a skill step mislead, stall on a question nobody could answer, or not reach the agent that needed it? _Use when_ the agent followed a skill and still went wrong.
+   - **Context files**: should a line in an `AGENTS.md` move to a rule, skill or check, or be cut? _Use when_ a context file is large or carries instructions only some tasks need.
+   - **Tool economy**: did the agent make expensive tool calls that could be cheaper? _Use when_ a call was slow or flooded the context.
+   - **No-ops**: instructions that do not change behaviour. _Use when_ a steering file is large.
+   - **Information access**: what did the agent need and could not see (dev server logs, read-only access to a service)? _Use when_ a crucial fact was missing.
 
-## Reference
+   Guideline files theSystem did not write (a clone's own `AGENTS.md`, `CONTRIBUTING.md`, style guides) are the company's. List what you would change in them; edit them only with the human's explicit approval.
 
-### Implementation vs Review
-
-Remember that all work goes through two stages: implementation and review. The implementation agent has the most **context pressure**. They are responsible for exploration, writing code, and debugging failures.
-
-The review agent has the least context pressure - it receives a diff, so no exploration needed. It often does not need to write code or debug.
-
-This means that the review agent should be responsible for imposing coding standards, not the implementation agent.
-
-### Files
-
-You have access to several files in the repo:
-
-- `CLAUDE.md`/`AGENTS.md`: these files are pushed to the context window of any agent working in this repo. They should be used incredibly sparingly, usually only for **navigation pointers** to other files.
-- `CODING_STANDARDS.md`: this file is read during review, not implementation. Add **navigation pointers** to docs folders if the standards file gets more than 1,000 lines long.
-- Docs: use docs as references files, pointed to by other files. Look for existing docs before writing new ones.
-- Skills: use skills for docs (since their description goes into the agent's context window), or for user-invoked commands. Follow the advice in the `writing-for-agents` skill.
+4. Present the candidates to the human in order of severity: the evidence, the proposed change and where it goes. After approval, make the change. If it improves a theSystem default (a global skill, rule or role), offer it back with `propose-default`.

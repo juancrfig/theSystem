@@ -1,72 +1,51 @@
 ---
 name: writing-docs
-description: Use when creating, editing, or reviewing documentation, memory, or context files. Decide what deserves recording and where it belongs.
+description: Use when writing or editing anything an agent reads later (skills, rules, AGENTS.md, docs, memory, wiki pages). Decides whether to record a fact, where it goes, and how to word it.
 ---
 
-Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
+Sources: theSystem, merged with [mattpocock/skills](https://github.com/mattpocock/skills) v1.3.1 `writing-for-agents` (MIT).
 
 # Writing docs
 
-## Write only what the code cannot say
+Three questions, in order: should this be written, where does it go, how is it worded.
 
-Human-facing user manuals are an exception: users must not need to read source to operate the product. Use the experimental `manual-authoring` skill for them. Where a scope has a `FEATURES.md`, it is the human-owned feature map that defines what the product does; agents do not edit it.
+## 1. Write only what the environment cannot say
 
-Before writing anything, ask whether an agent with the whole repository checked out and unlimited
-time to read it would still not know this. If reading the code answers it, do not write it. Code
-records *what* and *how*; it does not record *why* it is this way or that it is deliberate.
+Ask: would an agent with the whole repository and unlimited time to read it still not know this? If the code, a config file, the directory layout or a `--help` answers it, leave it to that lookup: a copy goes stale. Code records *what* and *how*; it does not record *why*, or that something odd is deliberate.
 
-Use a second test: if someone deleted this in six months, thinking it was a mistake, would that be
-a bug? If yes, it is worth a line. If no, it dies with the ticket.
+Second test: if someone deleted this in six months, thinking it was a mistake, would that be a bug? If not, it dies with the ticket.
 
-Only these facts earn documentation:
+Only these earn a line:
 
 - **Rejected alternatives**: an option was tried and failed for a known reason.
-- **External constraints**: a client, regulation, or named person set a requirement.
+- **External constraints**: a client, regulation or named person set a requirement.
 - **Non-obvious deliberateness**: something that looks arbitrary is intentional for a known reason.
 - **Cross-boundary facts**: a truth spans repositories, so no one codebase states it.
 
-Dropping is the normal outcome. A ticket rarely produces more docs than its commit log.
+Dropping is the normal outcome. State the operating contract (the required outcome and where to check it), not details an agent reads from the code when it changes that code: endpoint URLs, request formats, fixtures.
 
-State the operating contract, not implementation details an agent can read from the code when it
-needs to change that code. This includes endpoint URLs, request formats, runtime dependencies, test
-fixtures, and test behavior; document only the required validation outcome and where to run it.
+User manuals are the exception: users must not need the source to operate the product. Load `manual-authoring` for them. A `FEATURES.md` is owned by the human; agents do not edit it.
 
-Do not repeat scope in artifact names or nested folders when the hierarchy already establishes it.
+## 2. Put it in the smallest durable home
 
-## Keep each instruction with its owner
-
-Apply this skill before creating, editing, or reviewing documentation, memory, or context files.
-
-Delete statements that merely describe what the document, its title, path, or existing content
-already makes clear. Keep an explicit statement only when it adds a non-obvious fact or obligation;
-do not restate a document-type convention already owned by this skill.
-
-Keep instructions for interpreting, maintaining, or using a particular document in that document,
-not in the index that points to it. A navigation entry names the destination and its responsibility;
-it does not copy the destination's operating policy. This keeps policy changes local to one owner.
-
-When removing duplicated guidance, verify that the owning document contains it. Move any missing
-obligation there rather than silently dropping it or adding a second copy elsewhere.
-
-## Choose the smallest durable artifact
-
-Use the most constrained form that can hold the fact:
-**drop → rule → ADR → decisions-ledger line → wiki page.** A wiki page is the last resort.
+**drop → rule → ADR → decisions-ledger line → wiki page.** Check the tier above before adding a file.
 
 | Artifact | What limits it |
 |---|---|
 | **Rule** | `Prevents:` demands a real incident. A rule without one is a preference. |
-| **ADR** | Requires a hard-to-reverse, surprising decision with a real trade-off. ADRs live in `docs/adr/`. |
+| **ADR** | A hard-to-reverse, surprising decision with a real trade-off, in `docs/adr/`. Load `domain-modeling` for the format. |
 | **Ledger line** | One line. The format forbids growth. |
-| **Wiki page** | **Nothing.** No scarcity mechanism at all. |
+| **Wiki page** | Nothing limits it: last resort, for a cross-cutting fact that belongs to no single decision or incident. |
 
-Use a wiki page only for a cross-cutting fact that belongs to no single decision or incident.
-For domain modeling, glossary formats, and ADR authoring, load `domain-modeling`. Prefer its short
-decision-and-rationale format; extra sections and separate ledger entries are not mandatory.
+Keep each meaning in **one owner**. Instructions for using a document live in that document; an index entry names the destination and its job, never copies its policy. When you remove a duplicate, check the owner holds it first.
 
-Before adding a file, check the tier above it. A new wiki page must fail the ADR test and the
-one-line test. A new ADR must pass all three `domain-modeling` criteria.
+`AGENTS.md`, `GLOSSARY.md` and `GLOSSARY-MAP.md` are not on the ladder: read [context-files.md](context-files.md) before touching one. When the document is a skill, read [skill-mechanics.md](skill-mechanics.md).
 
-## Agent context files
+## 3. Word it so every run takes the same path
 
-Navigation and glossary files are not a tier on the ladder. Before creating, editing, or reviewing an `AGENTS.md`, `GLOSSARY.md`, or `GLOSSARY-MAP.md`, read [context-files.md](context-files.md), including its guidance on separating navigation from procedures and avoiding redundant pointers.
+- **Pointers decide reach.** A skill description or an `AGENTS.md` line that names another file is a **pointer**: its wording, not the target, decides when the agent opens the material. Lead with the trigger word, give one trigger per distinct case, and cut what the body already says. Always-loaded text costs every turn, so prune pointers hardest.
+- **Inline what every case needs; disclose the rest.** Put what only some cases reach in a separate file behind a pointer. Keep a concept's definition, rules and caveats under one heading. A document too long to attend to (**sprawl**) fails even when every line is true.
+- **End every step on a checkable "done".** A vague end ("understand the code") invites rushing to the next step. A demanding one ("every modified model accounted for") drives the legwork. If a step still gets rushed, split the later steps into a separate hand-off.
+- **Use leading words.** One familiar word the model already knows (_tight_ loop, goes _red_, _tracer bullet_) anchors a whole behaviour in one token. Repeat the word, never the explanation. Prefer an existing word to a coined one.
+- **State the target behaviour.** "Don't X" puts X in front of the agent. Write what to do ("write one-line comments"); keep a prohibition only as a hard guardrail, paired with the positive.
+- **Prune.** Delete any sentence that does not change behaviour compared with the model's default (a **no-op**), and any line that went stale. Delete the whole sentence, not words from it. Unpruned docs collect **sediment**: old layers nobody dares to remove.

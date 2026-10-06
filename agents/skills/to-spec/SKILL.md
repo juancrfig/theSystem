@@ -6,19 +6,21 @@ disable-model-invocation: true
 
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
 
-Follow the same tracker policy as `to-tasks`. Specifications for theSystem's own development belong in its GitHub Issues, never local files or a scratch tracker. For a company project in a theSystem workspace, write the spec to `<project>/tickets/<ticket>/spec.md` unless the project documents another tracker. Writing a specification does not authorize execution; the human approves work when they confirm the `to-tasks` breakdown.
+Write the spec to `<project>/tickets/<ticket>/spec.md`. Writing it does not authorize execution: the human approves the work when they confirm the task split.
 
 ## Process
 
 1. Explore the repo to understand the current state of the codebase, if you haven't already. Use the project's domain glossary vocabulary throughout the spec, and respect any ADRs in the area you're touching.
 
-   When working with workspace ticket files, read [Workspace ticket layout](../to-tasks/references/ticket-layout.md) before creating or changing them. This reference describes the durable record layout; it does not change the tracker or destination policy.
+   Read [Workspace ticket layout](../to-tasks/references/ticket-layout.md) before creating or changing ticket files.
 
 2. Sketch out the seams at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better - the ideal number is one.
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then save it where the tracker policy above says. For theSystem's own development, update the canonical GitHub issue rather than creating a duplicate; read back the exact record and verify its content.
+3. Write the spec using the template below.
+
+4. Load `to-tasks` and continue straight into proposing the task split. Show the spec's link with the split, so the human reviews both at once. If they correct the spec, update it and redo the split.
 
 <spec-template>
 
@@ -65,6 +67,7 @@ A list of testing decisions that were made. Include:
 - A description of what makes a good test (only test external behavior, not implementation details)
 - Which modules will be tested
 - Prior art for the tests (i.e. similar types of tests in the codebase)
+- The commands that check the work (tests, lint, type check)
 
 ## Out of Scope
 

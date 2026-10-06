@@ -1,18 +1,21 @@
 # Global roles. Paths are relative to this agents/ folder.
+# `base` is given to every worker and reviewer, before the task's roles.
 # The reviewer of a task always receives the worker's rules as well as its own.
-worker:
+base:
   tools:
     - terminal
     - file
+    - delegation
   rules:
     - rules/api-contract-tests-use-producer-evidence.md
     - rules/comments-state-why-not-what.md
     - rules/install-reconciles-canonical-declarations.md
     - rules/overlays-escape-clipping-ancestors.md
     - rules/second-order-thinking-checks.md
+  skills:
+    - skills/tdd
+    - skills/debug
+worker: {}
 reviewer:
-  tools:
-    - terminal
-    - file
   skills:
     - skills/code-review

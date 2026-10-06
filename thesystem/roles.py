@@ -43,8 +43,14 @@ def _declared(agents_dir: Path) -> dict:
     return {name: (entry or {}, agents_dir) for name, entry in data.items()}
 
 
+BASE = "base"
+
+
 def resolve(workspace: Path, project: Path, names: list[str]) -> Context:
+    """Combine the roles in order. The `base` role, when declared, comes first for every agent."""
     available = {**_declared(workspace / "agents"), **_declared(project / "agents")}
+    if BASE in available and BASE not in names:
+        names = [BASE, *names]
     context = Context()
     for name in names:
         if name not in available:

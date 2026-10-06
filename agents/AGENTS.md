@@ -17,4 +17,5 @@ worker:
     - web
 ```
 
+Every worker and reviewer also gets the `base` role, before the task's roles: put what every agent needs there.
 The reviewer of a task always receives the worker's rules as well as its own.

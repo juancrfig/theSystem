@@ -219,6 +219,26 @@ class EvidenceAndRolesTests(WorkspaceCase):
         record = json.loads((run / "run.json").read_text())
         self.assertEqual(record["toolsets"], {"worker": ["terminal", "file", "web"], "reviewer": []})
 
+    def test_base_role_comes_first_for_every_agent(self):
+        (self.ws / "agents" / "roles.yaml").write_text(textwrap.dedent("""\
+            base:
+              tools: [terminal, delegation]
+              rules:
+                - rules/global.md
+            frontend:
+              tools: [browser]
+            reviewer: {}
+            """))
+        self.add_task("a", "status: ready\nsource_clone: backend\nroles: [frontend]")
+        self.command("run")
+        self.wait_idle()
+        run = self.latest_run("a")
+        record = json.loads((run / "run.json").read_text())
+        self.assertEqual(record["toolsets"], {"worker": ["terminal", "delegation", "browser"],
+                                              "reviewer": ["terminal", "delegation"]})
+        self.assertIn("global rule text", (run / "worker-prompt.md").read_text(), "base rules reach a specialist task")
+        self.assertIn("global rule text", (run / "reviewer-prompt.md").read_text())
+
     def test_unknown_role_fails_the_run(self):
         self.add_task("a", "status: ready\nsource_clone: backend\nroles: [nobody]")
         self.command("run")
