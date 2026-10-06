@@ -155,6 +155,28 @@ fi
 # and API keys are copied on each install without messaging-channel credentials such as bot tokens.
 # Profiles live in their own folders, apart from the main agent's config, so this runs alongside the main
 # agent's configuration below: every Hermes command takes a second or more to start.
+#
+# A profile without a model runs on Hermes' built-in default model, which the shared login may not cover: the
+# first orchestrator run failed with HTTP 429 "Usage credits are required for this model". Hermes seeds a new
+# profile with the main model, but not when the main agent had none yet or with older Hermes. So a profile with
+# no model gets the main agent's model once; a model set in the profile afterwards is the human's and is kept.
+main_model=()
+copy_main_model() {
+  local profile=$1 key value
+  if (( ! ${#main_model[@]} )); then
+    for key in provider default base_url; do
+      value=$(hermes config get "model.$key" </dev/null 2>/dev/null) || value=""
+      [[ -n "$value" ]] && main_model+=("$key" "$value")
+    done
+    (( ${#main_model[@]} )) || main_model=(none "")
+  fi
+  set -- "${main_model[@]}"
+  while (( $# >= 2 )); do
+    [[ "$1" != none ]] && hermes -p "$profile" config set "model.$1" "$2" </dev/null >/dev/null 2>&1
+    shift 2
+  done
+  return 0
+}
 setup_profiles() {
   while read -r profile; do
     [[ -z "$profile" || "$profile" == \#* ]] && continue
@@ -166,6 +188,7 @@ setup_profiles() {
       ln -sfn "$hermes_root/auth.json" "$profile_dir/auth.json"
     fi
     PYTHONPATH="$share_dir" python3 -m thesystem.harness keys "$hermes_root/.env" "$profile_dir/.env" || true
+    grep -qs '^model:' "$profile_dir/config.yaml" || copy_main_model "$profile"
   done < "$harness/canonical_profiles.txt"
 }
 profiles_pid=""

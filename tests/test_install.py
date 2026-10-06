@@ -72,9 +72,10 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((workspace / "AGENTS.md").read_text(), "mine\n")
         self.assertTrue((workspace / "GLOSSARY.md").is_file())
 
-    def fake_hermes(self, personality="", profiles=(), delay=0.0):
+    def fake_hermes(self, personality="", profiles=(), delay=0.0, main_model=None):
         """A `hermes` stub on PATH that logs every call, answers `config get`, and keeps profiles in folders as
-        Hermes does: *profiles* exist already, `profile create` adds one."""
+        Hermes does: *profiles* exist already, `profile create` adds one. *main_model* answers the main agent's
+        `config get model.<key>`; a profile's `config get` prints nothing."""
         bin_dir = self.home / "fakebin"
         bin_dir.mkdir(exist_ok=True)
         log = self.home / "hermes.log"
@@ -85,7 +86,9 @@ class InstallTests(unittest.TestCase):
         stub.write_text("#!/usr/bin/env python3\nimport json, os, sys, time\na = sys.argv[1:]\n"
                         f"time.sleep({delay})\n"
                         f"open({str(log)!r}, 'a').write(json.dumps(a) + '\\n')\n"
-                        f"if a[:2] == ['config', 'get']: print({personality!r})\n"
+                        f"m = {dict(main_model or {})!r}\n"
+                        f"if a[:3] == ['config', 'get', 'display.personality']: print({personality!r})\n"
+                        f"elif a[:2] == ['config', 'get'] and a[2].startswith('model.'): print(m.get(a[2][6:], ''))\n"
                         f"if a[:2] == ['profile', 'create']: os.makedirs(os.path.join({str(profiles_dir)!r}, a[2]))\n")
         stub.chmod(0o755)
         self.env["PATH"] = f"{bin_dir}:{self.env['PATH']}"
@@ -226,6 +229,26 @@ class InstallTests(unittest.TestCase):
             self.assertNotIn("TELEGRAM", keys)
             self.assertNotIn("GATEWAY_", keys)
             self.assertEqual((directory / ".env").stat().st_mode & 0o777, 0o600)
+
+    def test_worker_and_reviewer_get_the_main_model_once_and_keep_their_own(self):
+        # Without a model a profile runs on Hermes' built-in default, which the main login may not cover:
+        # the first orchestrator run failed with HTTP 429 "Usage credits are required for this model".
+        log = self.fake_hermes(main_model={"provider": "anthropic", "default": "claude-opus-5-5", "base_url": ""})
+        root = self.home / ".hermes/profiles"
+        (root / "reviewer").mkdir(parents=True)
+        (root / "reviewer/config.yaml").write_text("model:\n  default: chosen-by-human\n")
+        for _ in range(2):
+            self.assertEqual(self.install().returncode, 0)
+            (root / "worker/config.yaml").write_text("model:\n  default: claude-opus-5-5\n")  # Hermes writes it
+        sets = [c for c in self.calls(log) if c[2:4] == ["config", "set"]]
+        self.assertEqual(sets, [["-p", "worker", "config", "set", "model.provider", "anthropic"],
+                                ["-p", "worker", "config", "set", "model.default", "claude-opus-5-5"]],
+                         "only the profile without a model, once; empty settings are not copied")
+
+    def test_profiles_get_no_model_when_the_main_agent_has_none(self):
+        log = self.fake_hermes()
+        self.assertEqual(self.install().returncode, 0)
+        self.assertEqual([c for c in self.calls(log) if c[2:4] == ["config", "set"]], [])
 
     @unittest.skipUnless(INSTALLER_HAS_YAML, "needs PyYAML to read the config")
     def test_hermes_gets_main_and_casual_personalities_with_main_selected(self):
