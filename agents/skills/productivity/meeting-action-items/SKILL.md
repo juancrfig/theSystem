@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   hermes:
     tags: [Meetings, Action-Items, Follow-Up, Productivity]
-    related_skills: [llm-wiki, teams-meeting-pipeline, to-tasks, to-spec]
+    related_skills: [ingest, llm-wiki, teams-meeting-pipeline, to-tasks, to-spec]
 ---
 
 Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
@@ -72,17 +72,16 @@ Draft concise minutes with decisions, action table, unresolved questions, and ne
 
 Create or update only records the user explicitly approved. Read back assignees, dates, status, and links from the provider. For ambiguous timeouts, search for a provenance marker before retrying; a blind retry may duplicate records.
 
-## LLM wiki integration
+## Wiki integration
 
-Meeting outcomes can enrich theSystem's LLM wiki, but the wiki is a knowledge base, not the task tracker.
+Meeting outcomes can enrich the project wiki, but the wiki is a knowledge base, not the task list.
 
-- When wiki integration is requested, follow the `llm-wiki` skill first: resolve its configured location, read `SCHEMA.md`, `index.md`, and recent `log.md`, then search for existing topic pages before writing.
-- Preserve the original transcript as an immutable source in the wiki's `raw/transcripts/` layer when it is not already present. Check for an existing copy to avoid duplication. If only a generated summary is available, label it as a derivative rather than presenting it as a transcript.
-- Use the transcript—not the action-item summary—as evidence. Keep source references (speaker/time/page/section) with every durable claim. Surface contradictions and uncertainty instead of silently choosing.
-- Update existing concept/entity pages or create new pages only when the wiki's schema and page thresholds justify it. Ordinary action items, tentative proposals, and passing meeting details do not automatically merit wiki pages.
-- Add cross-links, update `index.md`, and append to `log.md` as required by `llm-wiki`. Do not count a summary derived from the transcript as independent corroboration.
-- Keep current commitments and task state in the authorized project tracker. A wiki entry records durable knowledge or rationale; it never approves or marks a task ready to run.
-- If the user asks only for minutes/action items, return a wiki-ready, source-cited result but do not modify the wiki. If the user asks to process the transcript into the wiki, perform both analyses and verify the wiki updates.
+- If the user asks only for minutes or action items, return a source-cited result and leave the wiki alone.
+- If the user asks to put the meeting into the wiki, run the `ingest` skill on the transcript: it saves the source,
+  drafts, asks once and writes. Use the transcript as evidence, not your summary of it; a summary is not independent
+  corroboration.
+- Commitments and task state belong in the ticket's tasks. A wiki entry records durable knowledge or rationale; it
+  never approves a task or marks it ready to run.
 
 ## theSystem boundary
 

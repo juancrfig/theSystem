@@ -27,7 +27,7 @@ Load this when the user says things like "let me try this", "I want to see if X 
 
 ## theSystem execution boundary
 
-For theSystem, the main agent may run a spike before producing a plan when an unresolved design or feasibility question would materially affect that plan. Delegate all prototype construction and execution to a subagent; do not build the experiment directly in the main-agent session. This exploratory subagent path is separate from the orchestrator: do not create or run an orchestrator ticket for a spike, because the orchestrator handles only human-approved tickets. Keep artifacts clearly throwaway and outside the production path, and return the question, evidence, verdict, and implications for planning to the main agent.
+For theSystem, the main agent may run a spike before producing a plan when an unresolved design or feasibility question would materially affect that plan. Delegate all prototype construction and execution to a subagent; do not build the experiment directly in the main-agent session. This exploratory subagent path is separate from the orchestrator: do not create or run an orchestrator task for a spike, because the orchestrator runs only tasks the human approved. Keep artifacts clearly throwaway and outside the production path, and return the question, evidence, verdict, and implications for planning to the main agent.
 
 ## Core method
 
