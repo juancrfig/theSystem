@@ -8,7 +8,7 @@ platforms: [linux, macos]
 metadata:
   hermes:
     tags: [debugging, python, pdb, debugpy, breakpoints]
-    related_skills: [debug, node-inspect-debugger]
+    related_skills: [systematic-debugging, node-inspect-debugger]
 ---
 
 Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)

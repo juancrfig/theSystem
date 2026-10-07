@@ -1,11 +1,11 @@
 ---
-name: debug
+name: systematic-debugging
 description: Root-cause debugging loop for bugs, failing tests and performance regressions. Use when the user says "diagnose" or "debug this", or reports something broken, throwing, failing or slow.
 ---
 
 Sources: [mattpocock/skills](https://github.com/mattpocock/skills) v1.3.1 `diagnosing-bugs` (MIT), merged with Hermes Agent's `systematic-debugging`, adapted from [obra/superpowers](https://github.com/obra/superpowers) (MIT).
 
-# Debug
+# Systematic Debugging
 
 A discipline for bugs: find the root cause before you change any code. A fix for a symptom you don't understand hides the bug or creates a new one. Skip phases only when explicitly justified, and say which phase you skipped and why.
 

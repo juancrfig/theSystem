@@ -17,7 +17,7 @@ In an unattended run (no one answers questions), wherever this skill says ask or
 
 ## When it applies
 
-Every new behavior and every bug fix. For a bug, first find the cause with `debug`; its regression test is the red step here.
+Every new behavior and every bug fix. For a bug, first find the cause with `systematic-debugging`; its regression test is the red step here.
 
 Not for throwaway prototypes (use `spike`), generated code, or pure configuration. Skipping TDD for anything else needs the user's or the task's explicit permission; "too simple to test" is not one.
 

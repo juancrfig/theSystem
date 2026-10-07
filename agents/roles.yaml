@@ -14,7 +14,7 @@ base:
     - rules/second-order-thinking-checks.md
   skills:
     - skills/tdd
-    - skills/debug
+    - skills/systematic-debugging
 worker: {}
 reviewer:
   skills:
