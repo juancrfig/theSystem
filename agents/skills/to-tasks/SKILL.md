@@ -52,7 +52,7 @@ Ask whether the granularity is right, whether each blocker genuinely gates its t
 
 ### 4. Write the tasks and start them
 
-Write one `<project>/tickets/<ticket>/tasks/<task-id>/task.md` per task. The task id (its folder name) is unique in the workspace. Then run the workspace command's `run` (its name is in the workspace `AGENTS.md`).
+Write one `<project>/tickets/<ticket>/tasks/<task-id>/task.md` per task. The task id (its folder name) is unique in the workspace. Before running the workspace command, obtain an independent read-only readiness review of the exact task body and evidence the worker will receive. The reviewer must not rely on this conversation or an unsupplied spec. Check requirement coverage, verified starting points, accessible contract evidence, approved test cases, and feasibility with the worker's permitted tools. Resolve every implementation-critical gap before dispatch; this review verifies preparation and is not a second human approval. Only then run the workspace command's `run` (its name is in the workspace `AGENTS.md`).
 
 ## Task file
 
@@ -70,6 +70,19 @@ blockers:
 ```
 
 The worker and the reviewer receive only the body below the front matter: not the spec, not this conversation. Every task is **self-contained**: copy in everything the human agreed that bears on it.
+
+### Main-agent ownership of the implementation handoff
+
+The main agent and human resolve requirements and implementation-critical facts during preparation. The worker implements the supplied decisions; it does not rediscover the intended API, choose product semantics, or fill missing contracts with assumptions. Ordinary coding judgment and verification remain necessary, but an unstated decision needed to implement approved behavior is a handoff defect. A worker that stops rather than inventing that decision is enforcing the boundary correctly.
+
+For each task, supply:
+
+- **Verified starting point:** the inspected source revision and exact relevant files/symbols. Distinguish backend availability from consumer implementation. Identify what exists, what is missing, and what must be added or changed; support every consequential claim of existing functionality with evidence.
+- **Exact interfaces and evidence:** applicable tools, toolsets, CLIs with commands and working directories, and API method, endpoint, service, parameter names/types, headers, request/response structures, pagination, and error behavior. Include non-sensitive producer-derived examples and their source/version or capture scope. Never substitute invented fixtures or credentials. Supply this material in the task or as explicitly delivered, readable evidence; a reference to material the worker cannot access is not a handoff.
+- **Approved test cases:** exact named inputs, expected outcomes and observable assertions, their independent requirement/contract basis, the public test boundary, and execution commands/environment. Do not make the worker infer the test contract or authorize extra cases.
+- **Dependencies and unknowns:** identify prerequisites and permitted access. Resolve implementation-critical unknowns before declaring the task ready. Do not disguise an unresolved lookup as an instruction to reuse something.
+
+Include only relevant material, but do not compress away details required to build correctly. Preparation is complete when the worker can implement and verify the task without assuming missing requirements or external contracts.
 
 <task-template>
 
