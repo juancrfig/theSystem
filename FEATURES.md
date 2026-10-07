@@ -110,6 +110,19 @@ After a rejection, failure or "don't merge":
   2. The human improves the roles (rules, skills, tools).
   3. The main agent retries the task.
 
+## F11 · Hermes run awareness
+
+Status: wanted
+Outcome: theSystem supplies a Hermes integration through its installer and updates. In the main agent's Ink TUI, a small panel above the status bar automatically shows the current workspace's active runs and whether the worker or reviewer is working. Finished results remain visible until dismissed.
+Rules:
+  - Label these as theSystem runs, not native Hermes subagents. The main agent can discover active runs and inspect their status without the human supplying paths.
+  - Each run ending in `pre-done`, `changes-requested`, or `failed` automatically signals the main-agent session that dispatched it. A busy session queues the signal; an idle session starts a turn. The launcher's exit is not a run-completion signal.
+  - Keep undelivered events across restarts and protect against duplicate notices. Target only the originating session and profile; do not redirect to an unrelated conversation when it is unavailable.
+  - Treat a running record without a live orchestrator as possibly stale. Display and discovery do not repair task state.
+  - Notifications never merge, retry, or approve work. Existing human approval gates remain unchanged.
+  - Own the integration in theSystem's source, not a workspace-only customization. Use supported Hermes extension interfaces; no Hermes core modifications in this feature.
+Proof: install in a temporary workspace and main-agent profile; dispatch a controlled run; see worker/reviewer progress in the TUI and through agent discovery; end it with each terminal outcome and receive a turn in the originating session without user input. Confirm busy-session queueing, unavailable-session retention and restart recovery, duplicate protection, stale-run labeling, and dismissal of finished results. Confirm no task mutation, merge, retry, cross-profile delivery, or notification caused solely by launcher exit.
+
 ## F6 · Run evidence
 
 Status: open
