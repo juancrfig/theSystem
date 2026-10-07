@@ -48,7 +48,10 @@ Show the human one list:
 Then stop and ask for confirmation. The human approves the list as a whole, not item by item; they may drop or
 change items before approving. Nothing is written before the human confirms. If the human changes the proposal
 or adds information (for example a source's author or date), check the new information as in step 2, show the revised
-proposal and ask again. Only a plain "yes" to the proposal on screen lets you write.
+proposal and ask again. Any clear approval of the proposal on screen lets you write, including "ok", "sí",
+"adelante" or "aprobado". Interpret approval by its meaning in context, not by an exact word; do not ask for
+confirmation again when the human has already approved. Ask only when the response is ambiguous or changes
+the proposal.
 
 ## 4. Write and commit
 
