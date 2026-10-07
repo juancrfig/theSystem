@@ -113,9 +113,11 @@ def command_merge(workspace: Path, task_id: str) -> dict:
     task = tasks.find(workspace, task_id)
     if task.status != "pre-done":
         raise CodedError("NOT_PRE_DONE", f"task {task_id} is {task.status}; only pre-done tasks can be merged")
-    clone, branch = task.source_clone, runner.branch_name(task)
+    clone = task.source_clone
     runs = sorted((task.directory / "runs").glob("*/run.json"))
-    base_branch = json.loads(runs[-1].read_text(encoding="utf-8")).get("base_branch") if runs else None
+    latest_run = json.loads(runs[-1].read_text(encoding="utf-8")) if runs else {}
+    branch = latest_run.get("branch", runner.branch_name(task))
+    base_branch = latest_run.get("base_branch")
     current = runner.git(clone, "branch", "--show-current")
     if base_branch and current != base_branch:
         raise CodedError("BASE_BRANCH_MOVED", f"the task branched from {base_branch} but {clone} is on "
@@ -136,7 +138,8 @@ def command_retry(workspace: Path, task_id: str) -> dict:
     task = tasks.find(workspace, task_id)
     if task.status not in tasks.RETRYABLE:
         raise CodedError("NOT_RETRYABLE", f"task {task_id} is {task.status}; retry needs one of {', '.join(tasks.RETRYABLE)}")
-    runner.discard_worktree(workspace, task)
+    runner.validate_task_configuration(workspace, task)
+    runner.discard_worktree(workspace, task, delete_branch=False)
     task.set_status("ready")
     started = command_run(workspace)
     return {"status": "ok", "task": task_id, "dispatcher": started["dispatcher"]}

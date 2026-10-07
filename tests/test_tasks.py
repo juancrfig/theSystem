@@ -15,15 +15,22 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 FAKE_HERMES = r'''#!/usr/bin/env python3
-import json, os, sys
+import json, os, subprocess, sys
 args = sys.argv[1:]
 prompt = open(args[args.index("--query-file") + 1]).read()
 cwd = args[args.index("--in") + 1]
 profile = args[args.index("-p") + 1]
 if profile != ("worker" if prompt.startswith("You are the worker") else "reviewer"):
     sys.exit(9)  # each agent must run in its own Hermes profile
+trace = os.environ.get("BOOTSTRAP_TRACE")
+if trace:
+    with open(trace, "a") as out:
+        out.write("agent:" + profile + ":" + os.getcwd() + "\n")
+head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+branch = subprocess.run(["git", "branch", "--show-current"], cwd=cwd, check=True,
+                        capture_output=True, text=True).stdout.strip()
 print(json.dumps({"type": "system", "subtype": "init", "session_id": "fake",
-                  "safe_root": os.environ.get("HERMES_WRITE_SAFE_ROOT"),
+                  "safe_root": os.environ.get("HERMES_WRITE_SAFE_ROOT"), "head": head, "branch": branch,
                   "toolsets": args[args.index("-t") + 1] if "-t" in args else None}))
 if prompt.startswith("You are the worker"):
     mode = os.environ.get("FAKE_WORKER", "edit")
@@ -78,6 +85,26 @@ class WorkspaceCase(unittest.TestCase):
         path.write_text(f"---\n{textwrap.dedent(front_matter).strip()}\n---\n\nBuild {task_id}.\n")
         return path
 
+    def install_bootstrap(self):
+        path = self.clone / ".thesystem" / "bootstrap"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/usr/bin/env python3\n" + textwrap.dedent("""\
+            import os, sys, time
+            trace = os.environ.get("BOOTSTRAP_TRACE")
+            role = os.environ["THESYSTEM_BOOTSTRAP_ROLE"]
+            if trace:
+                with open(trace, "a") as out:
+                    out.write("bootstrap:" + role + ":" + os.getcwd() + "\\n")
+            if os.environ.get("BOOTSTRAP_FAIL_ROLE") == role:
+                sys.exit(17)
+            if os.environ.get("BOOTSTRAP_SLEEP_ROLE") == role:
+                time.sleep(float(os.environ.get("BOOTSTRAP_SLEEP_SECONDS", "30")))
+            """))
+        path.chmod(0o755)
+        git(self.clone, "add", ".thesystem/bootstrap")
+        git(self.clone, "commit", "-q", "-m", "add source-clone bootstrap")
+        return path
+
     def command(self, *args):
         result = subprocess.run(["python3", "-m", "thesystem.cli", *args], env=self.env, capture_output=True,
                                 text=True, cwd=REPO)
@@ -115,12 +142,98 @@ class TaskFlowTests(WorkspaceCase):
         self.assertEqual(self.command("run")["status"], "ok")
         self.wait_idle()
         self.assertEqual(self.status("a"), "pre-done")
+        run = self.latest_run("a")
+        record = json.loads((run / "run.json").read_text())
+        self.assertEqual(record["branch"], "thesystem/a")
+        self.assertEqual(git(self.clone, "show", "-s", "--format=%s", record["worker_commit"]),
+                         f"a: worker run {run.name}")
         self.assertFalse((self.clone / "feature.txt").exists(), "not merged before the human says so")
 
         merged = self.command("merge", "a")
         self.assertEqual(merged["status"], "ok", merged)
         self.assertEqual(self.status("a"), "done")
         self.assertTrue((self.clone / "feature.txt").exists())
+
+    def test_configured_names_are_used_through_approved_merge(self):
+        self.add_task("a", "status: ready\nsource_clone: backend\nbranch: feature/format-csv-upload\n"
+                               "commit_message: feature: add CSV upload")
+        self.assertEqual(self.command("run")["status"], "ok")
+        self.wait_idle()
+        self.assertEqual(self.status("a"), "pre-done")
+        run = self.latest_run("a")
+        record = json.loads((run / "run.json").read_text())
+        self.assertEqual(record["branch"], "feature/format-csv-upload")
+        worker_init = json.loads((run / "worker.jsonl").read_text().splitlines()[0])
+        self.assertEqual(worker_init["branch"], "feature/format-csv-upload")
+        self.assertEqual(record.get("commit_message"), "feature: add CSV upload")
+        self.assertEqual(git(self.clone, "branch", "--show-current"), "main")
+        self.assertFalse((self.clone / "feature.txt").exists(), "review approval is not human merge approval")
+        self.assertEqual(git(self.clone, "show", "-s", "--format=%s", record["worker_commit"]),
+                         "feature: add CSV upload")
+        reviewer_init = json.loads((run / "reviewer.jsonl").read_text().splitlines()[0])
+        self.assertEqual(reviewer_init["head"], record["worker_commit"])
+
+        merged = self.command("merge", "a")
+        self.assertEqual(merged["status"], "ok", merged)
+        self.assertEqual(self.status("a"), "done")
+        self.assertTrue((self.clone / "feature.txt").exists())
+
+    def test_retry_reuses_configured_branch_and_keeps_previous_work(self):
+        self.add_task("a", "status: ready\nsource_clone: backend\nbranch: feature/keep-import-work")
+        self.env["FAKE_VERDICT"] = "FAIL"
+        self.command("run")
+        self.wait_idle()
+        first_run = self.latest_run("a")
+        first_commit = json.loads((first_run / "run.json").read_text())["worker_commit"]
+        self.assertEqual(self.status("a"), "changes-requested")
+
+        self.env["FAKE_VERDICT"] = "PASS"
+        self.assertEqual(self.command("retry", "a")["status"], "ok")
+        self.wait_idle()
+        second_run = self.latest_run("a")
+        second_record = json.loads((second_run / "run.json").read_text())
+        self.assertEqual(self.status("a"), "pre-done")
+        self.assertEqual(second_record["branch"], "feature/keep-import-work")
+        ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", first_commit,
+                                   second_record["worker_commit"]], cwd=self.clone)
+        self.assertEqual(ancestor.returncode, 0, "retry must continue from its previous worker commit")
+        self.assertEqual((Path(second_record["worktree"]) / "feature.txt").read_text(), "done\ndone\n")
+
+    def test_invalid_configured_branch_fails_before_agents_or_source_changes(self):
+        self.add_task("a", "status: ready\nsource_clone: backend\nbranch: ../invalid")
+        self.command("run")
+        self.wait_idle()
+        run = self.latest_run("a")
+        record = json.loads((run / "run.json").read_text())
+        self.assertEqual(record["error"]["code"], "TASK_CONFIGURATION_INVALID")
+        self.assertFalse((run / "worker.jsonl").exists())
+        self.assertEqual(git(self.clone, "branch", "--list"), "* main")
+        self.assertEqual(git(self.clone, "status", "--porcelain"), "")
+
+    def test_empty_configured_commit_message_fails_before_agents_or_source_changes(self):
+        self.add_task("a", "status: ready\nsource_clone: backend\ncommit_message:")
+        self.command("run")
+        self.wait_idle()
+        run = self.latest_run("a")
+        record = json.loads((run / "run.json").read_text())
+        self.assertEqual(record["error"]["code"], "TASK_CONFIGURATION_INVALID")
+        self.assertFalse((run / "worker.jsonl").exists())
+        self.assertEqual(git(self.clone, "branch", "--list"), "* main")
+        self.assertEqual(git(self.clone, "status", "--porcelain"), "")
+
+    def test_tasks_cannot_share_a_configured_branch_in_one_source_clone(self):
+        self.add_task("a", "status: ready\nsource_clone: backend\nbranch: feature/shared-name")
+        self.add_task("b", "status: ready\nsource_clone: backend\nbranch: feature/shared-name")
+        self.command("run")
+        self.wait_idle()
+        for task_id in ("a", "b"):
+            self.assertEqual(self.status(task_id), "failed")
+            run = self.latest_run(task_id)
+            record = json.loads((run / "run.json").read_text())
+            self.assertEqual(record["error"]["code"], "TASK_CONFIGURATION_INVALID")
+            self.assertFalse((run / "worker.jsonl").exists())
+        self.assertEqual(git(self.clone, "branch", "--list"), "* main")
+        self.assertEqual(git(self.clone, "status", "--porcelain"), "")
 
     def test_rejected_review_is_changes_requested_and_retry_runs_again(self):
         self.add_task("a", "status: ready\nsource_clone: backend")
@@ -182,6 +295,94 @@ class TaskFlowTests(WorkspaceCase):
 
 
 class EvidenceAndRolesTests(WorkspaceCase):
+    def test_absent_source_clone_bootstrap_preserves_worker_and_reviewer_run(self):
+        trace = self.ws / "bootstrap-trace"
+        self.env["BOOTSTRAP_TRACE"] = str(trace)
+        self.add_task("a", "status: ready\nsource_clone: backend")
+
+        self.assertEqual(self.command("run")["status"], "ok")
+        self.wait_idle()
+
+        self.assertEqual(self.status("a"), "pre-done")
+        run = self.latest_run("a")
+        self.assertEqual([line.split(":")[1] for line in trace.read_text().splitlines()], ["worker", "reviewer"])
+        self.assertEqual(json.loads((run / "run.json").read_text())["bootstrap"],
+                         {"worker": {"status": "absent"}, "reviewer": {"status": "absent"}})
+
+    def test_successful_bootstrap_runs_in_each_worktree_before_its_agent(self):
+        self.install_bootstrap()
+        trace = self.ws / "bootstrap-trace"
+        self.env["BOOTSTRAP_TRACE"] = str(trace)
+        self.add_task("a", "status: ready\nsource_clone: backend")
+
+        self.assertEqual(self.command("run")["status"], "ok")
+        self.wait_idle()
+
+        self.assertEqual(self.status("a"), "pre-done")
+        events = [line.split(":", 2) for line in trace.read_text().splitlines()]
+        self.assertEqual([event[:2] for event in events],
+                         [["bootstrap", "worker"], ["agent", "worker"],
+                          ["bootstrap", "reviewer"], ["agent", "reviewer"]])
+        self.assertEqual(events[0][2], events[1][2])
+        self.assertEqual(events[2][2], events[3][2])
+        run = self.latest_run("a")
+        self.assertEqual(json.loads((run / "run.json").read_text())["bootstrap"], {
+            "worker": {"status": "succeeded", "exit_code": 0},
+            "reviewer": {"status": "succeeded", "exit_code": 0},
+        })
+
+    def test_nonzero_bootstrap_failure_blocks_the_matching_agent_and_records_role(self):
+        self.install_bootstrap()
+        trace = self.ws / "bootstrap-trace"
+        self.env["BOOTSTRAP_TRACE"] = str(trace)
+
+        for role in ("worker", "reviewer"):
+            with self.subTest(role=role):
+                trace.unlink(missing_ok=True)
+                task_id = f"{role}-failure"
+                self.env["BOOTSTRAP_FAIL_ROLE"] = role
+                self.add_task(task_id, "status: ready\nsource_clone: backend")
+                self.assertEqual(self.command("run")["status"], "ok")
+                self.wait_idle()
+
+                self.assertEqual(self.status(task_id), "failed")
+                run = self.latest_run(task_id)
+                record = json.loads((run / "run.json").read_text())
+                self.assertEqual(record["error"]["code"], "BOOTSTRAP_FAILED")
+                self.assertIn(role, record["error"]["message"])
+                self.assertEqual(record["bootstrap"][role], {"status": "failed", "exit_code": 17})
+                agents = [line.split(":", 2)[1] for line in trace.read_text().splitlines()
+                          if line.startswith("agent:")]
+                self.assertEqual(agents, [] if role == "worker" else ["worker"])
+
+    def test_bootstrap_timeout_blocks_the_matching_agent_and_records_timeout(self):
+        self.install_bootstrap()
+        trace = self.ws / "bootstrap-trace"
+        self.env["BOOTSTRAP_TRACE"] = str(trace)
+        self.env["BOOTSTRAP_SLEEP_SECONDS"] = "0.4"
+        self.env["THESYSTEM_BOOTSTRAP_TIMEOUT"] = "0.1"
+
+        for role in ("worker", "reviewer"):
+            with self.subTest(role=role):
+                trace.unlink(missing_ok=True)
+                self.env["BOOTSTRAP_SLEEP_ROLE"] = role
+                task_id = f"{role}-timeout"
+                self.add_task(task_id, "status: ready\nsource_clone: backend")
+                self.assertEqual(self.command("run")["status"], "ok")
+                self.wait_idle()
+
+                self.assertEqual(self.status(task_id), "failed")
+                run = self.latest_run(task_id)
+                record = json.loads((run / "run.json").read_text())
+                self.assertEqual(record["error"]["code"], "BOOTSTRAP_TIMEOUT")
+                self.assertIn(role, record["error"]["message"])
+                self.assertEqual(record["bootstrap"][role], {
+                    "status": "timed_out", "timeout_seconds": 0.1,
+                })
+                agents = [line.split(":", 2)[1] for line in trace.read_text().splitlines()
+                          if line.startswith("agent:")]
+                self.assertEqual(agents, [] if role == "worker" else ["worker"])
+
     def test_run_keeps_all_evidence_and_exact_role_context(self):
         project_agents = self.project / "agents"
         (project_agents / "rules").mkdir(parents=True)

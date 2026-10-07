@@ -7,19 +7,23 @@ transcripts and prompts, the rules and skills each one had, and orchestrator.log
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+import signal
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
 from thesystem import roles
 from thesystem.errors import CodedError
-from thesystem.tasks import Task
+from thesystem.tasks import Task, find_all
 
 # Hermes treats an empty -t as "all toolsets"; an unknown name selects none, so a role without tools gets no tools.
 NO_TOOLS = "none"
 AGENT_TIMEOUT = int(os.environ.get("THESYSTEM_AGENT_TIMEOUT", "3600"))
+BOOTSTRAP_PATH = ".thesystem/bootstrap"
 VERDICT = re.compile(r"^\s*VERDICT:\s*(PASS|FAIL)\b", re.I | re.M)
 COMMITTER = ["-c", "user.name=theSystem", "-c", "user.email=thesystem@localhost"]
 
@@ -32,21 +36,69 @@ def git(cwd: Path, *args: str) -> str:
 
 
 def branch_name(task: Task) -> str:
-    return f"thesystem/{task.id}"
+    return task.fields["branch"] if "branch" in task.fields else f"thesystem/{task.id}"
+
+
+def commit_message(task: Task, run_id: str) -> str:
+    return task.fields["commit_message"] if "commit_message" in task.fields else f"{task.id}: worker run {run_id}"
+
+
+def validate_task_configuration(workspace: Path, task: Task) -> None:
+    branch = branch_name(task)
+    if not isinstance(branch, str) or not branch:
+        raise CodedError("TASK_CONFIGURATION_INVALID", "branch must be a non-empty git branch name")
+    checked = subprocess.run(["git", "check-ref-format", "--branch", branch], capture_output=True, text=True)
+    if checked.returncode:
+        raise CodedError("TASK_CONFIGURATION_INVALID", f"invalid branch name {branch!r}")
+
+    message = commit_message(task, "")
+    if not isinstance(message, str) or not message.strip() or "\0" in message:
+        raise CodedError("TASK_CONFIGURATION_INVALID", "commit_message must be a non-empty string without NUL")
+
+    clone = task.source_clone.resolve()
+    for other in find_all(workspace):
+        if other.path == task.path:
+            continue
+        try:
+            other_clone = other.source_clone.resolve()
+        except (CodedError, TypeError):
+            continue
+        if other_clone != clone:
+            continue
+        other_branch = branch_name(other)
+        if other_branch == branch:
+            raise CodedError("TASK_CONFIGURATION_INVALID",
+                             f"branch {branch!r} is also configured for task {other.id!r} in {clone}")
+
+    if (clone / ".git").exists():
+        exists = subprocess.run(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=clone)
+        if exists.returncode == 0 and not _branch_has_run_record(task, branch):
+            raise CodedError("TASK_CONFIGURATION_INVALID", f"branch {branch!r} already exists in {clone}")
+
+
+def _branch_has_run_record(task: Task, branch: str) -> bool:
+    for path in sorted((task.directory / "runs").glob("*/run.json")):
+        try:
+            if json.loads(path.read_text(encoding="utf-8")).get("branch") == branch:
+                return True
+        except (OSError, json.JSONDecodeError):
+            continue
+    return False
 
 
 def worktree_path(workspace: Path, task: Task) -> Path:
     return workspace / ".thesystem" / "worktrees" / task.id
 
 
-def discard_worktree(workspace: Path, task: Task) -> None:
+def discard_worktree(workspace: Path, task: Task, delete_branch: bool = True) -> None:
     clone = task.source_clone
     if not (clone / ".git").exists():
         return
     subprocess.run(["git", "worktree", "remove", "--force", str(worktree_path(workspace, task))],
                    cwd=clone, capture_output=True)
     subprocess.run(["git", "worktree", "prune"], cwd=clone, capture_output=True)
-    subprocess.run(["git", "branch", "-D", branch_name(task)], cwd=clone, capture_output=True)
+    if delete_branch:
+        subprocess.run(["git", "branch", "-D", branch_name(task)], cwd=clone, capture_output=True)
 
 
 class Run:
@@ -91,30 +143,39 @@ class Run:
         task, clone = self.task, self.task.source_clone
         if not (clone / ".git").exists():
             raise CodedError("SOURCE_CLONE_INVALID", f"{clone} is not a git clone")
+        validate_task_configuration(self.workspace, task)
         worker_context = roles.resolve(self.workspace, task.project, task.roles)
         reviewer_context = roles.resolve(self.workspace, task.project, ["reviewer"])
         reviewer_context.add(roles.Context(rules=worker_context.rules))
 
-        discard_worktree(self.workspace, task)
+        discard_worktree(self.workspace, task, delete_branch=False)
         base_branch = _current_branch(clone)
         base = git(clone, "rev-parse", "HEAD")
         clone_status = git(clone, "status", "--porcelain")
         work = worktree_path(self.workspace, task)
         work.parent.mkdir(parents=True, exist_ok=True)
-        git(clone, "worktree", "add", "-b", branch_name(task), str(work), base)
+        existing_branch = subprocess.run(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name(task)}"],
+                                        cwd=clone).returncode == 0
+        if existing_branch:
+            git(clone, "worktree", "add", str(work), branch_name(task))
+            branch_head = git(work, "rev-parse", "HEAD")
+        else:
+            git(clone, "worktree", "add", "-b", branch_name(task), str(work), base)
+            branch_head = base
         self.save(status="running", source_clone=str(clone), base_branch=base_branch, base_commit=base,
-                  branch=branch_name(task), worktree=str(work),
+                  branch=branch_name(task), commit_message=commit_message(task, self.id), worktree=str(work),
                   roles={"worker": task.roles, "reviewer": ["reviewer"]},
                   toolsets={"worker": worker_context.toolsets, "reviewer": reviewer_context.toolsets})
         self.log(f"worker starting in {work}")
 
+        self._bootstrap("worker", work, base, branch_head, branch_name(task))
         worker = self._agent("worker", work, self._worker_prompt(worker_context), worker_context.toolsets)
         if worker["error"]:
             raise CodedError("WORKER_FAILED", worker["error"])
-        self._check_isolation(work, base, base_branch, clone_status)
+        self._check_isolation(work, branch_head, base, base_branch, clone_status)
         git(work, "add", "-A")
         if git(work, "status", "--porcelain"):
-            git(work, *COMMITTER, "commit", "-q", "-m", f"{task.id}: worker run {self.id}")
+            git(work, *COMMITTER, "commit", "-q", "-m", commit_message(task, self.id))
         commit = git(work, "rev-parse", "HEAD")
         if commit == base:
             raise CodedError("WORKER_NO_CHANGES", "the worker finished without changing any file")
@@ -126,6 +187,7 @@ class Run:
         review_dir = self.workspace / ".thesystem" / "reviews" / self.id
         git(clone, "worktree", "add", "--detach", str(review_dir), commit)
         try:
+            self._bootstrap("reviewer", review_dir, base, commit, "detached HEAD")
             reviewer = self._agent("reviewer", review_dir, self._reviewer_prompt(reviewer_context, base),
                                    reviewer_context.toolsets)
         finally:
@@ -140,7 +202,96 @@ class Run:
         self.save(verdict=verdicts[-1].upper())
         return "pre-done" if verdicts[-1].upper() == "PASS" else "changes-requested"
 
-    def _check_isolation(self, work: Path, base: str, base_branch: str, clone_status: str) -> None:
+    def _bootstrap(self, role: str, cwd: Path, base: str, expected_head: str, expected_branch: str) -> None:
+        """Run only the executable bootstrap selected from the run's original base commit."""
+        clone = self.task.source_clone
+        entry = subprocess.run(["git", "ls-tree", base, "--", BOOTSTRAP_PATH], cwd=clone,
+                               capture_output=True, text=True, check=True).stdout.strip()
+        if not entry:
+            self._record_bootstrap(role, {"status": "absent"})
+            self.log(f"{role} bootstrap absent")
+            return
+
+        mode = entry.split(maxsplit=1)[0]
+        if mode != "100755":
+            self._record_bootstrap(role, {"status": "failed", "reason": "not_executable"})
+            raise CodedError("BOOTSTRAP_FAILED", f"{role} bootstrap at {BOOTSTRAP_PATH} must be executable")
+        content = subprocess.run(["git", "show", f"{base}:{BOOTSTRAP_PATH}"], cwd=clone,
+                                 capture_output=True, check=True).stdout
+        try:
+            timeout = float(os.environ.get("THESYSTEM_BOOTSTRAP_TIMEOUT", "300"))
+        except ValueError:
+            self._record_bootstrap(role, {"status": "failed", "reason": "invalid_timeout"})
+            raise CodedError("BOOTSTRAP_CONFIGURATION_INVALID", "THESYSTEM_BOOTSTRAP_TIMEOUT must be finite and positive")
+        if not math.isfinite(timeout) or timeout <= 0:
+            self._record_bootstrap(role, {"status": "failed", "reason": "invalid_timeout"})
+            raise CodedError("BOOTSTRAP_CONFIGURATION_INVALID", "THESYSTEM_BOOTSTRAP_TIMEOUT must be finite and positive")
+
+        script_path = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=self.directory, prefix=f"{role}-bootstrap-", delete=False) as script:
+                script.write(content)
+                script_path = Path(script.name)
+            script_path.chmod(0o700)
+        except OSError as error:
+            if script_path is not None:
+                script_path.unlink(missing_ok=True)
+            self._record_bootstrap(role, {"status": "failed", "reason": "prepare_failed"})
+            raise CodedError("BOOTSTRAP_FAILED", f"{role} bootstrap could not be prepared ({type(error).__name__})")
+
+        try:
+            environment = os.environ.copy()
+            environment["THESYSTEM_BOOTSTRAP_ROLE"] = role
+            self._record_bootstrap(role, {"status": "running"})
+            try:
+                process = subprocess.Popen([str(script_path)], cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                           start_new_session=True)
+            except OSError as error:
+                self._record_bootstrap(role, {"status": "failed", "reason": "start_failed"})
+                raise CodedError("BOOTSTRAP_FAILED", f"{role} bootstrap could not start ({type(error).__name__})")
+            try:
+                process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.communicate()
+                self._record_bootstrap(role, {"status": "timed_out", "timeout_seconds": timeout})
+                self.log(f"{role} bootstrap timed out after {timeout:g}s")
+                raise CodedError("BOOTSTRAP_TIMEOUT", f"{role} bootstrap timed out after {timeout:g}s")
+
+            if process.returncode:
+                self._record_bootstrap(role, {"status": "failed", "exit_code": process.returncode})
+                self.log(f"{role} bootstrap failed with exit code {process.returncode}")
+                raise CodedError("BOOTSTRAP_FAILED", f"{role} bootstrap exited with code {process.returncode}")
+
+            current_head = git(cwd, "rev-parse", "HEAD")
+            current_branch = _current_branch(cwd, missing="detached HEAD")
+            if current_head != expected_head or current_branch != expected_branch:
+                self._record_bootstrap(role, {"status": "failed", "reason": "checkout_modified"})
+                self.log(f"{role} bootstrap changed the worktree checkout")
+                raise CodedError("BOOTSTRAP_FAILED", f"{role} bootstrap changed the worktree checkout")
+            tracked_changes = subprocess.run(["git", "diff", "--quiet", expected_head, "--"], cwd=cwd).returncode
+            if tracked_changes:
+                self._record_bootstrap(role, {"status": "failed", "reason": "tracked_files_modified"})
+                self.log(f"{role} bootstrap modified tracked files")
+                raise CodedError("BOOTSTRAP_FAILED", f"{role} bootstrap modified tracked files")
+            self._record_bootstrap(role, {"status": "succeeded", "exit_code": 0})
+            self.log(f"{role} bootstrap succeeded (exit code 0)")
+        finally:
+            if script_path is not None:
+                script_path.unlink(missing_ok=True)
+
+    def _record_bootstrap(self, role: str, result: dict) -> None:
+        bootstrap = self.record.get("bootstrap")
+        if not isinstance(bootstrap, dict):
+            bootstrap = {}
+        bootstrap[role] = result
+        self.save(bootstrap=bootstrap)
+
+    def _check_isolation(self, work: Path, branch_head: str, base: str, base_branch: str, clone_status: str) -> None:
         """Fail the run when the worker left its worktree: switched branch, committed, or touched the source clone.
 
         The clone may only have gained merges made by `merge` for other tasks while this one ran.
@@ -148,7 +299,7 @@ class Run:
         problems = []
         if _current_branch(work, missing="detached HEAD") != branch_name(self.task):
             problems.append(f"the worktree is no longer on {branch_name(self.task)}")
-        if git(work, "rev-parse", "HEAD") != base:
+        if git(work, "rev-parse", "HEAD") != branch_head:
             problems.append("the worker moved the worktree's HEAD (commit, reset or checkout)")
         clone = self.task.source_clone
         if _current_branch(clone, missing="detached HEAD") != base_branch:
