@@ -183,9 +183,9 @@ Meaning: improvements made in one workspace reach theSystem, and theSystem's imp
   - Up: the main agent offers a workspace improvement as a new theSystem default (a proposal).
   - Down: `umbrella update` brings a workspace to the latest release, keeping its local edits.
 Releases:
-  - Numbered GitHub Releases, `vMAJOR.MINOR.PATCH`. Installs and updates use the latest release, never unreleased work on `master`.
-  - PATCH for fixes and small skill or rule improvements, MINOR for new features or new skills, MAJOR for changes that break existing workspaces.
-  - When the owner asks for a release, the main agent proposes the number and the notes (written by GitHub from the merged pull requests, grouped by label). The owner confirms; the main agent publishes the tag and the GitHub Release.
+  - Numbered GitHub Releases, `vMAJOR.MINOR`. Installs and updates use the latest release, never unreleased work on `master`. Existing three-part tags remain unchanged.
+  - Increment MINOR for each release; increment MAJOR and reset MINOR to zero for breaking changes.
+  - An owner's request to push theSystem also authorizes a release, unless they explicitly exclude it. After checks, commit, push and publish without a second confirmation. Notes cover all changes since the prior release, including direct commits; planned functionality is not described as implemented. Verify publication and report its link; publication does not automatically update workspaces.
   - Our own development keeps pushing straight to `master`. Only proposals use pull requests.
 Baseline:
   - theSystem owns exactly the files seeded from the repo's `workspace/` (into the workspace root) and `agents/` (into the workspace `agents/`). Project folders, `.thesystem/` and Hermes memory are never included.

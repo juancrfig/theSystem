@@ -12,7 +12,7 @@ tell its own edits apart from outdated theSystem files.
 
 ## Decision
 
-1. Servers install and update only to numbered releases (`vMAJOR.MINOR.PATCH` tags), read from the server's one
+1. Servers install and update only to numbered releases (`vMAJOR.MINOR` tags; existing three-part tags remain valid), read from the server's one
    clone (`~/theSystem`) with `git archive`, so the clone's checkout is never touched. `install --dev` installs a
    working tree for development and tests.
 2. A workspace records its baseline in `.thesystem/baseline/`: the release tag and a copy of the files it shipped,

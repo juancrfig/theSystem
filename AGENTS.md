@@ -24,23 +24,18 @@ from workspaces (F10) use pull requests.
 
 ## Releases (F10)
 
-Servers install and update only to releases, so `master` can hold unfinished work. When the owner asks for a release:
+Servers install and update only to releases. For theSystem, an owner's request to push also authorizes publishing a release; do not ask for another confirmation. An explicit request to push without releasing overrides this default.
 
 1. Find the last release and what changed since: `gh release list --limit 1`, then the merged pull requests and
    commits since that tag (`git log --oneline <tag>..origin/master`).
-2. Propose the next number, `vMAJOR.MINOR.PATCH`:
-   - PATCH: fixes and small skill or rule improvements.
-   - MINOR: new features or new skills.
-   - MAJOR: changes that break existing workspaces.
-3. Show the owner the number and a preview of the notes. GitHub writes them from the merged pull requests, grouped
-   by label (`.github/release.yml`): `skills`, `rules`, `roles`, `wizard`, `orchestrator`, `fix`.
-4. Only after the owner confirms, publish from `master`:
+2. Use two-part versions, `vMAJOR.MINOR`. Increment MINOR for each release; increment MAJOR and reset MINOR to zero for breaking changes. Keep existing three-part tags unchanged.
+3. Write concise notes covering every change since the last release, including direct commits and approved planning records. Do not describe planned functionality as implemented.
+4. Run the repository checks, commit the requested changes, push `master`, and publish its exact verified commit:
 
    ```bash
-   gh release create vX.Y.Z --target master --title vX.Y.Z --generate-notes
+   gh release create vX.Y --target <verified-commit> --title vX.Y --notes-file <notes-file> --latest
    ```
 
-5. Tell the owner to run `<company> update` on each server (or ask its main agent to update theSystem).
+5. Verify the remote commit, release tag, and published release. Report the release link. Publication does not automatically install or update a workspace.
 
-Never publish a release without the owner's confirmation. Servers may already have updated to a tag: fix a bad
-release with a new one, never by moving its tag.
+Servers may already have updated to a tag: fix a bad release with a new one, never by moving its tag.
