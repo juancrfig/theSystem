@@ -11,6 +11,7 @@ import math
 import os
 import re
 import signal
+import stat
 import subprocess
 import tempfile
 import time
@@ -23,7 +24,7 @@ from thesystem.tasks import Task, find_all
 # Hermes treats an empty -t as "all toolsets"; an unknown name selects none, so a role without tools gets no tools.
 NO_TOOLS = "none"
 AGENT_TIMEOUT = int(os.environ.get("THESYSTEM_AGENT_TIMEOUT", "3600"))
-BOOTSTRAP_PATH = ".thesystem/bootstrap"
+BOOTSTRAP_DIRECTORY = "agents/bootstrap"
 VERDICT = re.compile(r"^\s*VERDICT:\s*(PASS|FAIL)\b", re.I | re.M)
 COMMITTER = ["-c", "user.name=theSystem", "-c", "user.email=thesystem@localhost"]
 
@@ -168,7 +169,8 @@ class Run:
                   toolsets={"worker": worker_context.toolsets, "reviewer": reviewer_context.toolsets})
         self.log(f"worker starting in {work}")
 
-        self._bootstrap("worker", work, base, branch_head, branch_name(task))
+        bootstrap = self._snapshot_bootstrap()
+        self._bootstrap("worker", work, bootstrap, branch_head, branch_name(task))
         worker = self._agent("worker", work, self._worker_prompt(worker_context), worker_context.toolsets)
         if worker["error"]:
             raise CodedError("WORKER_FAILED", worker["error"])
@@ -187,7 +189,7 @@ class Run:
         review_dir = self.workspace / ".thesystem" / "reviews" / self.id
         git(clone, "worktree", "add", "--detach", str(review_dir), commit)
         try:
-            self._bootstrap("reviewer", review_dir, base, commit, "detached HEAD")
+            self._bootstrap("reviewer", review_dir, bootstrap, commit, "detached HEAD")
             reviewer = self._agent("reviewer", review_dir, self._reviewer_prompt(reviewer_context, base),
                                    reviewer_context.toolsets)
         finally:
@@ -202,22 +204,57 @@ class Run:
         self.save(verdict=verdicts[-1].upper())
         return "pre-done" if verdicts[-1].upper() == "PASS" else "changes-requested"
 
-    def _bootstrap(self, role: str, cwd: Path, base: str, expected_head: str, expected_branch: str) -> None:
-        """Run only the executable bootstrap selected from the run's original base commit."""
-        clone = self.task.source_clone
-        entry = subprocess.run(["git", "ls-tree", base, "--", BOOTSTRAP_PATH], cwd=clone,
-                               capture_output=True, text=True, check=True).stdout.strip()
-        if not entry:
+    def _snapshot_bootstrap(self) -> dict | None:
+        """Capture project-level bootstrap bytes once, before either agent can run."""
+        source_clone = self.task.fields.get("source_clone")
+        if (not isinstance(source_clone, str) or not source_clone or source_clone in (".", "..")
+                or Path(source_clone).name != source_clone or "/" in source_clone or "\\" in source_clone
+                or "\0" in source_clone):
+            raise CodedError("BOOTSTRAP_CONFIGURATION_INVALID",
+                             "source_clone must be a single relative folder name for bootstrap lookup")
+
+        project = self.task.project.resolve()
+        bootstrap_root = (self.task.project / BOOTSTRAP_DIRECTORY).resolve()
+        if not bootstrap_root.is_relative_to(project):
+            raise CodedError("BOOTSTRAP_CONFIGURATION_INVALID", "project bootstrap directory escapes the project")
+        source = bootstrap_root / source_clone
+        resolved_source = source.resolve()
+        if not resolved_source.is_relative_to(bootstrap_root):
+            raise CodedError("BOOTSTRAP_CONFIGURATION_INVALID", "project bootstrap path escapes its directory")
+        if not source.exists() and not source.is_symlink():
+            self.save(bootstrap_snapshot={"status": "absent"})
+            return None
+        try:
+            metadata = resolved_source.stat()
+            if not stat.S_ISREG(metadata.st_mode):
+                raise CodedError("BOOTSTRAP_CONFIGURATION_INVALID", "project bootstrap must be a regular file")
+            content = resolved_source.read_bytes()
+            snapshot_path = self.directory / "bootstrap.snapshot"
+            snapshot_path.write_bytes(content)
+            snapshot_path.chmod(0o600)
+        except OSError as error:
+            raise CodedError("BOOTSTRAP_FAILED", f"project bootstrap could not be snapshotted ({type(error).__name__})")
+
+        snapshot = {
+            "content": content,
+            "executable": bool(metadata.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)),
+        }
+        self.save(bootstrap_snapshot={"status": "present", "source": f"{BOOTSTRAP_DIRECTORY}/{source_clone}",
+                                      "evidence": snapshot_path.name})
+        return snapshot
+
+    def _bootstrap(self, role: str, cwd: Path, snapshot: dict | None,
+                   expected_head: str, expected_branch: str) -> None:
+        """Run the immutable project bootstrap snapshot in the agent's worktree."""
+        if snapshot is None:
             self._record_bootstrap(role, {"status": "absent"})
             self.log(f"{role} bootstrap absent")
             return
 
-        mode = entry.split(maxsplit=1)[0]
-        if mode != "100755":
+        if not snapshot["executable"]:
             self._record_bootstrap(role, {"status": "failed", "reason": "not_executable"})
-            raise CodedError("BOOTSTRAP_FAILED", f"{role} bootstrap at {BOOTSTRAP_PATH} must be executable")
-        content = subprocess.run(["git", "show", f"{base}:{BOOTSTRAP_PATH}"], cwd=clone,
-                                 capture_output=True, check=True).stdout
+            raise CodedError("BOOTSTRAP_FAILED", f"{role} project bootstrap must be executable")
+        content = snapshot["content"]
         try:
             timeout = float(os.environ.get("THESYSTEM_BOOTSTRAP_TIMEOUT", "300"))
         except ValueError:

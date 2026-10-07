@@ -32,6 +32,9 @@ branch = subprocess.run(["git", "branch", "--show-current"], cwd=cwd, check=True
 print(json.dumps({"type": "system", "subtype": "init", "session_id": "fake",
                   "safe_root": os.environ.get("HERMES_WRITE_SAFE_ROOT"), "head": head, "branch": branch,
                   "toolsets": args[args.index("-t") + 1] if "-t" in args else None}))
+if profile == "worker" and os.environ.get("BOOTSTRAP_REPLACE_AFTER_WORKER"):
+    with open(os.environ["BOOTSTRAP_REPLACE_AFTER_WORKER"], "w") as out:
+        out.write("#!/bin/sh" + chr(10) + "exit 17" + chr(10))
 if prompt.startswith("You are the worker"):
     mode = os.environ.get("FAKE_WORKER", "edit")
     if mode == "crash":
@@ -86,7 +89,7 @@ class WorkspaceCase(unittest.TestCase):
         return path
 
     def install_bootstrap(self):
-        path = self.clone / ".thesystem" / "bootstrap"
+        path = self.project / "agents" / "bootstrap" / "backend"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("#!/usr/bin/env python3\n" + textwrap.dedent("""\
             import os, sys, time
@@ -101,8 +104,6 @@ class WorkspaceCase(unittest.TestCase):
                 time.sleep(float(os.environ.get("BOOTSTRAP_SLEEP_SECONDS", "30")))
             """))
         path.chmod(0o755)
-        git(self.clone, "add", ".thesystem/bootstrap")
-        git(self.clone, "commit", "-q", "-m", "add source-clone bootstrap")
         return path
 
     def command(self, *args):
@@ -295,7 +296,7 @@ class TaskFlowTests(WorkspaceCase):
 
 
 class EvidenceAndRolesTests(WorkspaceCase):
-    def test_absent_source_clone_bootstrap_preserves_worker_and_reviewer_run(self):
+    def test_absent_project_bootstrap_preserves_worker_and_reviewer_run(self):
         trace = self.ws / "bootstrap-trace"
         self.env["BOOTSTRAP_TRACE"] = str(trace)
         self.add_task("a", "status: ready\nsource_clone: backend")
@@ -310,9 +311,11 @@ class EvidenceAndRolesTests(WorkspaceCase):
                          {"worker": {"status": "absent"}, "reviewer": {"status": "absent"}})
 
     def test_successful_bootstrap_runs_in_each_worktree_before_its_agent(self):
-        self.install_bootstrap()
+        bootstrap_path = self.install_bootstrap()
+        original_bootstrap = bootstrap_path.read_bytes()
         trace = self.ws / "bootstrap-trace"
         self.env["BOOTSTRAP_TRACE"] = str(trace)
+        self.env["BOOTSTRAP_REPLACE_AFTER_WORKER"] = str(bootstrap_path)
         self.add_task("a", "status: ready\nsource_clone: backend")
 
         self.assertEqual(self.command("run")["status"], "ok")
@@ -326,6 +329,8 @@ class EvidenceAndRolesTests(WorkspaceCase):
         self.assertEqual(events[0][2], events[1][2])
         self.assertEqual(events[2][2], events[3][2])
         run = self.latest_run("a")
+        self.assertEqual((run / "bootstrap.snapshot").read_bytes(), original_bootstrap)
+        self.assertNotEqual(bootstrap_path.read_bytes(), original_bootstrap)
         self.assertEqual(json.loads((run / "run.json").read_text())["bootstrap"], {
             "worker": {"status": "succeeded", "exit_code": 0},
             "reviewer": {"status": "succeeded", "exit_code": 0},
