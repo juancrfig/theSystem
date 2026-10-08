@@ -103,6 +103,13 @@ class InstallTests(ReleaseCase):
         self.assertEqual(self.baseline_tag(), "v0.1.0")
         self.assertIn(f"THESYSTEM_CLONE='{self.clone}'", (self.home / ".local/bin/umbrella").read_text())
 
+    def test_two_part_release_after_three_part_tags_is_the_latest(self):
+        self.commit({"workspace/GLOSSARY.md": "# Glossary v0.2.0\n"}, "v0.2.0")
+        self.commit({"workspace/GLOSSARY.md": "# Glossary v0.3\n"}, "v0.3")
+        self.install()
+        self.assertEqual(self.baseline_tag(), "v0.3")
+        self.assertEqual(self.ws("GLOSSARY.md"), "# Glossary v0.3\n")
+
     def test_without_a_release_the_install_says_so(self):
         git(self.origin, "tag", "-d", "v0.1.0")
         result = subprocess.run(["bash", str(REPO / "install")], env=self.env, capture_output=True, text=True,
@@ -122,6 +129,17 @@ class UpdateTests(ReleaseCase):
         self.assertTrue(result["up_to_date"])
         self.assertEqual((result["from"], result["to"]), ("v0.1.0", "v0.1.0"))
         self.assertEqual(self.snapshot(), before)
+
+    def test_update_crosses_from_three_part_to_two_part_releases(self):
+        self.commit({"workspace/GLOSSARY.md": "# Glossary v0.2.0\n"}, "v0.2.0", "Notes for v0.2.0")
+        self.commit({"workspace/GLOSSARY.md": "# Glossary v0.3\n"}, "v0.3", "Notes for v0.3")
+        self.commit({"workspace/GLOSSARY.md": "# Glossary v0.4\n"}, "v0.4", "Notes for v0.4")
+        result = self.update()
+        self.assertEqual((result["from"], result["to"]), ("v0.1.0", "v0.4"))
+        self.assertEqual([note["tag"] for note in result["release_notes"]], ["v0.2.0", "v0.3", "v0.4"])
+        self.assertEqual(self.ws("GLOSSARY.md"), "# Glossary v0.4\n")
+        self.assertEqual(self.baseline_tag(), "v0.4")
+        self.assertTrue(self.update()["up_to_date"])
 
     def test_clean_update_reports_versions_notes_and_files(self):
         self.commit({"agents/rules/sample.md": SAMPLE.replace("two", "TWO"),
