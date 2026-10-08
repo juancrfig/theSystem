@@ -83,7 +83,7 @@ if (( ! dev )) && [[ -z "$release" ]]; then
     git clone --quiet "${THESYSTEM_REPO:-https://github.com/juancrfig/theSystem.git}" "$clone" \
       || fail "could not clone theSystem into $clone"
   fi
-  tag=$(git -C "$clone" tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+  tag=$(git -C "$clone" tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' | sort -V | tail -n 1 || true)
   [[ -n "$tag" ]] || fail "theSystem has no release yet; run install --dev from a clone to install its working tree"
   release_dir=$(mktemp -d)
   git -C "$clone" archive "$tag" | tar -x -C "$release_dir" || fail "could not read release $tag"

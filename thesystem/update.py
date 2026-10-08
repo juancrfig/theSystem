@@ -28,7 +28,8 @@ from thesystem.errors import CodedError
 
 # Workspace paths whose {{COMMAND}} becomes the company command. The propose-default skill reverses it.
 SUBSTITUTED = ("AGENTS.md",)
-RELEASE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+# Releases are vMAJOR.MINOR; the older vMAJOR.MINOR.PATCH tags stay valid and sort among them (v0.2.0 < v0.3).
+RELEASE_TAG = re.compile(r"^v(\d+)\.(\d+)(?:\.(\d+))?$")
 MARKER = re.compile(rb"^(<<<<<<<|>>>>>>>)( |$)", re.MULTILINE)
 
 Files = dict[str, tuple[bytes, int]]  # workspace path -> (content, mode)
@@ -224,7 +225,7 @@ def release_tags(clone: Path) -> list[str]:
 
 
 def _version(tag: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in RELEASE_TAG.match(tag).groups())
+    return tuple(int(part or 0) for part in RELEASE_TAG.match(tag).groups())
 
 
 def export(clone: Path, tag: str, directory: Path) -> None:
