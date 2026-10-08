@@ -17,7 +17,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from thesystem import roles
+from thesystem import roles, run_awareness
 from thesystem.errors import CodedError
 from thesystem.tasks import Task, find_all
 
@@ -114,7 +114,8 @@ class Run:
             self.directory = task.directory / "runs" / f"{self.id}-{suffix}"
         self.id = self.directory.name
         self.directory.mkdir(parents=True)
-        self.record = {"run": self.id, "task": task.id, "started_at": _now()}
+        self.record = {"run": self.id, "task": task.id, "started_at": _now(),
+                       "origin": run_awareness.task_origin(workspace, task.id), "stage": "worker"}
 
     def log(self, message: str) -> None:
         with open(self.directory / "orchestrator.log", "a", encoding="utf-8") as log:
@@ -122,7 +123,7 @@ class Run:
 
     def save(self, **fields) -> None:
         self.record.update(fields)
-        (self.directory / "run.json").write_text(json.dumps(self.record, indent=2) + "\n", encoding="utf-8")
+        run_awareness.atomic_json(self.directory / "run.json", self.record)
 
     def execute(self) -> str:
         """Run the task and return its new status."""
@@ -138,6 +139,10 @@ class Run:
             status = "failed"
         self.save(status=status, finished_at=_now())
         self.log(f"finished: {status}")
+        try:
+            run_awareness.publish_completion(self.workspace, self.record, self.directory)
+        except OSError:
+            self.log("completion event unavailable; monitor can recover from durable run metadata")
         return status
 
     def _execute(self) -> str:
@@ -382,6 +387,7 @@ class Run:
         prompt_file = self.directory / f"{name}-prompt.md"
         prompt_file.write_text(prompt, encoding="utf-8")
         transcript = self.directory / f"{name}.jsonl"
+        self.save(stage=name)
         command = ["hermes", "-p", name, "chat", "--query-file", str(prompt_file), "--in", str(cwd),
                    "--format", "stream-json", "--yolo", "--source", "tool", "-t", ",".join(toolsets) or NO_TOOLS]
         environment = {k: v for k, v in os.environ.items() if k != "TERMINAL_CWD"}

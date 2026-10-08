@@ -2,7 +2,7 @@
 
 Tracker: https://github.com/juancrfig/theSystem/issues/37
 
-Status: ticket, two-slice implementation plan, and named checks approved. Implementation is deferred to a new machine. This document authorizes planning only; do not dispatch, install, or publish a release as part of this handoff.
+Status: partial implementation paused at the human's request. Preserve the work in a local commit; do not continue development, dispatch work, push, or publish a release without a new request. The two-slice plan and named checks remain approved, but the integration is not complete.
 
 ## Problem Statement
 
@@ -69,6 +69,14 @@ Source inspection confirmed supported in-process plugin message injection. theSy
 1. **Live run visibility and discovery.** Deliver current-workspace worker/reviewer progress, agent discovery, retained finished cards with dismissal, and possibly-stale handling. Ship through installation and updates. No dependency.
 2. **Automatic completion delivery.** Depends on slice 1. Bind each launch to its main-agent conversation and profile; deliver terminal outcomes automatically, queue while busy, retain unavailable deliveries across restarts, and protect against duplicates. No automatic merge or retry.
 
-## New-machine handoff
+## Paused implementation handoff
 
-Read AGENTS.md and FEATURES.md F11 first. Resume from this approved spec; no executable task files or integration implementation were created in this handoff. Verify the new machine's supported Hermes plugin injection and widget APIs, resolve session-origin capture, and exercise the acknowledgment crash boundary before claiming reliable automatic delivery. Development stays in theSystem source. Commit/push of this planning record does not authorize a release or deployment.
+Read AGENTS.md and this spec before resuming. The partial implementation is in `thesystem/run_awareness.py`, the Hermes integration under `integrations/hermes/`, and installer/runner/CLI changes. It was built directly, not dispatched to the orchestrator.
+
+- The visibility panel was installed in the active main profile and rendered in a real Ink TUI. Widget checks pass for paging, retained results, dismissal and unchanged run evidence.
+- The last Python repository check passed. The latest two native-host delivery tests fail after tightening routing to the profile-bound TUI host. The permission guard uses `ctx.get_config("allow_gateway_injection")`, which reads the plugin's `settings`/legacy `config` subtree, not the entry-level authorization flag. Resolve that distinction through the supported API before claiming notifications work.
+- Earlier native-host tests exercised idle admission, busy queueing and processing acknowledgment with a stubbed provider. That is not proof of automatic delivery through a live model. The controlled end-to-end check remains outstanding.
+- The installed main-profile plugin/widget are a partial snapshot, not a completed deployment. The new orchestrator origin/event/stage changes have not been copied to the installed orchestrator. Existing originless runs may display but must not notify an arbitrary conversation.
+- Preserve notification state on reinstall and keep worker/reviewer profiles untouched. Do not promise exactly-once processing across the admission/acknowledgment crash window. No automatic merge or retry.
+
+Resumption requires repairing and rerunning native-host checks, completing the approved end-to-end check, and verifying the deployment boundary. This paused commit is not a release or completion claim.

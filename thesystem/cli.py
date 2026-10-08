@@ -12,7 +12,7 @@ import threading
 import time
 from pathlib import Path
 
-from thesystem import runner, tasks, update
+from thesystem import runner, tasks, update, run_awareness
 from thesystem.errors import CodedError
 
 MAX_PARALLEL = int(os.environ.get("THESYSTEM_MAX_PARALLEL", "2"))
@@ -53,6 +53,7 @@ def summary(workspace: Path) -> dict:
 
 
 def command_run(workspace: Path) -> dict:
+    run_awareness.capture_origin(workspace, [task.id for task in tasks.find_all(workspace) if task.status == "ready"])
     lock = dispatcher_lock(workspace)
     if lock is None:
         return {"status": "ok", "dispatcher": "already running", "tasks": summary(workspace)}
@@ -81,6 +82,10 @@ def _record_abandoned(task: tasks.Task) -> None:
             record.update(status="failed", error={"code": "ORCHESTRATOR_STOPPED",
                                                   "message": "the orchestrator stopped while this run was in progress"})
             runs[-1].write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+            try:
+                run_awareness.publish_completion(task.project.parent, record, runs[-1].parent)
+            except OSError:
+                pass  # Monitor can recover from durable run metadata.
 
 
 def dispatch(workspace: Path) -> None:

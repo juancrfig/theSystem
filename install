@@ -225,6 +225,7 @@ if (( hermes )); then
   #   edits. Auxiliary models are not touched; the human configures them.
   # Hermes reads the harness from the theSystem being installed, so every install brings its canonical version.
   config=(--trust "$workspace" --set terminal.cwd "$workspace")
+  config+=(--set plugins.entries.thesystem-runs.allow_gateway_injection true)
   if [[ -f "$harness/personalities/main.md" ]]; then
     config+=(--set personalities.main "$(cat "$harness/personalities/main.md")" --set personalities.casual ""
              --default display.personality main)
@@ -246,6 +247,10 @@ if (( hermes )); then
   if ! problem=$(PYTHONPATH="$share_dir" python3 -m thesystem.harness verify "$workspace" 2>&1); then
     fail "${problem#install: }"
   fi
+  # F11: install only in the resolved main profile; preserve durable delivery state.
+  PYTHONPATH="$share_dir" python3 -m thesystem.run_awareness install --source "$source_root" \
+    --home "$hermes_root" --workspace "$workspace" --company "$company"
+  hermes plugins enable thesystem-runs </dev/null >/dev/null
 fi
 if [[ -n "$profiles_pid" ]]; then
   step "Preparing the worker and reviewer profiles"
