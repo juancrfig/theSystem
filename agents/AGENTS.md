@@ -9,8 +9,7 @@ with the same name.
 worker:
   rules:
     - rules/comments-state-why-not-what.md   # relative to this agents/ folder
-  skills:
-    - skills/tdd
+
   tools:          # Hermes toolsets; none listed means no tools
     - terminal
     - file
@@ -18,4 +17,5 @@ worker:
 ```
 
 Every worker and reviewer also gets the `base` role, before the task's roles: put what every agent needs there.
+All agents follow `rules/shipping-and-human-approved-tests.md`. Automated test work requires explicit human approval; implementation does not require tests first.
 The reviewer of a task always receives the worker's rules as well as its own.

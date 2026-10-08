@@ -15,7 +15,7 @@ When exploring the codebase, read the project's `GLOSSARY-MAP.md` and follow the
 
 When you can delegate, give the exploration in Phases 1–4 to a sub-agent: paste the symptom, the full error and the loop command into its brief, tell it to report findings and change nothing, and cap the answer at 400 words. Otherwise do the work yourself.
 
-In an unattended run (no one answers questions), wherever this skill says ask or confirm with the user, stop and put the question in your handoff instead.
+Ship the requested fix. Automated test work requires explicit human approval under `../../rules/shipping-and-human-approved-tests.md`. Reproduce the observed problem through actual execution; do not create tests or block the fix on absent test approval.
 
 ## Redact
 
@@ -36,7 +36,7 @@ Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give
 
 ### Ways to construct one, in roughly this order
 
-1. **Failing test** at whatever seam reaches the bug: unit, integration, e2e.
+1. **Actual application or CLI execution** reproducing the reported symptom. Existing automated tests may be used only with explicit human approval.
 2. **Curl / HTTP script** against a running dev server.
 3. **CLI invocation** with a fixture input, diffing stdout against a known-good snapshot.
 4. **Headless browser script** (Playwright / Puppeteer) that drives the UI and asserts on DOM/console/network.
@@ -92,7 +92,7 @@ Confirm:
 
 Once it's red, shrink the repro to the **smallest scenario that still goes red**. Cut inputs, callers, config, data, and steps **one at a time**, re-running the loop after each cut, and keep only what's load-bearing for the failure.
 
-Why bother: a minimal repro shrinks the hypothesis space in Phase 3 (fewer moving parts left to suspect) and becomes the clean regression test in Phase 5.
+Why bother: a minimal reproduction narrows the investigation and lets you verify the actual fix without building a test suite.
 
 Done when **every remaining element is load-bearing**: removing any one of them makes the loop go green.
 
@@ -134,21 +134,9 @@ Tool preference:
 
 **Perf branch.** For performance regressions, logs are usually wrong. Instead: establish a baseline measurement (timing harness, `performance.now()`, profiler, query plan), then bisect. Measure first, fix second.
 
-## Phase 5: Fix + regression test
+## Phase 5: Implement the fix and verify actual behavior
 
-Write the regression test **before the fix**, but only if there is a **correct seam** for it. Load `tdd` for what makes the test worth keeping.
-
-A correct seam is one where the test exercises the **real bug pattern** as it occurs at the call site. If the only available seam is too shallow (single-caller test when the bug needs multiple callers, unit test that can't replicate the chain that triggered the bug), a regression test there gives false confidence.
-
-**If no correct seam exists, that itself is the finding.** Note it. The codebase architecture is preventing the bug from being locked down. Flag this for the next phase.
-
-If a correct seam exists:
-
-1. Turn the minimised repro into a failing test at that seam.
-2. Watch it fail.
-3. Apply the fix: **one change**, at the root cause. No "while I'm here" improvements, no bundled refactoring.
-4. Watch it pass, then run the whole suite.
-5. Re-run the Phase 1 feedback loop against the original (un-minimised) scenario.
+Apply the smallest fix at the root cause. Do not bundle unrelated refactoring. Re-run the original scenario through the actual application or CLI and inspect its result. Use relevant build/static checks. Add, modify, or run automated tests only when a human explicitly approves that work; no test-before-code ordering is required.
 
 ### When the fix doesn't work
 
@@ -161,8 +149,8 @@ Undo it. Don't add a second fix on top. Go back to Phase 3 with what the failure
 Required before declaring done:
 
 - [ ] Original repro no longer reproduces (re-run the Phase 1 loop)
-- [ ] Regression test passes (or absence of seam is documented)
-- [ ] The whole suite passes
+- [ ] Actual delivered behavior is verified; any execution limitation is stated
+- [ ] Automated test work stayed within explicit human authorization, if any
 - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
 - [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message, so the next debugger learns
@@ -175,5 +163,5 @@ Stop and go back to Phase 1 when you catch yourself thinking:
 - "It's probably X, let me fix that." / "I see the problem."
 - "I don't fully understand, but this might work."
 - "I'll change several things and run the tests."
-- "I'll skip the test and check it by hand."
+
 - "One more fix" after two have already failed.

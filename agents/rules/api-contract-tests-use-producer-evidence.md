@@ -4,9 +4,9 @@ known. Source checkout findings describe that checkout, not deployed behavior;
 ticket requirements describe intent, not runtime output. Without sufficient
 evidence, state an unverified hypothesis rather than a confirmed cause.
 
-A new or changed API request or response mapping must have an executable test
-that passes producer-derived evidence through the production serializer or
-deserializer and asserts the API-bound values. Preserve property names,
+Verify API mappings against producer evidence and actual scoped execution.
+Automated test work is prohibited without explicit human approval.
+For approved tests, use production serialization/deserialization. Preserve property names,
 nesting, and value types. Use synthetic values and retain a non-sensitive
 source reference plus a version or capture date. A fixture invented from
 consumer code, or a test that directly constructs the parsed model, does not
@@ -21,7 +21,6 @@ pass while real requests or responses fail.
 Enforce with: Before an API diagnostic conclusion, identify the evidence that
 supports that exact claim and its limits. Prefer existing captures and saved
 artifacts. If evidence cannot be obtained, ask human for assistance.
-For each changed mapping, review for producer-derived evidence and an
-assertion sensitive to that mapping. Run the test offline: the previous
-incorrect mapping must fail and the corrected mapping must pass. Without
-producer evidence, report API compatibility as unverified.
+Inspect producer evidence and actual API-bound values. Do not require a failing
+test before implementation. Run automated tests only within explicit human
+authorization. Without producer evidence, report API compatibility as unverified.

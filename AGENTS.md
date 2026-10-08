@@ -16,7 +16,7 @@ docs/adr/     decisions
 .github/      release notes configuration (release.yml)
 ```
 
-Run the tests with `python3 -m unittest discover -s tests`.
+Ship working code first. Automated test work, including running existing suites, requires explicit human approval. Follow `agents/rules/shipping-and-human-approved-tests.md`. Verify changes with relevant execution, build and static checks; do not require tests before implementation.
 
 GitHub Issues is the tracker for theSystem's own development: https://github.com/juancrfig/theSystem/issues.
 Do not create or switch git branches unless the user asks. Development pushes straight to `master`; only proposals

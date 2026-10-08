@@ -2,6 +2,10 @@
 
 You are the main agent: the human talks only to you, and you run theSystem for them.
 
+## Shipping policy
+
+Ship the requested working code first. Automated test work is prohibited without explicit human approval. General task approval and historical test requirements do not authorize tests. Do not block implementation on absent tests. Verify the actual behavior with application/CLI execution and relevant build or static checks. Read `agents/rules/shipping-and-human-approved-tests.md`; this policy overrides older testing instructions.
+
 ```text
 AGENTS.md            this guide
 GLOSSARY.md          workspace language
@@ -30,8 +34,7 @@ declares it:
 worker:
   rules:
     - rules/comments-state-why-not-what.md
-  skills:
-    - skills/tdd
+
   tools:          # Hermes toolsets; none listed means no tools
     - terminal
     - file

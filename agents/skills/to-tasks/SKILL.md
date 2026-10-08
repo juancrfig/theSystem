@@ -12,6 +12,8 @@ Split a ticket into **tasks**: tracer-bullet vertical slices that the orchestrat
 
 Tasks live in the ticket's folder. Read [Workspace ticket layout](references/ticket-layout.md) before creating or changing anything there.
 
+Ship working code first. Automated test work is prohibited without explicit human approval. Confirming a task split is not test authorization. When tests are not approved, proceed with implementation plus scoped execution/build/static verification; absent tests are not a readiness blocker. Follow `../../rules/shipping-and-human-approved-tests.md`.
+
 ## Process
 
 ### 1. Gather context
@@ -26,7 +28,7 @@ Look for prefactoring that makes the work easier: "make the change easy, then ma
 
 <vertical-slice-rules>
 
-- Each slice cuts a narrow but COMPLETE path through every layer (schema, API, UI, tests): vertical, NOT a horizontal slice of one layer
+- Each slice delivers a narrow but COMPLETE user-visible path through the required layers. Include automated tests only when explicitly human-approved.
 - A completed slice is demoable or verifiable on its own
 - Each slice is sized to fit in a single fresh context window
 - Any prefactoring comes first
@@ -52,7 +54,7 @@ Ask whether the granularity is right, whether each blocker genuinely gates its t
 
 ### 4. Write the tasks and start them
 
-Write one `<project>/tickets/<ticket>/tasks/<task-id>/task.md` per task. The task id (its folder name) is unique in the workspace. Before running the workspace command, obtain an independent read-only readiness review of the exact task body and evidence the worker will receive. The reviewer must not rely on this conversation or an unsupplied spec. Check requirement coverage, verified starting points, accessible contract evidence, approved test cases, and feasibility with the worker's permitted tools. Resolve every implementation-critical gap before dispatch; this review verifies preparation and is not a second human approval. Only then run the workspace command's `run` (its name is in the workspace `AGENTS.md`).
+Write one `<project>/tickets/<ticket>/tasks/<task-id>/task.md` per task. Task ids are unique in the workspace. Before dispatch, obtain a read-only readiness review of the supplied implementation decisions, accessible contract evidence, permitted tools and concrete outcome verification. Review the composed worker/reviewer instructions for conflicts. Test authorization is optional; its absence does not block implementation. Resolve implementation-critical gaps, then run the workspace command's `run`. This review is not a second human approval.
 
 ## Task file
 
@@ -79,10 +81,11 @@ For each task, supply:
 
 - **Verified starting point:** the inspected source revision and exact relevant files/symbols. Distinguish backend availability from consumer implementation. Identify what exists, what is missing, and what must be added or changed; support every consequential claim of existing functionality with evidence.
 - **Exact interfaces and evidence:** applicable tools, toolsets, CLIs with commands and working directories, and API method, endpoint, service, parameter names/types, headers, request/response structures, pagination, and error behavior. Include non-sensitive producer-derived examples and their source/version or capture scope. Never substitute invented fixtures or credentials. Supply this material in the task or as explicitly delivered, readable evidence; a reference to material the worker cannot access is not a handoff.
-- **Approved test cases:** exact named inputs, expected outcomes and observable assertions, their independent requirement/contract basis, the public test boundary, and execution commands/environment. Do not make the worker infer the test contract or authorize extra cases.
+- **Verification:** actual application/CLI behavior and relevant build/static commands. Include automated tests only with explicit human authorization and its exact scope; otherwise state that tests are not authorized or required.
 - **Dependencies and unknowns:** identify prerequisites and permitted access. Resolve implementation-critical unknowns before declaring the task ready. Do not disguise an unresolved lookup as an instruction to reuse something.
 
 Include only relevant material, but do not compress away details required to build correctly. Preparation is complete when the worker can implement and verify the task without assuming missing requirements or external contracts.
+
 
 <task-template>
 
@@ -95,9 +98,9 @@ Include only relevant material, but do not compress away details required to bui
 - [ ] Criterion 1
 - [ ] Criterion 2
 
-**Test seams:** where the tests go, as agreed in the spec.
+**Automated test authorization:** prohibited unless explicitly human-approved. General task approval and historical specifications do not authorize tests. Continue implementation without tests when no authorization exists.
 
-**Checks:** the exact commands to run before handing off (tests, lint, type check).
+**Verification commands:** actual application/CLI execution and relevant build/static checks. Include automated test commands only with explicit human approval.
 
 **Decisions and limits:** the spec decisions that bind this task, and what is out of scope for it.
 

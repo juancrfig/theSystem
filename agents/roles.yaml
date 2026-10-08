@@ -7,13 +7,14 @@ base:
     - file
     - delegation
   rules:
+    - rules/shipping-and-human-approved-tests.md
     - rules/api-contract-tests-use-producer-evidence.md
     - rules/comments-state-why-not-what.md
     - rules/install-reconciles-canonical-declarations.md
     - rules/overlays-escape-clipping-ancestors.md
     - rules/second-order-thinking-checks.md
   skills:
-    - skills/tdd
+
     - skills/systematic-debugging
 worker: {}
 reviewer:
