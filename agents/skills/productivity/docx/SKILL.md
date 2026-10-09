@@ -127,8 +127,6 @@ python scripts/docx_validate.py out.docx
    `scripts/docx_template.py` with a JSON object of values. Use
    `--strict` to fail when tokens remain unfilled; the JSON output lists
    `filled` counts and `unfilled_tokens` either way.
-7. **Verify** (always): re-read the output with `--text` or
-   `--structure`, and run `docx_validate.py` on anything you produced
    via revision/comment surgery.
 
 ## Converting to PDF
@@ -183,16 +181,3 @@ cannot render PDFs, and layout fidelity requires a real renderer.
   easily. Use `patch`/`write_file` only for the JSON inputs, never on the
   `.docx` itself.
 
-## Verification
-
-- After create/edit/template, run `docx_read.py out.docx --text` and
-  check the expected strings appear (and old strings are gone).
-- After accept/reject, `docx_revisions.py list` should return `[]` (or
-  only the ids you intentionally left); after comment surgery,
-  `docx_comments.py list` should reflect the change and `--text` output
-  must be unchanged.
-- `docx_validate.py out.docx` exits 0 with `"ok": true` on a healthy
-  package — run it after any revision/comment/field manipulation.
-- For templates run with `--strict`, or check `unfilled_tokens == []`.
-- Structure checks: `--structure` should show the expected heading
-  outline and table shapes; `--styles` confirms custom styles applied.

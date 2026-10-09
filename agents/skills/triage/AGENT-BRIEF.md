@@ -169,7 +169,6 @@ is untouched when the flag is absent.
 **Acceptance criteria:**
 - [ ] `triage list --json` emits valid JSON for both success and error cases
 - [ ] Exit codes match the non-JSON command
-- [ ] A test covers the `--json` success output and one error case
 - [ ] Default (non-JSON) output is byte-for-byte unchanged
 
 **Out of scope:**

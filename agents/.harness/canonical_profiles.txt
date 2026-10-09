@@ -1,4 +1,0 @@
-# Hermes profiles the installer creates when missing, empty (no config, keys or skills).
-# The orchestrator runs workers in `worker` and reviewers in `reviewer`. Their configuration comes later.
-worker
-reviewer

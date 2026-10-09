@@ -100,8 +100,3 @@ later via `session_search`.
 - **Cross-profile session links** (`@session:<profile>/<id>`) are read-only
   from another profile; management commands act on the current profile's DB.
 
-## Verification
-
-After a cleanup pass, re-run the discovery query and `hermes sessions list`
-to confirm the library reflects the plan (keepers present with new titles,
-archived ones gone from the default listing).

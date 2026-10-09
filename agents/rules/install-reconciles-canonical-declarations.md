@@ -6,6 +6,6 @@ Prevents: A new canonical setting, profile target, or skill source being silentl
 left unconfigured because the integration did not know it had been added.
 
 Enforce with: For each changed install, registry, or provisioning path, identify
-the canonical declaration. Verify that adding a valid fixture member changes the
-result without editing the integration. Reject duplicated enumerations of mutable
-canonical categories.
+the canonical declaration. Read the code and confirm it iterates that declaration,
+so a new member needs no edit to the integration. Reject duplicated enumerations
+of mutable canonical categories.

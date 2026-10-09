@@ -61,7 +61,7 @@ When you can delegate, run the Standards pass and the Spec pass as two parallel 
 
 For source-code changes, also run a security pass over the changed trust boundaries. Trace plausible paths from untrusted input to sensitive operations: secret handling, command or query construction, deserialization, path access and data egress. Report a concern only when the code and its context support a concrete risk; a suspicious-looking token alone is a lead to investigate, not a finding. Put each security finding on the Standards or Spec axis.
 
-Run the project's checks when the environment permits. When a check fails, find out whether the failure is new: run the same check on the fixed point in a separate worktree. Never stash or otherwise alter the reviewed tree. If you could not compare under the same conditions, mark the origin inconclusive.
+Review by reading only. Do not run tests, the application, builds, linters or other checks unless the human explicitly asked for them in the request or the task. Never stash or otherwise alter the reviewed tree.
 
 ## 4. Report
 
@@ -78,13 +78,9 @@ Run the project's checks when the environment permits. When a check fails, find 
 
 - `path`: what it asks. Not applied.
 
-## Validation
+## Fixed point
 
-- Fixed point: ...
-- Static: ...
-- Tests and runtime: ...
-- Browser or device: ...
-- Live provider: ...
+- ...
 ```
 
-Only hard findings and Spec findings block the change; judgement calls never block on their own. Do not merge or rerank the two axes. If an axis has no findings, say so and name the evidence you reviewed. Report checks that were skipped, unavailable or failing, with the command and its result. End with the finding count per axis and the worst finding within each axis.
+Only hard findings and Spec findings block the change; judgement calls never block on their own. Do not merge or rerank the two axes. If an axis has no findings, say so and name the evidence you reviewed. End with the finding count per axis and the worst finding within each axis.

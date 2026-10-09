@@ -5,7 +5,7 @@ A framework to reliably build high-quality software by leveraging AI agents
 Install theSystem on Ubuntu (asks for the workspace location and the company name, which becomes the command):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash
+curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/no-tests-main-orchestrator/install | bash
 ```
 
 What theSystem does is defined in [FEATURES.md](FEATURES.md).

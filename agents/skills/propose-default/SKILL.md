@@ -68,5 +68,5 @@ Pick one, so the release notes are grouped:
 - `rules`: a rule added or improved.
 - `roles`: `roles.yaml` changes.
 - `wizard`: the installer, the workspace guide, the glossary or the harness files.
-- `orchestrator`: the orchestrator and the company command.
+- `orchestrator`: task running (`run-tasks`) and the company command.
 - `fix`: something that was broken.

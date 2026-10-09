@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # theSystem installer (features F1 and F10 in FEATURES.md).
-#   curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/master/install | bash
-# Installs the latest theSystem release from the server's clone (~/theSystem, cloned when missing). The release is
+#   curl -fsSL https://raw.githubusercontent.com/juancrfig/theSystem/no-tests-main-orchestrator/install | bash
+# Installs the newest commit of the no-tests-main-orchestrator branch from the server's clone (~/theSystem, cloned when missing). The release is
 # read straight from git, so the clone's branch and working files are never touched.
-#   install --dev   installs the working tree this script is in instead (theSystem development and tests).
+#   install --dev   installs the working tree this script is in instead (theSystem development).
 # THESYSTEM_WORKSPACE and THESYSTEM_COMPANY answer the two prompts without asking. THESYSTEM_REPO and
 # THESYSTEM_CLONE choose where theSystem is cloned from and to.
 # --release <tag> and --update are internal: the release's own installer runs with them.
 set -euo pipefail
 
 # Progress: one line per step, with a spinner while it runs when the output is a terminal, so a slow step never
-# looks frozen. Without a terminal (tests, `update`) only the finished lines are printed.
+# looks frozen. Without a terminal (`update`) only the finished lines are printed.
 spin_pid="" spin_label="" release_dir=""
 if [[ "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" =~ [Uu][Tt][Ff]-?8 ]]; then
   frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) mark_ok="✓" mark_failed="✗"
@@ -65,14 +65,15 @@ while (( $# )); do
   shift
 done
 clone="${THESYSTEM_CLONE:-$HOME/theSystem}"
+channel=no-tests-main-orchestrator
 
 here=""
 if [[ -n "${BASH_SOURCE[0]:-}" && -f "$(dirname "${BASH_SOURCE[0]}")/thesystem/cli.py" ]]; then
   here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 fi
 
-# Bootstrap (also what the piped one-liner runs): make sure the clone exists, then hand over to the latest
-# release's own installer, so a server never gets unreleased work from master.
+# Bootstrap (also what the piped one-liner runs): make sure the clone exists, then hand over to the installer of
+# the newest commit on this channel's branch.
 if (( ! dev )) && [[ -z "$release" ]]; then
   printf 'theSystem installer\n'
   step "Getting the latest theSystem release"
@@ -83,10 +84,13 @@ if (( ! dev )) && [[ -z "$release" ]]; then
     git clone --quiet "${THESYSTEM_REPO:-https://github.com/juancrfig/theSystem.git}" "$clone" \
       || fail "could not clone theSystem into $clone"
   fi
-  tag=$(git -C "$clone" tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' | sort -V | tail -n 1 || true)
-  [[ -n "$tag" ]] || fail "theSystem has no release yet; run install --dev from a clone to install its working tree"
+  # This channel follows the newest commit of its branch; it has no numbered tags.
+  git -C "$clone" fetch --quiet origin "+refs/heads/$channel:refs/remotes/origin/$channel" \
+    || fail "could not fetch the $channel branch into $clone"
+  commit=$(git -C "$clone" rev-parse "refs/remotes/origin/$channel") || fail "no $channel branch in $clone"
+  tag="$channel@${commit:0:12}"
   release_dir=$(mktemp -d)
-  git -C "$clone" archive "$tag" | tar -x -C "$release_dir" || fail "could not read release $tag"
+  git -C "$clone" archive "$commit" | tar -x -C "$release_dir" || fail "could not read release $tag"
   spin_label="Got theSystem $tag"
   end_step
   status=0
@@ -152,64 +156,12 @@ fi
 
 # Hermes may select a named profile even when HERMES_HOME is unset. Ask Hermes rather than writing the
 # default profile while its CLI commands configure a different one.
-profiles_root="$hermes_root"
 if (( hermes )); then
   if ! config_path=$(hermes config path </dev/null); then
     fail "could not resolve the main Hermes profile"
   fi
   [[ "$config_path" == /*/config.yaml ]] || fail "Hermes returned an invalid config path: $config_path"
   hermes_root=$(dirname "$config_path")
-  profiles_root="$hermes_root"
-  if [[ "$(basename "$(dirname "$hermes_root")")" == profiles ]]; then
-    profiles_root=$(dirname "$(dirname "$hermes_root")")
-  fi
-fi
-
-# Worker and reviewer profiles (F4): created empty; their configuration comes later. They inherit the main
-# agent's credentials: the login store is shared (a link, so OAuth refreshes stay valid for every profile),
-# and API keys are copied on each install without messaging-channel credentials such as bot tokens.
-# Profiles live in their own folders, apart from the main agent's config, so this runs alongside the main
-# agent's configuration below: every Hermes command takes a second or more to start.
-#
-# A profile without a model runs on Hermes' built-in default model, which the shared login may not cover: the
-# first orchestrator run failed with HTTP 429 "Usage credits are required for this model". Hermes seeds a new
-# profile with the main model, but not when the main agent had none yet or with older Hermes. So a profile with
-# no model gets the main agent's model once; a model set in the profile afterwards is the human's and is kept.
-main_model=()
-copy_main_model() {
-  local profile=$1 key value
-  if (( ! ${#main_model[@]} )); then
-    for key in provider default base_url; do
-      value=$(hermes config get "model.$key" </dev/null 2>/dev/null) || value=""
-      [[ -n "$value" ]] && main_model+=("$key" "$value")
-    done
-    (( ${#main_model[@]} )) || main_model=(none "")
-  fi
-  set -- "${main_model[@]}"
-  while (( $# >= 2 )); do
-    [[ "$1" != none ]] && hermes -p "$profile" config set "model.$1" "$2" </dev/null >/dev/null 2>&1
-    shift 2
-  done
-  return 0
-}
-setup_profiles() {
-  while read -r profile; do
-    [[ -z "$profile" || "$profile" == \#* ]] && continue
-    profile_dir="$profiles_root/profiles/$profile"
-    # Hermes keeps each profile in its folder, so an existing one costs no Hermes start.
-    [[ -d "$profile_dir" ]] || hermes profile create "$profile" --no-alias --no-skills >/dev/null 2>&1 || true
-    [[ -d "$profile_dir" ]] || continue
-    if [[ -f "$hermes_root/auth.json" && ! "$profile_dir/auth.json" -ef "$hermes_root/auth.json" ]]; then
-      ln -sfn "$hermes_root/auth.json" "$profile_dir/auth.json"
-    fi
-    PYTHONPATH="$share_dir" python3 -m thesystem.harness keys "$hermes_root/.env" "$profile_dir/.env" || true
-    grep -qs '^model:' "$profile_dir/config.yaml" || copy_main_model "$profile"
-  done < "$harness/canonical_profiles.txt"
-}
-profiles_pid=""
-if (( hermes )) && [[ -f "$harness/canonical_profiles.txt" ]]; then
-  setup_profiles >/dev/null 2>&1 &
-  profiles_pid=$!
 fi
 
 if (( hermes )); then
@@ -225,7 +177,6 @@ if (( hermes )); then
   #   edits. Auxiliary models are not touched; the human configures them.
   # Hermes reads the harness from the theSystem being installed, so every install brings its canonical version.
   config=(--trust "$workspace" --set terminal.cwd "$workspace")
-  config+=(--set plugins.entries.thesystem-runs.allow_gateway_injection true)
   if [[ -f "$harness/personalities/main.md" ]]; then
     config+=(--set personalities.main "$(cat "$harness/personalities/main.md")" --set personalities.casual ""
              --default display.personality main)
@@ -247,14 +198,6 @@ if (( hermes )); then
   if ! problem=$(PYTHONPATH="$share_dir" python3 -m thesystem.harness verify "$workspace" 2>&1); then
     fail "${problem#install: }"
   fi
-  # F11: install only in the resolved main profile; preserve durable delivery state.
-  PYTHONPATH="$share_dir" python3 -m thesystem.run_awareness install --source "$source_root" \
-    --home "$hermes_root" --workspace "$workspace" --company "$company"
-  hermes plugins enable thesystem-runs </dev/null >/dev/null
-fi
-if [[ -n "$profiles_pid" ]]; then
-  step "Preparing the worker and reviewer profiles"
-  wait "$profiles_pid" || fail "could not prepare the worker and reviewer profiles"
 fi
 
 # Artifact library (F9): an always-on user service serving the workspace's HTML artifacts on localhost.

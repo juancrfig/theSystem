@@ -14,11 +14,10 @@ Write the spec to `<project>/tickets/<ticket>/spec.md`. Writing it does not auth
 
    Read [Workspace ticket layout](../to-tasks/references/ticket-layout.md) before creating or changing ticket files.
 
-2. Identify the smallest working outcome and how actual application/CLI execution will demonstrate it. Do not expand the spec with hypothetical test cases. Automated test work is prohibited without explicit human approval.
+2. Write the spec using the template below. Include no test plan and no verification steps: tests come only at the
+   end of the ticket, with the human's explicit approval.
 
-3. Write the spec using the template below.
-
-4. Load `to-tasks` and continue straight into proposing the task split. Show the spec's link with the split, so the human reviews both at once. If they correct the spec, update it and redo the split.
+3. Load `to-tasks` and continue straight into proposing the task split. Show the spec's link with the split, so the human reviews both at once. If they correct the spec, update it and redo the split.
 
 <spec-template>
 
@@ -57,10 +56,6 @@ A list of implementation decisions that were made. This can include:
 Do NOT include specific file paths or code snippets. They may end up being outdated very quickly.
 
 Exception: if a prototype produced a snippet that encodes a decision more precisely than prose can (state machine, reducer, schema, type shape), inline it within the relevant decision and note briefly that it came from a prototype. Trim to the decision-rich parts, not a working demo, just the important bits.
-
-## Delivery Verification
-
-Describe the actual user-visible outcome, scoped execution, and relevant build/static checks. Record explicit human test authorization only if given; otherwise state that automated test work is not authorized. General approval of this spec does not authorize tests.
 
 ## Out of Scope
 

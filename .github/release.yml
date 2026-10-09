@@ -9,8 +9,6 @@ changelog:
       labels: [roles]
     - title: Wizard
       labels: [wizard]
-    - title: Orchestrator
-      labels: [orchestrator]
     - title: Fixes
       labels: [fix]
     - title: Other changes

@@ -184,15 +184,3 @@ LibreOffice or hand the file to the user unconverted.
   strings.
 - Sheet names are capped at 31 chars and reject `[ ] : * ? / \`.
 
-## Verification
-
-- After creating: `xlsx_read.py out.xlsx --sheets` and confirm sheet
-  names, dimensions, merged ranges, and chart counts match intent.
-- Dump data with `--json` and compare against the source values.
-- After edits: re-dump the touched range; if formulas were written,
-  confirm `--formulas` lists them and that `--recalc` was applied.
-- After `xlsx_restructure.py`: read its JSON report, then re-run
-  `--formulas` and `--sheets` to confirm references and ranges landed
-  where expected.
-- For a full visual check, open in LibreOffice:
-  `soffice --headless --convert-to pdf out.xlsx` and inspect the PDF.

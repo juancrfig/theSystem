@@ -10,7 +10,7 @@ Produce `MANUAL.md`: the practical guide to using a product. When the scope has 
 
 ## Establish the contract
 
-1. Read the existing manual, glossary, user instructions, design decisions, relevant entry points, and tests. Preserve approved requirements. Treat implementation as evidence of availability, not authority to redefine intent.
+1. Read the existing manual, glossary, user instructions, design decisions, relevant entry points. Preserve approved requirements. Treat implementation as evidence of availability, not authority to redefine intent.
 2. Separate implemented, experimental, and designed-only capabilities. Name unresolved contradictions; never quietly choose between them. A first draft awaits human review even if its commands are implemented.
 3. Organize around user goals. For each workflow include prerequisites, the action, expected outcome, and consequential failures. Keep implementation detail only when the user needs it to operate safely.
 4. Keep the human in charge: agents propose contract changes; humans approve them. Do not mark a draft approved merely because publication was requested.
@@ -32,9 +32,7 @@ The manual is the authority for agreed external behavior, not a second code list
 
 When changing an existing manual, compare old and new sections for lost obligations. Preserve availability distinctions and open decisions. Update the `AGENTS.md` pointer if missing. Include local visual assets in publication; check whether the distribution delivers the manual and disclose any gap rather than assuming it does.
 
-## Verify and deliver
+## Deliver
 
-1. Validate local links, heading anchors, fences, and shell syntax. Exercise safe commands against isolated state; syntax checks alone do not prove functionality. Never execute a live installation just to check a snippet.
-2. Inspect the rendered document in its intended surface, including image legibility, tables, alerts, and command copy controls. Verify copied text when clipboard access is available. A local render is not proof of GitHub rendering. State any untested interaction.
-3. Pilot the skill against the actual manual with a separate reviewer. Permit an insufficient-evidence verdict. Fix omissions in the skill or manual before acceptance.
+3. Pilot the skill against the actual manual with a separate reviewer when a human explicitly requests review. Permit an insufficient-evidence verdict. Fix omissions in the skill or manual before acceptance.
 4. Commit or publish only when requested. After pushing, read back the exact remote revision and inspect the published document. Report only checks actually performed; publishing is not human approval of the contract.

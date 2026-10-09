@@ -151,14 +151,7 @@ requests again. Do not reuse results if the payload, criterion version, or
 effective model identity changed. Retain previous results only when all four
 dimensions match.
 
-## Verification
-
-Run the isolated tests before declaring the delivery verified:
-
-```sh
-"${HERMES_MEMORY_REVIEW_PYTHON:-.agents/memory-review/bin/python}" \
-  agents/skills/memory-request-review/tests/test_review_memory_requests.py
-```
+Only perform output inspection when a human explicitly asks for it.
 
 A real Jev test requires at least one approved criterion, an eligible request,
 and `SYSTEM_ONE_API` in the environment or the ignored checkout-root `.env`

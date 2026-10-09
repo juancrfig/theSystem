@@ -150,7 +150,7 @@ so they inherit the master's fonts and colors. Tip: to start from a
 template with zero slides, delete existing ones afterward with
 `pptx_edit.py --remove-slide`.
 
-### 5. Visual verification
+### 5. Visual review (only when the human asks)
 
 `pptx_render.py deck.pptx --outdir ./render` converts the deck to PDF
 with `soffice --headless` and splits it into one PNG per slide with
@@ -169,7 +169,7 @@ soffice --headless --convert-to pdf --outdir ./out deck.pptx
 ```
 
 The output lands at `./out/deck.pdf`. Fonts not installed on the host are
-substituted, so render-verify (Procedure step 5) before shipping the PDF.
+substituted; mention this when you hand over the PDF.
 There is no offline pure-Python .pptx→PDF path; if `soffice` is absent,
 say so rather than approximating.
 
@@ -211,6 +211,7 @@ say so rather than approximating.
 
 ## Verification
 
+Only perform this review when a human explicitly asks for it.
 1. After any create/edit, run `pptx_read.py OUT.pptx --outline` and check
    slide count, texts, tables, notes, and chart values match intent.
 2. `--images DIR` then file-size check confirms pictures embedded.
@@ -218,5 +219,3 @@ say so rather than approximating.
    and review each PNG with `vision_analyze` — this catches overlapping
    shapes, truncated text, and color problems the outline cannot. If the
    render tools are missing, the script says so; rely on the outline.
-4. The bundled test suite is the full contract:
-   `python -m pytest tests/ -q` (requires python-pptx + pytest).

@@ -1,10 +1,13 @@
 # Workspace guide
 
-You are the main agent: the human talks only to you, and you run theSystem for them.
+You are the main agent: the human talks only to you, and you run theSystem for them. You are also the
+orchestrator: you run each approved task by delegating it to subagents.
 
-## Shipping policy
+## Tests and verification
 
-Ship the requested working code first. Automated test work is prohibited without explicit human approval. General task approval and historical test requirements do not authorize tests. Do not block implementation on absent tests. Verify the actual behavior with application/CLI execution and relevant build or static checks. Read `agents/rules/shipping-and-human-approved-tests.md`; this policy overrides older testing instructions.
+Tests are a scarce good. They are created only at the end of development, and only with the human's explicit
+approval. Verification follows the same principle: agents do not run the application, builds, linters or checks to
+confirm their work unless the human explicitly asks. Read `agents/rules/tests-and-verification-need-human-approval.md`.
 
 ```text
 AGENTS.md            this guide
@@ -27,32 +30,31 @@ Create `tickets/`, `agents/` and `wiki/` only when they are first needed.
 ## Roles
 
 Global roles are in `agents/roles.yaml`; project roles in `<project>/agents/roles.yaml`. A project role replaces a
-global role with the same name. Every worker and reviewer also gets the `base` role, before the task's roles. Edit these files directly. Paths in a role are relative to the `agents/` folder that
-declares it:
+global role with the same name. Every worker and reviewer also gets the `base` role, before the task's roles. Edit
+these files directly. Paths in a role are relative to the `agents/` folder that declares it:
 
 ```yaml
 worker:
   rules:
     - rules/comments-state-why-not-what.md
-
-  tools:          # Hermes toolsets; none listed means no tools
-    - terminal
-    - file
-    - web
+  skills:
+    - skills/systematic-debugging
 ```
+
+Subagents always get your tools, so roles carry rules and skills only.
 
 ## Tasks
 
 1. Talk the work through with the human (`grill-me`), write the spec (`to-spec`), then split it (`to-tasks`).
 2. The human confirming the split is the only approval. Every task `to-tasks` writes is approved.
-3. `to-tasks` finishes by running `{{COMMAND}} run`. From there the orchestrator works alone: it runs ready tasks
-   (in parallel when several are ready), each with a worker and then a reviewer, in its own git worktree.
+3. `to-tasks` finishes by loading `run-tasks`. You then run the ready tasks yourself, in parallel when several are
+   ready: for each one a worker subagent in the task's own git worktree, then a reviewer subagent.
 
-Task front matter, read by the orchestrator:
+Task front matter:
 
 ```yaml
 ---
-status: ready            # the orchestrator keeps this up to date
+status: ready            # you keep this up to date
 source_clone: backend    # folder inside the project
 roles: [worker]          # the worker's roles
 blockers:
@@ -61,21 +63,21 @@ blockers:
 ---
 ```
 
-Status: `blocked`, `ready`, `running`, `changes-requested` (reviewer said no), `failed` (theSystem broke),
+Status: `blocked`, `ready`, `running`, `changes-requested` (reviewer said no twice), `failed` (a run broke),
 `pre-done` (reviewer approved; waiting for the human), `done` (merged). Task ids (folder names) are unique in the
-workspace. The reviewer always uses the `base` and `reviewer` roles (override them in `<project>/agents/roles.yaml`) plus the
-worker's rules.
+workspace. The reviewer always uses the `base` and `reviewer` roles (override them in `<project>/agents/roles.yaml`)
+plus the worker's rules.
 
 ## Reviewing results with the human
 
-- `pre-done`: show the task and its review. When the human says merge, run `{{COMMAND}} merge <task>`.
+- `pre-done`: show the task and its review. When the human says merge, merge it (`run-tasks`).
 - `changes-requested`, `failed`, or a rejected `pre-done`: work out why with the human. Read the run evidence lazily,
-  starting with `review.md` and going deeper only while the cause is unknown. The human then improves the roles;
-  run `{{COMMAND}} retry <task>`.
+  starting with `review.md`. The human then improves the roles; run the task again (`run-tasks`).
+- When every task of a ticket is `done`, propose a short list of candidate tests to the human. Write only the tests
+  the human approves, as one more task of the ticket. No approval means no tests.
 
-Run evidence is in `<task>/runs/<run-id>/`: `run.json`, `review.md`, `worker.diff`, `worker.jsonl` and
-`reviewer.jsonl` (full transcripts), `*-prompt.md`, `*-context/` (the exact rules and skills each agent had), and
-`orchestrator.log`.
+Run evidence is in `<task>/runs/<run-id>/`: `run.json`, `worker.diff`, `worker.md` (the worker's summary) and
+`review.md`.
 
 ## Knowledge and memory
 

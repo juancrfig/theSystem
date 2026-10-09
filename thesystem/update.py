@@ -29,6 +29,8 @@ from thesystem.errors import CodedError
 # Workspace paths whose {{COMMAND}} becomes the company command. The propose-default skill reverses it.
 SUBSTITUTED = ("AGENTS.md",)
 # Releases are vMAJOR.MINOR; the older vMAJOR.MINOR.PATCH tags stay valid and sort among them (v0.2.0 < v0.3).
+# Branch channel: workspaces installed from this branch follow its newest commit instead of master's tags.
+CHANNEL = "no-tests-main-orchestrator"
 RELEASE_TAG = re.compile(r"^v(\d+)\.(\d+)(?:\.(\d+))?$")
 MARKER = re.compile(rb"^(<<<<<<<|>>>>>>>)( |$)", re.MULTILINE)
 
@@ -238,7 +240,29 @@ def export(clone: Path, tag: str, directory: Path) -> None:
                                           f"{(archive.stderr.read().decode() or unpack.stderr.decode()).strip()}")
 
 
+def latest_release(clone: Path) -> tuple[str, str]:
+    """The newest release of this channel as (release name, git revision to export).
+
+    The `no-tests-main-orchestrator` channel has no tags: its release is the last commit of its branch on origin,
+    named `<channel>@<short commit>`. Other channels keep the numbered tags.
+    """
+    if CHANNEL:
+        git(clone, "fetch", "--quiet", "origin", f"+refs/heads/{CHANNEL}:refs/remotes/origin/{CHANNEL}")
+        commit = git(clone, "rev-parse", f"refs/remotes/origin/{CHANNEL}").strip()
+        return f"{CHANNEL}@{commit[:12]}", commit
+    git(clone, "fetch", "--quiet", "--tags", "--force", "origin")
+    tags = release_tags(clone)
+    if not tags:
+        raise CodedError("NO_RELEASE", "theSystem has no release yet")
+    return tags[-1], tags[-1]
+
+
 def release_notes(clone: Path, from_tag: str | None, to_tag: str) -> list[dict]:
+    if CHANNEL and to_tag.startswith(f"{CHANNEL}@"):
+        start = from_tag.split("@", 1)[1] if from_tag and from_tag.startswith(f"{CHANNEL}@") else None
+        span = f"{start}..{to_tag.split('@', 1)[1]}" if start else to_tag.split("@", 1)[1]
+        log = git(clone, "log", "--format=%h %s", *([span] if start else ["-n", "20", span])).strip()
+        return [{"tag": to_tag, "notes": log}]
     tags = release_tags(clone)
     if from_tag and RELEASE_TAG.match(from_tag):
         between = [tag for tag in tags if _version(from_tag) < _version(tag) <= _version(to_tag)]

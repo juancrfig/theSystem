@@ -13,7 +13,10 @@ metadata:
 
 Source: https://github.com/juancrfig/hermes-agent/tree/13c238327eebfff862d9ed60593751e419989785/skills (vendored snapshot)
 
-# Dogfood: Systematic Web Application QA Testing
+## Operating rule
+
+Use this skill only when a human explicitly asks for exploratory QA.
+
 
 ## Overview
 
