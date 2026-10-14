@@ -18,6 +18,18 @@ runs unless the task quotes the human's explicit approval. Gates are the excepti
 with no `gate.json` stops at step 2: tell the human, and propose the gate as the project's first task. Exception: the
 task whose job is to create the gate.
 
+For each correction, classify affected behavior and risk rather than counting changed lines. Use the smallest scope
+that covers the impact; expand it when impact or shared behavior is uncertain. A scoped correction still receives
+independent review, the project gate/build, and applicable visual acceptance. Scope affects what needs correction,
+not which acceptance gates apply.
+
+Reuse worker execution evidence or an existing setup/environment handle when available. The reviewer independently
+checks whether evidence matches the source revision, affected scope, dependencies, tool/version and data/environment
+identity, then judges acceptance; independent review does not require repeating valid evidence. Re-run only evidence
+that is missing, failed, stale, mismatched or otherwise invalidated, and note its identity and the reason for a rerun
+in the run record. Unknown impact or evidence identity means reuse is not yet established. Do not assume a cache or
+tooling exists; use only evidence and handles actually available for the task.
+
 ## 1. Find the ready tasks
 
 1. Read the front matter of every `*/tickets/*/tasks/*/task.md` in the workspace. A missing `status` means `ready`.
@@ -123,13 +135,10 @@ Save the answer as `review.md` and the verdict in `run.json`. No verdict line: t
 - A broken run (delegation error, isolation broken, no change, no verdict): the task becomes `failed`. Record
   `{"code", "message"}` under `error` in `run.json` and bring it to the human.
 
-Every `FAIL`, `failed` run, or reviewer finding that the worker should not have produced comes with a follow-up
-proposal: the change to a rule, role, skill or the handoff checklist that would have prevented it. Show the proposal
-to the human with the report; write it only after approval. Why: each problem should make the system better, not only
-be reported.
-
-Finish each run: set `status` and `finished_at` in `run.json`. Report outcomes only: which tasks are `pre-done`, and
-which need the human, with the reason.
+Finish each run: set `status` and `finished_at` in `run.json`. Record execution phases and waiting periods, including
+repeats and their reasons. Send updates for meaningful outcomes, blockers or decisions; omit no-change updates. Start
+ready independent corrections without batching unless a concrete dependency or benefit justifies waiting. Report
+outcomes only: which tasks are `pre-done`, and which need the human, with the reason.
 
 ## Merge (the human said merge)
 

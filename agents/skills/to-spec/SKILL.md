@@ -14,7 +14,12 @@ Write the spec to `<project>/tickets/<ticket>/spec.md`. Writing it does not auth
 
    Read [Workspace ticket layout](../to-tasks/references/ticket-layout.md) before creating or changing ticket files.
 
-2. Write the spec using the template below. Include no test plan and no verification steps: tests come only at the
+2. Reconcile binding decisions before dispatch: replace superseded decisions in place, then align scenarios and
+   screen inventory with the current decisions. Apply approved steering to binding acceptance in place rather than
+   leaving conflicting instructions for workers to resolve. Keep superseded wording only when explicitly marked
+   historical and non-binding.
+
+   Write the spec using the template below. Include no test plan and no verification steps: tests come only at the
    end of the ticket, with the human's explicit approval. Scenarios are not a test plan: they state observable
    behaviour, not how to check it.
 

@@ -94,11 +94,16 @@ blockers:
 Optional fields: `branch` (default `thesystem/<task-id>`) and `commit_message` (default `<task-id>: worker run
 <run-id>`).
 
-The worker and the reviewer receive only the body below the front matter: not the spec, not this conversation. Every task is **self-contained**: copy in everything the human agreed that bears on it.
+The worker and reviewer receive only the body below the front matter: not the spec, not this conversation. Every task
+is **self-contained** in its scoped binding context and acceptance criteria, with pointers to full contracts for related
+decisions. A pointer never replaces the task's acceptance criteria. Keep applicable decisions, limits, scenarios and
+screen inventory consistent; apply approved steering to binding acceptance before dispatch.
 
 ### Main-agent ownership of the implementation handoff
 
 The main agent and human resolve requirements and implementation-critical facts during preparation. The worker implements the supplied decisions; it does not rediscover the intended API, choose product semantics, or fill missing contracts with assumptions. An unstated decision needed to implement approved behavior is a handoff defect. A worker that stops rather than inventing that decision is enforcing the boundary correctly.
+
+Specify by risk. Fully specify boundary-crossing contracts, permissions, security, data integrity and product semantics. For a low-risk change extending existing code, give the starting files/symbols, scoped binding acceptance and relevant rules to preserve, and let the worker inspect implementation details in code. Expand the handoff when impact is unknown or shared behavior may be affected; lighter context must not make an implementation-critical decision ambiguous.
 
 For each task, supply:
 
