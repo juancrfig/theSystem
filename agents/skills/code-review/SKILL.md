@@ -61,6 +61,8 @@ When you can delegate, run the Standards pass and the Spec pass as two parallel 
 
 For source-code changes, also run a security pass over the changed trust boundaries. Trace plausible paths from untrusted input to sensitive operations: secret handling, command or query construction, deserialization, path access and data egress. Report a concern only when the code and its context support a concrete risk; a suspicious-looking token alone is a lead to investigate, not a finding. Put each security finding on the Standards or Spec axis.
 
+For new or modified user-facing components, flows, or translation resources, apply [Review visible-text translations](../../rules/review-visible-text-translations.md) as a Standards rule, even when omitted from the brief; pass it in the Standards delegate's brief so coverage and key reuse are evaluated independently. Unrelated reviews do not evaluate translation coverage or key reuse and do not block on unrelated inherited localization debt.
+
 Review by reading only. Do not run tests, the application, builds, linters or other checks unless the human explicitly asked for them in the request or the task. Never stash or otherwise alter the reviewed tree.
 
 ## 4. Report
@@ -69,6 +71,16 @@ Review by reading only. Do not run tests, the application, builds, linters or ot
 ## Standards
 
 - [hard | judgement] `path:line`: finding; rule file or smell; impact; fix.
+
+### Translation Review (when applicable)
+- Locales & Flow: `<discovered locales>` | `<flow>`
+- Coverage: [PASS | FAIL (hard findings)]
+- Key Reuse: [PASS | FAIL (hard findings)]
+
+| Candidate Key / Consumer | Existing Candidate Alternatives | Status | Locale Evidence and Reason |
+|---|---|---|---|
+
+Status is one of: `reuse`, `new justified`, `duplicate`, `unresolved`.
 
 ## Spec
 
@@ -83,4 +95,4 @@ Review by reading only. Do not run tests, the application, builds, linters or ot
 - ...
 ```
 
-Only hard findings and Spec findings block the change; judgement calls never block on their own. Do not merge or rerank the two axes. If an axis has no findings, say so and name the evidence you reviewed. End with the finding count per axis and the worst finding within each axis.
+Only hard findings and Spec findings block the change; judgement calls never block on their own. Do not merge or rerank the two axes. If an axis has no findings, say so and name the evidence you reviewed. When translation review applies, report coverage and key reuse independently with their evidence; unrelated reviews do not require a translation table or block on unrelated inherited debt. End with the finding count per axis and the worst finding within each axis.

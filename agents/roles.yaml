@@ -16,6 +16,8 @@ base:
     - skills/systematic-debugging
 worker: {}
 reviewer:
+  rules:
+    - rules/review-visible-text-translations.md
   skills:
     - skills/code-review
 frontend:
