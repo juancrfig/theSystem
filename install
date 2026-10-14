@@ -209,7 +209,7 @@ if (( hermes )); then
   fi
   # - Telegram: the owner's DM (TELEGRAM_HOME_CHANNEL) gets the instant-messaging communication style as a channel
   #   prompt. Hermes injects it only for messages from that chat, on top of the `main` personality.
-  home_chat=$(grep -s -E '^TELEGRAM_HOME_CHANNEL=-?[0-9]+$' "$hermes_root/.env" | tail -n 1 | cut -d= -f2)
+  home_chat=$(grep -s -E '^TELEGRAM_HOME_CHANNEL=-?[0-9]+$' "$hermes_root/.env" | tail -n 1 | cut -d= -f2 || true)
   if [[ -n "$home_chat" && -f "$personalities/telegram.md" ]]; then
     config+=(--set "telegram.channel_prompts.$home_chat" "$(tail -n +3 "$personalities/telegram.md")")
   fi
